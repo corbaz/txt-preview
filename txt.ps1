@@ -3246,6 +3246,9 @@ $form.Add_FormClosed({
 
 $form.Add_Shown({
     $form.WindowState = [Windows.Forms.FormWindowState]::Maximized
+    # Visible is only reliable after Shown; center the rows using the final window width.
+    $form.PerformLayout()
+    Update-ToolbarLayout
     Set-WindowChrome $form ([bool]$btnTheme.Tag)
 })
 $busyForm.Add_Shown({

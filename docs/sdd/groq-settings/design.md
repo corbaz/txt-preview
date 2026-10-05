@@ -13,3 +13,5 @@ El botón **Adjuntar archivos** pertenece a la fila principal de acciones, despu
 El Editor reserva una franja superior llamada **Contexto IA**. Allí se muestra **Usar web** únicamente para modelos compatibles, se enumeran con el texto “Se enviarán a Groq” todos los adjuntos activos y se permite quitarlos. Configuración queda limitada a credenciales, actualización del catálogo e información de modelos.
 
 La validación de entrada considera dos fuentes equivalentes de contexto: el texto del Editor y los adjuntos activos. Las acciones de IA continúan si cualquiera de las dos contiene información y solo se bloquean cuando ambas están vacías.
+
+El layout de la botonera inferior conserva las coordenadas relativas de cada fila y calcula un desplazamiento común para centrarla. El cálculo final se repite en el evento `Shown`, cuando WinForms ya informa la visibilidad y el ancho efectivos de los controles, además de ejecutarse ante cambios posteriores de tamaño o capacidades del modelo.

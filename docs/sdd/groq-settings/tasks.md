@@ -9,3 +9,4 @@
 - [x] Implementar adjuntos de texto e imagen según capacidad.
 - [x] Mostrar la versión abajo a la derecha.
 - [x] Añadir pruebas y validar sintaxis.
+- [x] Recalcular el centrado de la botonera inferior al mostrarse la ventana.

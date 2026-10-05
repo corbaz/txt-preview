@@ -42,6 +42,11 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn("$script:attachedFiles.Count -gt 0", SCRIPT)
         self.assertEqual(SCRIPT.count("if (-not (Test-GroqInputAvailable))"), 4)
 
+    def test_toolbar_is_recentered_when_the_form_is_shown(self) -> None:
+        shown_handler = re.search(r"\$form\.Add_Shown\(\{(?P<body>.*?)\n\}\)", SCRIPT, re.DOTALL)
+        self.assertIsNotNone(shown_handler)
+        self.assertIn("Update-ToolbarLayout", shown_handler.group("body"))
+
     def test_version_uses_requested_format(self) -> None:
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$")
