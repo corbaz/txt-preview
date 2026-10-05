@@ -1015,8 +1015,12 @@ function Invoke-GitCommand {
 
     $process = [Diagnostics.Process]::Start($startInfo)
     try {
-        $standardOutput = $process.StandardOutput.ReadToEnd()
-        $standardError = $process.StandardError.ReadToEnd()
+        # Read both streams asynchronously and pump UI events, so a slow fetch neither
+        # freezes the window nor deadlocks on a full stderr buffer.
+        $outputTask = $process.StandardOutput.ReadToEndAsync()
+        $errorTask = $process.StandardError.ReadToEndAsync()
+        $standardOutput = Wait-TaskWithEvents $outputTask
+        $standardError = Wait-TaskWithEvents $errorTask
         $process.WaitForExit()
         return [pscustomobject]@{
             ExitCode = $process.ExitCode
@@ -3181,6 +3185,75 @@ $btnCheckUpdate.Add_Click({
     Update-AppUpdateControls
 })
 
+# Applies the pending update; returns the installed version, or $null when it failed
+# (the failure is already shown in Configuración and the status bar).
+function Invoke-AppUpdateInstall {
+    $btnCheckUpdate.Enabled = $false
+    $btnInstallUpdate.Enabled = $false
+    Set-StatusText $lblUpdateStatus "Aplicando la actualización..."
+    Show-Message "Aplicando la actualización..."
+    [Windows.Forms.Application]::DoEvents()
+    try {
+        $installedVersion = Install-AppUpdate
+        $script:appVersion = $installedVersion
+        $versionLabel.Text = $installedVersion
+        $lblAppVersion.Text = "Aplicación $installedVersion"
+        $script:availableUpdateVersion = $null
+        $btnInstallUpdate.Visible = $false
+        Set-StatusText $lblUpdateStatus "Actualización instalada. Cerrá y abrí la aplicación."
+        Show-Message "Actualización $installedVersion instalada."
+        return $installedVersion
+    } catch {
+        Set-StatusText $lblUpdateStatus "No se pudo actualizar: $($_.Exception.Message)" -Level Error
+        Show-Message "No se pudo actualizar: $($_.Exception.Message)" -Level Error
+        return $null
+    } finally {
+        $btnCheckUpdate.Enabled = $true
+        $btnInstallUpdate.Enabled = $true
+    }
+}
+
+function Restart-App {
+    # Relaunch with the same host (pwsh 7 or Windows PowerShell) that runs this instance.
+    $hostPath = (Get-Process -Id $PID).Path
+    Start-Process -FilePath $hostPath -WorkingDirectory $PSScriptRoot -ArgumentList @(
+        "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", "`"$PSCommandPath`""
+    )
+    $form.Close()
+}
+
+# Runs once after the window appears: offers a newer version without opening Configuración.
+# Offline or non-Git installs fail quietly here; the details stay in Configuración.
+function Invoke-StartupUpdateCheck {
+    Update-AppUpdateControls
+    if (-not $script:availableUpdateVersion) {
+        return
+    }
+
+    $answer = [Windows.Forms.MessageBox]::Show(
+        $form,
+        "Hay una versión nueva de TXT Preview: $script:availableUpdateVersion (tenés $appVersion).`n`n¿Querés actualizar ahora? La aplicación se reiniciará sola.",
+        "Actualización disponible",
+        [Windows.Forms.MessageBoxButtons]::YesNo,
+        [Windows.Forms.MessageBoxIcon]::Question
+    )
+    if ($answer -ne [Windows.Forms.DialogResult]::Yes) {
+        Show-Message "Versión $script:availableUpdateVersion disponible. Podés actualizar desde Configuración." -Level Warning
+        return
+    }
+
+    if (Invoke-AppUpdateInstall) {
+        Restart-App
+    }
+}
+
+$startupUpdateTimer = New-Object Windows.Forms.Timer
+$startupUpdateTimer.Interval = 1500
+$startupUpdateTimer.Add_Tick({
+    $startupUpdateTimer.Stop()
+    Invoke-StartupUpdateCheck
+})
+
 $btnInstallUpdate.Add_Click({
     $confirmation = [Windows.Forms.MessageBox]::Show(
         "Se actualizará TXT Preview a $script:availableUpdateVersion desde origin/main. La aplicación deberá reiniciarse.",
@@ -3192,29 +3265,14 @@ $btnInstallUpdate.Add_Click({
         return
     }
 
-    $btnCheckUpdate.Enabled = $false
-    $btnInstallUpdate.Enabled = $false
-    Set-StatusText $lblUpdateStatus "Aplicando la actualización..."
-    [Windows.Forms.Application]::DoEvents()
-    try {
-        $installedVersion = Install-AppUpdate
-        $script:appVersion = $installedVersion
-        $versionLabel.Text = $installedVersion
-        $lblAppVersion.Text = "Aplicación $installedVersion"
-        $script:availableUpdateVersion = $null
-        $btnInstallUpdate.Visible = $false
-        Set-StatusText $lblUpdateStatus "Actualización instalada. Cerrá y abrí la aplicación."
+    $installedVersion = Invoke-AppUpdateInstall
+    if ($installedVersion) {
         [void][Windows.Forms.MessageBox]::Show(
             "TXT Preview se actualizó a $installedVersion. Cerrá y volvé a abrir la aplicación para usar el código nuevo.",
             "Actualización completada",
             [Windows.Forms.MessageBoxButtons]::OK,
             [Windows.Forms.MessageBoxIcon]::Information
         )
-    } catch {
-        Set-StatusText $lblUpdateStatus "No se pudo actualizar: $($_.Exception.Message)" -Level Error
-    } finally {
-        $btnCheckUpdate.Enabled = $true
-        $btnInstallUpdate.Enabled = $true
     }
 })
 
@@ -3556,6 +3614,8 @@ $form.Add_Shown({
     $form.PerformLayout()
     Update-ToolbarLayout
     Set-WindowChrome $form ([bool]$btnTheme.Tag)
+    # Delay the update check so the window finishes painting first.
+    $startupUpdateTimer.Start()
 })
 $busyForm.Add_Shown({
     Set-WindowChrome $busyForm ([bool]$btnTheme.Tag)

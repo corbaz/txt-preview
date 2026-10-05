@@ -125,6 +125,28 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn("$startInfo.Arguments", git_helper.group("body"))
         self.assertNotIn("$startInfo.ArgumentList", git_helper.group("body"))
 
+    def test_startup_offers_available_update_in_a_modal(self) -> None:
+        shown_handler = re.search(r"\$form\.Add_Shown\(\{(?P<body>.*?)\n\}\)", SCRIPT, re.DOTALL)
+        self.assertIn("$startupUpdateTimer.Start()", shown_handler.group("body"))
+        check = re.search(r"function Invoke-StartupUpdateCheck \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
+        self.assertIsNotNone(check)
+        body = check.group("body")
+        self.assertIn("Update-AppUpdateControls", body)
+        self.assertIn("$script:availableUpdateVersion", body)
+        self.assertIn("[Windows.Forms.MessageBoxButtons]::YesNo", body)
+        self.assertIn("Invoke-AppUpdateInstall", body)
+        self.assertIn("Restart-App", body)
+
+    def test_manual_and_startup_updates_share_one_install_path(self) -> None:
+        self.assertEqual(SCRIPT.count("Install-AppUpdate\n"), 1)
+        install_click = re.search(r"\$btnInstallUpdate\.Add_Click\(\{(?P<body>.*?)\n\}\)", SCRIPT, re.DOTALL)
+        self.assertIn("Invoke-AppUpdateInstall", install_click.group("body"))
+
+    def test_git_commands_keep_the_window_responsive(self) -> None:
+        git_helper = re.search(r"function Invoke-GitCommand \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
+        self.assertIn("ReadToEndAsync()", git_helper.group("body"))
+        self.assertIn("Wait-TaskWithEvents", git_helper.group("body"))
+
     def test_version_uses_requested_format(self) -> None:
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$")
