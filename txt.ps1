@@ -949,7 +949,7 @@ function Convert-SecureStringToPlainText {
     }
 }
 
-function Load-AppSettings {
+function Import-AppSettings {
     $environmentKey = [Environment]::GetEnvironmentVariable("GROQ_API_KEY", "User")
     if ([string]::IsNullOrWhiteSpace($environmentKey)) {
         $environmentKey = $env:GROQ_API_KEY
@@ -1274,8 +1274,8 @@ function Update-VoiceFilter {
 foreach ($toggle in $voiceToggles) {
     # CheckedChanged fires for both the old and the new option; react only once.
     $toggle.Add_CheckedChanged({
-        param($sender)
-        if ($sender.Checked) {
+        param($source)
+        if ($source.Checked) {
             Update-VoiceFilter
         }
         Set-ToggleTones
@@ -1496,7 +1496,7 @@ function Set-AudioControlState {
     }
 }
 
-function Focus-SpeechPreview {
+function Show-SpeechPreview {
     if ($tabs.SelectedTab -ne $tabPreview) {
         $tabs.SelectedTab = $tabPreview
         $tabPreview.Select()
@@ -2270,7 +2270,7 @@ function Restart-ActiveSpeechPlayback {
         $speechState.HighlightBaseOffset = $resumeHighlightOffset
         Start-SelectedVoicePlayback $remainingText -ContinueHighlight
         if ($wasPaused) {
-            Pause-VoicePlayback
+            Suspend-VoicePlayback
             Show-Message "$successMessage La lectura permanece pausada."
         } else {
             Show-Message "$successMessage Continuando desde la posición actual."
@@ -2302,7 +2302,7 @@ function Update-SpeechSpeedLabel {
     $lblSpeedValue.Text = $factor.ToString("0.00", [Globalization.CultureInfo]::GetCultureInfo("es-AR")) + "x"
 }
 
-function Apply-SpeechSpeed {
+function Set-SpeechSpeed {
     $newSpeed = $speedSlider.Value
     if ($newSpeed -eq $script:appliedSpeechSpeed) {
         return
@@ -2319,11 +2319,11 @@ function Apply-SpeechSpeed {
 }
 
 $speedSlider.Add_ValueChanged({ Update-SpeechSpeedLabel })
-$speedSlider.Add_MouseUp({ Apply-SpeechSpeed })
-$speedSlider.Add_MouseWheel({ Apply-SpeechSpeed })
-$speedSlider.Add_KeyUp({ Apply-SpeechSpeed })
+$speedSlider.Add_MouseUp({ Set-SpeechSpeed })
+$speedSlider.Add_MouseWheel({ Set-SpeechSpeed })
+$speedSlider.Add_KeyUp({ Set-SpeechSpeed })
 
-function Pause-VoicePlayback {
+function Suspend-VoicePlayback {
     if ($speechState.Mode -eq "Idle") {
         Show-Message "No hay una lectura activa para pausar." -Level Warning
         return
@@ -2406,16 +2406,16 @@ $edgeVoiceTimer.Add_Tick({
 $voiceCombo.Add_SelectedIndexChanged({ Switch-ActiveSpeechVoice })
 
 $speechSynth.add_SpeakProgress({
-    param($sender, $eventArgs)
+    param($source, $speechEventArgs)
     if ($speechState.Provider -eq "Windows") {
-        $speechState.WindowsCharacterPosition = $eventArgs.CharacterPosition
-        $speechState.PendingSpokenWords.Add([string]$eventArgs.Text)
+        $speechState.WindowsCharacterPosition = $speechEventArgs.CharacterPosition
+        $speechState.PendingSpokenWords.Add([string]$speechEventArgs.Text)
     }
 })
 
 $speechSynth.add_SpeakCompleted({
-    param($sender, $eventArgs)
-    if ($speechState.Provider -eq "Windows" -and -not $eventArgs.Cancelled) {
+    param($source, $speechEventArgs)
+    if ($speechState.Provider -eq "Windows" -and -not $speechEventArgs.Cancelled) {
         $speechState.WindowsCharacterPosition = $speechState.WindowsText.Length
     }
 })
@@ -3416,7 +3416,7 @@ $btnClearAttachments.Add_Click({
     Show-Message "Se quitaron los archivos adjuntos del contexto."
 })
 
-Load-AppSettings
+Import-AppSettings
 Set-Theme ([bool]$btnTheme.Tag)
 $btnTheme.Add_Click({
     $btnTheme.Tag = -not [bool]$btnTheme.Tag
@@ -3553,17 +3553,17 @@ $btnLeer.Add_Click({
 })
 
 $btnStopVoice.Add_Click({
-    Focus-SpeechPreview
+    Show-SpeechPreview
     Stop-VoicePlayback -ControlState "Stop"
     Show-Message "Lectura detenida."
 })
 
 $btnPauseVoice.Add_Click({
-    Focus-SpeechPreview
+    Show-SpeechPreview
     if ($speechState.Mode -eq "Paused") {
         Resume-VoicePlayback
     } else {
-        Pause-VoicePlayback
+        Suspend-VoicePlayback
     }
 })
 
