@@ -58,6 +58,23 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn('$msgBox.ForeColor = Get-ThemeColor "Notice"', SCRIPT)
         self.assertIn('$lblAttachments.ForeColor = Get-ThemeColor "Notice"', SCRIPT)
 
+    def test_settings_can_check_for_repository_updates(self) -> None:
+        self.assertIn("$tabSettings.Controls.Add($btnCheckUpdate)", SCRIPT)
+        self.assertIn("$tabSettings.Controls.Add($btnInstallUpdate)", SCRIPT)
+        self.assertIn('Invoke-GitCommand @("fetch", "--quiet", "origin", "main")', SCRIPT)
+        self.assertIn('Invoke-GitCommand @("show", "FETCH_HEAD:VERSION")', SCRIPT)
+        self.assertIn("Compare-AppVersions", SCRIPT)
+
+    def test_update_is_fast_forward_only_and_preserves_local_changes(self) -> None:
+        self.assertEqual(SCRIPT.count('Invoke-GitCommand @("branch", "--show-current")'), 2)
+        self.assertIn('Invoke-GitCommand @("status", "--porcelain")', SCRIPT)
+        self.assertIn('Invoke-GitCommand @("pull", "--ff-only", "origin", "main")', SCRIPT)
+        self.assertIn("Hay cambios locales", SCRIPT)
+        git_helper = re.search(r"function Invoke-GitCommand \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
+        self.assertIsNotNone(git_helper)
+        self.assertIn("$startInfo.Arguments", git_helper.group("body"))
+        self.assertNotIn("$startInfo.ArgumentList", git_helper.group("body"))
+
     def test_version_uses_requested_format(self) -> None:
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$")

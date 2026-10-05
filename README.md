@@ -13,10 +13,15 @@ Aplicación de escritorio para Windows escrita en PowerShell y WinForms. Permite
 - Pestaña de configuración con selección dinámica de modelos Groq.
 - API key cifrada para el usuario de Windows mediante DPAPI.
 - Búsqueda web con modelos GPT-OSS y adjuntos de texto o imagen según el modelo.
+- Comprobación e instalación segura de actualizaciones desde el clon Git.
 
 ## Configuración de Groq
 
 Abrí la pestaña **Configuración**, ingresá tu API key y seleccioná **Actualizar modelos**. Elegí el modelo activo y guardá la configuración. Los datos se almacenan fuera del repositorio en `%LOCALAPPDATA%\TXT Preview\settings.json`; la API key queda cifrada para tu usuario de Windows.
+
+## Actualizaciones
+
+Al abrir **Configuración**, la aplicación consulta `origin/main`. Si existe una versión posterior, aparece **Actualizar ahora**. La actualización requiere Git, la rama `main` y un árbol de trabajo sin cambios; usa `git pull --ff-only` y nunca sobrescribe modificaciones locales. Después hay que cerrar y volver a abrir TXT Preview.
 
 ## Requisitos
 

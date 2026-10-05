@@ -18,6 +18,9 @@
 16. Las filas de botones inferiores aparecen centradas desde el primer despliegue de la ventana y vuelven a centrarse al cambiar su ancho o la visibilidad de acciones contextuales.
 17. **Limpiar chat** vacía el Editor y elimina todos los archivos adjuntos del contexto de la próxima solicitud.
 18. Los avisos generales y el resumen de adjuntos activos usan un verde legible adaptado a los temas claro y oscuro; el estado sin adjuntos conserva el tono secundario.
+19. Configuración comprueba `origin/main` al abrirse por primera vez y muestra la versión nueva cuando el archivo remoto `VERSION` supera a la versión instalada.
+20. **Actualizar ahora** solo funciona desde un clon Git en la rama `main`, se bloquea si existen cambios locales y aplica exclusivamente una actualización fast-forward para no sobrescribir trabajo del usuario.
+21. Tras actualizar, la interfaz informa que es necesario cerrar y volver a abrir la aplicación.
 
 ## Verificación
 

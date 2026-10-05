@@ -12,3 +12,5 @@
 - [x] Recalcular el centrado de la botonera inferior al mostrarse la ventana.
 - [x] Eliminar los adjuntos al limpiar el chat.
 - [x] Destacar avisos y adjuntos activos con un color adaptado a cada tema.
+- [x] Detectar nuevas versiones publicadas en `origin/main` desde Configuración.
+- [x] Permitir actualizaciones fast-forward sin sobrescribir cambios locales.

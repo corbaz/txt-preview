@@ -582,15 +582,39 @@ $versionLabel.SetBounds(1060, 146, 180, 26)
 $panel.Controls.Add($versionLabel)
 
 $settingsTitle = New-Object Windows.Forms.Label
-$settingsTitle.Text = "Configuración de Groq"
+$settingsTitle.Text = "Configuración"
 $settingsTitle.Font = New-Object Drawing.Font($uiStrongFontName, 18)
 $settingsTitle.SetBounds(28, 24, 500, 40)
 $tabSettings.Controls.Add($settingsTitle)
 
 $settingsHint = New-Object Windows.Forms.Label
 $settingsHint.Text = "La API key se cifra para tu usuario de Windows. Los modelos se consultan directamente desde Groq."
-$settingsHint.SetBounds(30, 67, 900, 26)
+$settingsHint.SetBounds(30, 67, 570, 26)
 $tabSettings.Controls.Add($settingsHint)
+
+$lblAppVersion = New-Object Windows.Forms.Label
+$lblAppVersion.Text = "Aplicación $appVersion"
+$lblAppVersion.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+$lblAppVersion.SetBounds(620, 25, 175, 30)
+$tabSettings.Controls.Add($lblAppVersion)
+
+$btnCheckUpdate = New-Object Windows.Forms.Button
+$btnCheckUpdate.Text = "Buscar actualización"
+$btnCheckUpdate.SetBounds(800, 24, 165, 32)
+$tabSettings.Controls.Add($btnCheckUpdate)
+
+$btnInstallUpdate = New-Object Windows.Forms.Button
+$btnInstallUpdate.Text = "Actualizar ahora"
+$btnInstallUpdate.SetBounds(975, 24, 160, 32)
+$btnInstallUpdate.Visible = $false
+$tabSettings.Controls.Add($btnInstallUpdate)
+
+$lblUpdateStatus = New-Object Windows.Forms.Label
+$lblUpdateStatus.Text = "Actualizaciones todavía no comprobadas."
+$lblUpdateStatus.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+$lblUpdateStatus.AutoEllipsis = $true
+$lblUpdateStatus.SetBounds(620, 64, 515, 28)
+$tabSettings.Controls.Add($lblUpdateStatus)
 
 $lblApiKey = New-Object Windows.Forms.Label
 $lblApiKey.Text = "API key"
@@ -675,6 +699,8 @@ $settingsPath = Join-Path $settingsDirectory "settings.json"
 $script:groqApiKey = ""
 $script:selectedGroqModel = "openai/gpt-oss-120b"
 $script:attachedFiles = [Collections.Generic.List[object]]::new()
+$script:updateCheckCompleted = $false
+$script:availableUpdateVersion = $null
 $script:availableGroqModels = @(
     [pscustomobject]@{ id = "allam-2-7b"; owned_by = "SDAIA"; context_window = 4096; active = $true }
     [pscustomobject]@{ id = "canopylabs/orpheus-arabic-saudi"; owned_by = "Canopy Labs"; context_window = 4000; active = $true }
@@ -885,6 +911,135 @@ function Save-AppSettings {
     $script:groqApiKey = $apiKey
 }
 
+function Compare-AppVersions {
+    param(
+        [string]$leftVersion,
+        [string]$rightVersion
+    )
+
+    $versionPattern = '^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$'
+    if ($leftVersion -notmatch $versionPattern -or $rightVersion -notmatch $versionPattern) {
+        throw "La versión publicada no usa el formato esperado v:yy.mm.dd-HH.mm."
+    }
+    $leftNumber = [long]($leftVersion -replace '\D', '')
+    $rightNumber = [long]($rightVersion -replace '\D', '')
+    return $leftNumber.CompareTo($rightNumber)
+}
+
+function Invoke-GitCommand {
+    param([string[]]$arguments)
+
+    $gitCommand = Get-Command git.exe -ErrorAction SilentlyContinue
+    if (-not $gitCommand) {
+        $gitCommand = Get-Command git -ErrorAction SilentlyContinue
+    }
+    if (-not $gitCommand) {
+        throw "Git no está instalado o no está disponible en PATH."
+    }
+
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $gitCommand.Source
+    $startInfo.WorkingDirectory = $PSScriptRoot
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0"
+    # ProcessStartInfo.ArgumentList is unavailable in Windows PowerShell 5.1.
+    # Every argument used here is a fixed Git token without spaces.
+    $startInfo.Arguments = $arguments -join " "
+
+    $process = [Diagnostics.Process]::Start($startInfo)
+    try {
+        $standardOutput = $process.StandardOutput.ReadToEnd()
+        $standardError = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        return [pscustomobject]@{
+            ExitCode = $process.ExitCode
+            Output = $standardOutput.Trim()
+            Error = $standardError.Trim()
+        }
+    } finally {
+        $process.Dispose()
+    }
+}
+
+function Get-AvailableAppUpdate {
+    if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot ".git"))) {
+        throw "La aplicación no se ejecuta desde un clon Git; no se puede actualizar automáticamente."
+    }
+
+    $branchResult = Invoke-GitCommand @("branch", "--show-current")
+    if ($branchResult.ExitCode -ne 0 -or $branchResult.Output -ne "main") {
+        throw "La actualización automática requiere estar en la rama main."
+    }
+
+    $fetchResult = Invoke-GitCommand @("fetch", "--quiet", "origin", "main")
+    if ($fetchResult.ExitCode -ne 0) {
+        throw "No se pudo consultar origin/main. $($fetchResult.Error)"
+    }
+    $versionResult = Invoke-GitCommand @("show", "FETCH_HEAD:VERSION")
+    if ($versionResult.ExitCode -ne 0) {
+        throw "No se pudo leer VERSION desde origin/main."
+    }
+
+    $remoteVersion = $versionResult.Output.Trim()
+    return [pscustomobject]@{
+        Version = $remoteVersion
+        Available = (Compare-AppVersions $remoteVersion $appVersion) -gt 0
+    }
+}
+
+function Update-AppUpdateControls {
+    $btnCheckUpdate.Enabled = $false
+    $btnInstallUpdate.Visible = $false
+    $lblUpdateStatus.ForeColor = Get-ThemeColor "Muted"
+    $lblUpdateStatus.Text = "Buscando una versión nueva en origin/main..."
+    [Windows.Forms.Application]::DoEvents()
+    try {
+        $update = Get-AvailableAppUpdate
+        if ($update.Available) {
+            $script:availableUpdateVersion = $update.Version
+            $lblUpdateStatus.Text = "Nueva versión $($update.Version) disponible."
+            $lblUpdateStatus.ForeColor = Get-ThemeColor "Notice"
+            $btnInstallUpdate.Visible = $true
+        } else {
+            $script:availableUpdateVersion = $null
+            $lblUpdateStatus.Text = "La aplicación está actualizada ($appVersion)."
+        }
+    } catch {
+        $script:availableUpdateVersion = $null
+        $lblUpdateStatus.Text = "No se pudo comprobar: $($_.Exception.Message)"
+    } finally {
+        $script:updateCheckCompleted = $true
+        $btnCheckUpdate.Enabled = $true
+    }
+}
+
+function Install-AppUpdate {
+    $branchResult = Invoke-GitCommand @("branch", "--show-current")
+    if ($branchResult.ExitCode -ne 0 -or $branchResult.Output -ne "main") {
+        throw "La actualización automática requiere estar en la rama main."
+    }
+
+    $statusResult = Invoke-GitCommand @("status", "--porcelain")
+    if ($statusResult.ExitCode -ne 0) {
+        throw "No se pudo revisar el estado del repositorio."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($statusResult.Output)) {
+        throw "Hay cambios locales. Guardalos o confirmalos antes de actualizar."
+    }
+
+    $pullResult = Invoke-GitCommand @("pull", "--ff-only", "origin", "main")
+    if ($pullResult.ExitCode -ne 0) {
+        throw "Git no pudo aplicar la actualización sin sobrescribir cambios. $($pullResult.Error)"
+    }
+
+    $installedVersion = (Get-Content -LiteralPath $appVersionPath -Raw).Trim()
+    [void](Compare-AppVersions $installedVersion $appVersion)
+    return $installedVersion
+}
+
 function Get-GroqModelsFromApi {
     $apiKey = $txtApiKey.Text.Trim()
     if ([string]::IsNullOrWhiteSpace($apiKey)) {
@@ -1072,7 +1227,7 @@ $actionButtons = @(
     $btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn,
     $btnLeer, $btnPegar, $btnCopyMd, $btnCopyTxt, $btnMic, $btnPdf, $btnMp3, $btnLimpiar,
     $btnTheme, $btnCerrar, $btnPauseVoice, $btnStopVoice, $btnSaveSettings, $btnRefreshModels,
-    $btnAttachFiles, $btnClearAttachments
+    $btnCheckUpdate, $btnInstallUpdate, $btnAttachFiles, $btnClearAttachments
 )
 
 $aiButtons = @($btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn)
@@ -2533,9 +2688,12 @@ function Set-Theme {
     $versionLabel.BackColor = Get-ThemeColor "Surface"
     $versionLabel.ForeColor = Get-ThemeColor "Muted"
     $versionLabel.Font = New-Object Drawing.Font($uiFontName, 9)
-    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus)) {
+    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus)) {
         $label.BackColor = Get-ThemeColor "Window"
         $label.ForeColor = if ($label -eq $settingsTitle) { Get-ThemeColor "Heading" } else { Get-ThemeColor "Muted" }
+    }
+    if ($script:availableUpdateVersion) {
+        $lblUpdateStatus.ForeColor = Get-ThemeColor "Notice"
     }
     foreach ($inputControl in @($txtApiKey, $modelCombo)) {
         $inputControl.BackColor = Get-ThemeColor "Elevated"
@@ -2927,6 +3085,48 @@ $btnRefreshModels.Add_Click({
     }
 })
 
+$btnCheckUpdate.Add_Click({
+    Update-AppUpdateControls
+})
+
+$btnInstallUpdate.Add_Click({
+    $confirmation = [Windows.Forms.MessageBox]::Show(
+        "Se actualizará TXT Preview a $script:availableUpdateVersion desde origin/main. La aplicación deberá reiniciarse.",
+        "Actualizar TXT Preview",
+        [Windows.Forms.MessageBoxButtons]::YesNo,
+        [Windows.Forms.MessageBoxIcon]::Question
+    )
+    if ($confirmation -ne [Windows.Forms.DialogResult]::Yes) {
+        return
+    }
+
+    $btnCheckUpdate.Enabled = $false
+    $btnInstallUpdate.Enabled = $false
+    $lblUpdateStatus.Text = "Aplicando la actualización..."
+    [Windows.Forms.Application]::DoEvents()
+    try {
+        $installedVersion = Install-AppUpdate
+        $script:appVersion = $installedVersion
+        $versionLabel.Text = $installedVersion
+        $lblAppVersion.Text = "Aplicación $installedVersion"
+        $script:availableUpdateVersion = $null
+        $btnInstallUpdate.Visible = $false
+        $lblUpdateStatus.ForeColor = Get-ThemeColor "Notice"
+        $lblUpdateStatus.Text = "Actualización instalada. Cerrá y abrí la aplicación."
+        [void][Windows.Forms.MessageBox]::Show(
+            "TXT Preview se actualizó a $installedVersion. Cerrá y volvé a abrir la aplicación para usar el código nuevo.",
+            "Actualización completada",
+            [Windows.Forms.MessageBoxButtons]::OK,
+            [Windows.Forms.MessageBoxIcon]::Information
+        )
+    } catch {
+        $lblUpdateStatus.Text = "No se pudo actualizar: $($_.Exception.Message)"
+    } finally {
+        $btnCheckUpdate.Enabled = $true
+        $btnInstallUpdate.Enabled = $true
+    }
+})
+
 $btnAttachFiles.Add_Click({
     $capabilities = Get-SelectedModelCapabilities
     $dialog = New-Object Windows.Forms.OpenFileDialog
@@ -3011,7 +3211,12 @@ $btnTheme.Add_Click({
 
 $btnNavEditor.Add_Click({ $tabs.SelectedTab = $tabEditor })
 $btnNavPreview.Add_Click({ $tabs.SelectedTab = $tabPreview })
-$btnNavSettings.Add_Click({ $tabs.SelectedTab = $tabSettings })
+$btnNavSettings.Add_Click({
+    $tabs.SelectedTab = $tabSettings
+    if (-not $script:updateCheckCompleted) {
+        Update-AppUpdateControls
+    }
+})
 
 $tabs.Add_SelectedIndexChanged({
     Update-NavigationState
