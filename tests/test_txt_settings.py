@@ -57,7 +57,7 @@ class SettingsContractTests(unittest.TestCase):
         self.assertEqual(SCRIPT.count('Notice = "#'), 2)
         style_helper = re.search(r"function Set-InfoStyle \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
         self.assertIsNotNone(style_helper)
-        self.assertIn('Get-ThemeColor "Notice"', style_helper.group("body"))
+        self.assertIn('default { "Notice" }', style_helper.group("body"))
         self.assertIn("$infoFontSize", style_helper.group("body"))
 
     def test_every_informational_message_shares_the_info_style(self) -> None:
@@ -71,6 +71,27 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn("Set-InfoStyle $control", SCRIPT)
         self.assertNotIn('$lblUpdateStatus.ForeColor = Get-ThemeColor "Muted"', SCRIPT)
         self.assertNotIn('$lblAttachments.ForeColor = Get-ThemeColor "Muted"', SCRIPT)
+
+    def test_errors_are_red_and_warnings_are_yellow_in_both_themes(self) -> None:
+        self.assertEqual(SCRIPT.count('Danger = "#'), 2)
+        self.assertEqual(SCRIPT.count('Warning = "#'), 2)
+        style_helper = re.search(r"function Set-InfoStyle \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
+        self.assertIn('"Error" { "Danger" }', style_helper.group("body"))
+        self.assertIn('"Warning" { "Warning" }', style_helper.group("body"))
+        self.assertIn("function Set-StatusText", SCRIPT)
+
+    def test_every_failure_message_is_flagged_as_error(self) -> None:
+        failures = re.findall(r'^\s*(?:Show-Message|Set-StatusText \$\w+) "(?:No se pudo|Error al|No se encontró).*$', SCRIPT, re.MULTILINE)
+        self.assertGreater(len(failures), 20)
+        for line in failures:
+            self.assertTrue(line.rstrip().endswith("-Level Error"), line)
+        self.assertNotRegex(SCRIPT, r'\$(settingsStatus|lblUpdateStatus)\.Text = "No se pudo')
+
+    def test_missing_input_messages_are_flagged_as_warning(self) -> None:
+        warnings = re.findall(r'^\s*Show-Message "(?:No hay |Ingresá ).*$', SCRIPT, re.MULTILINE)
+        self.assertGreater(len(warnings), 8)
+        for line in warnings:
+            self.assertTrue(line.rstrip().endswith("-Level Warning"), line)
 
     def test_context_panel_does_not_cover_the_editor(self) -> None:
         # A Top panel brought to front docks after the Fill editor and hides its first lines.

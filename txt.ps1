@@ -863,7 +863,7 @@ function Update-ModelCapabilityControls {
     }
     $btnAttachFiles.Enabled = $capabilities.TextFiles -or $capabilities.Vision
     $btnAttachFiles.Visible = $btnAttachFiles.Enabled
-    $settingsStatus.Text = "$($script:selectedGroqModel) · $($capabilities.Summary)"
+    Set-StatusText $settingsStatus "$($script:selectedGroqModel) · $($capabilities.Summary)"
 
     $incompatible = @($script:attachedFiles | Where-Object { $_.Kind -eq "Image" -and -not $capabilities.Vision })
     foreach ($attachment in $incompatible) {
@@ -949,7 +949,7 @@ function Load-AppSettings {
         }
         $checkWebSearch.Checked = [bool]$settings.WebSearch
     } catch {
-        $settingsStatus.Text = "No se pudo cargar la configuración: $($_.Exception.Message)"
+        Set-StatusText $settingsStatus "No se pudo cargar la configuración: $($_.Exception.Message)" -Level Error
     }
     Show-GroqModels $script:availableGroqModels
 }
@@ -1057,21 +1057,21 @@ function Get-AvailableAppUpdate {
 function Update-AppUpdateControls {
     $btnCheckUpdate.Enabled = $false
     $btnInstallUpdate.Visible = $false
-    $lblUpdateStatus.Text = "Buscando una versión nueva en origin/main..."
+    Set-StatusText $lblUpdateStatus "Buscando una versión nueva en origin/main..."
     [Windows.Forms.Application]::DoEvents()
     try {
         $update = Get-AvailableAppUpdate
         if ($update.Available) {
             $script:availableUpdateVersion = $update.Version
-            $lblUpdateStatus.Text = "Nueva versión $($update.Version) disponible."
+            Set-StatusText $lblUpdateStatus "Nueva versión $($update.Version) disponible."
             $btnInstallUpdate.Visible = $true
         } else {
             $script:availableUpdateVersion = $null
-            $lblUpdateStatus.Text = "La aplicación está actualizada ($appVersion)."
+            Set-StatusText $lblUpdateStatus "La aplicación está actualizada ($appVersion)."
         }
     } catch {
         $script:availableUpdateVersion = $null
-        $lblUpdateStatus.Text = "No se pudo comprobar: $($_.Exception.Message)"
+        Set-StatusText $lblUpdateStatus "No se pudo comprobar: $($_.Exception.Message)" -Level Error
     } finally {
         $script:updateCheckCompleted = $true
         $btnCheckUpdate.Enabled = $true
@@ -1295,8 +1295,12 @@ $actionButtons = @(
 $aiButtons = @($btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn)
 
 function Show-Message {
-    param([string]$texto)
-    $msgBox.Text = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($texto))
+    param(
+        [string]$texto,
+        [ValidateSet("Info", "Warning", "Error")][string]$Level = "Info"
+    )
+    $text = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($texto))
+    Set-StatusText $msgBox $text -Level $Level
 }
 
 $themePalettes = @{
@@ -1305,7 +1309,7 @@ $themePalettes = @{
         Border = "#2A3142"; Text = "#E7EAF3"; Muted = "#8E97AD"; Editor = "#0E121A"
         Accent = "#8B93FF"; AccentHover = "#A3A9FF"; OnAccent = "#0B0E14"
         Play = "#34D399"; Pause = "#FBBF24"; Stop = "#FB7185"; OnState = "#0B0E14"
-        Notice = "#6EE7B7"
+        Notice = "#6EE7B7"; Warning = "#FBBF24"; Danger = "#F87171"
         Code = "#151A25"; Heading = "#F3F5FB"; Link = "#A3A9FF"
         SpeechBackground = "#3B3F8F"; SpeechForeground = "#FFFFFF"
         Scrollbar = "#2A3142"; ScrollbarArrow = "#6B7490"
@@ -1315,7 +1319,7 @@ $themePalettes = @{
         Border = "#DCE0EA"; Text = "#161A26"; Muted = "#5E667A"; Editor = "#FFFFFF"
         Accent = "#5056E0"; AccentHover = "#6369EA"; OnAccent = "#FFFFFF"
         Play = "#059669"; Pause = "#D97706"; Stop = "#E11D48"; OnState = "#FFFFFF"
-        Notice = "#047857"
+        Notice = "#047857"; Warning = "#B45309"; Danger = "#DC2626"
         Code = "#F3F4F8"; Heading = "#0F1220"; Link = "#4248D6"
         SpeechBackground = "#DDE0FF"; SpeechForeground = "#1A1D6B"
         Scrollbar = "#CDD2DE"; ScrollbarArrow = "#8A92A6"
@@ -1331,12 +1335,34 @@ function Get-ThemeColor {
 
 $infoFontSize = 9
 
-# Informational messages (status, updates, hints, attachments) share one color and font.
+# Last message level per control, so a theme change keeps errors red and warnings yellow.
+$script:messageLevels = @{}
+
+# Informational messages (status, updates, hints, attachments) share one font; the color
+# follows the message level: Info uses Notice, Warning uses Warning, Error uses Danger.
 function Set-InfoStyle {
     param($control)
 
-    $control.ForeColor = Get-ThemeColor "Notice"
+    $level = if ($script:messageLevels.ContainsKey($control)) { $script:messageLevels[$control] } else { "Info" }
+    $colorName = switch ($level) {
+        "Error" { "Danger" }
+        "Warning" { "Warning" }
+        default { "Notice" }
+    }
+    $control.ForeColor = Get-ThemeColor $colorName
     $control.Font = New-Object Drawing.Font($uiStrongFontName, $infoFontSize)
+}
+
+function Set-StatusText {
+    param(
+        $control,
+        [string]$text,
+        [ValidateSet("Info", "Warning", "Error")][string]$Level = "Info"
+    )
+
+    $control.Text = $text
+    $script:messageLevels[$control] = $Level
+    Set-InfoStyle $control
 }
 
 function Set-WindowChrome {
@@ -1707,7 +1733,7 @@ function Start-CurrentEdgeChunk {
     if ($chunk.Status -eq "Failed") {
         $detail = if ($chunk.ErrorText) { $chunk.ErrorText } else { "Edge no generó el bloque de audio." }
         Stop-VoicePlayback
-        Show-Message "No se pudo generar la voz Edge: $detail"
+        Show-Message "No se pudo generar la voz Edge: $detail" -Level Error
         return
     }
     if ($chunk.Status -ne "Ready") {
@@ -1733,7 +1759,7 @@ function Start-CurrentEdgeChunk {
         Show-Message "Reproduciendo bloque $($speechState.CurrentIndex + 1) de $($speechState.Chunks.Count) · $($speechState.VoiceDisplay)"
     } catch {
         Stop-VoicePlayback
-        Show-Message "No se pudo reproducir el audio Edge: $($_.Exception.Message)"
+        Show-Message "No se pudo reproducir el audio Edge: $($_.Exception.Message)" -Level Error
     }
 }
 
@@ -1786,7 +1812,7 @@ function Update-EdgeVoicePlayback {
         if ($playerExitCode -ne 0) {
             $detail = if ($playerError) { ($playerError -split "`r?`n")[-1] } else { "El reproductor terminó con código $playerExitCode." }
             Stop-VoicePlayback
-            Show-Message "No se pudo reproducir la voz Edge: $detail"
+            Show-Message "No se pudo reproducir la voz Edge: $detail" -Level Error
             return
         }
 
@@ -2203,7 +2229,7 @@ function Restart-ActiveSpeechPlayback {
     $remainingText = Get-RemainingSpeechText
     Stop-VoicePlayback -KeepHighlight
     if ([string]::IsNullOrWhiteSpace($remainingText)) {
-        Show-Message "La lectura ya había finalizado."
+        Show-Message "La lectura ya había finalizado." -Level Warning
         return
     }
 
@@ -2219,7 +2245,7 @@ function Restart-ActiveSpeechPlayback {
         }
     } catch {
         Stop-VoicePlayback
-        Show-Message "No se pudo actualizar la lectura: $($_.Exception.Message)"
+        Show-Message "No se pudo actualizar la lectura: $($_.Exception.Message)" -Level Error
     }
 }
 
@@ -2267,7 +2293,7 @@ $speedSlider.Add_KeyUp({ Apply-SpeechSpeed })
 
 function Pause-VoicePlayback {
     if ($speechState.Mode -eq "Idle") {
-        Show-Message "No hay una lectura activa para pausar."
+        Show-Message "No hay una lectura activa para pausar." -Level Warning
         return
     }
 
@@ -2288,13 +2314,13 @@ function Pause-VoicePlayback {
         Update-SpeechHighlight
         Show-Message "Lectura pausada."
     } catch {
-        Show-Message "No se pudo pausar la lectura: $($_.Exception.Message)"
+        Show-Message "No se pudo pausar la lectura: $($_.Exception.Message)" -Level Error
     }
 }
 
 function Resume-VoicePlayback {
     if ($speechState.Mode -ne "Paused") {
-        Show-Message "La lectura no está pausada."
+        Show-Message "La lectura no está pausada." -Level Warning
         return
     }
 
@@ -2321,7 +2347,7 @@ function Resume-VoicePlayback {
         Set-AudioControlState "Play"
         Show-Message "Continuando la lectura desde la posición pausada."
     } catch {
-        Show-Message "No se pudo continuar la lectura: $($_.Exception.Message)"
+        Show-Message "No se pudo continuar la lectura: $($_.Exception.Message)" -Level Error
     }
 }
 
@@ -2479,12 +2505,12 @@ function Get-EdgeBrowserPath {
 
 function Export-PreviewPdf {
     if ([string]::IsNullOrWhiteSpace($textBox.Text)) {
-        Show-Message "No hay contenido para exportar a PDF."
+        Show-Message "No hay contenido para exportar a PDF." -Level Warning
         return
     }
     $edgePath = Get-EdgeBrowserPath
     if (-not $edgePath) {
-        Show-Message "No se encontró Microsoft Edge para generar el PDF."
+        Show-Message "No se encontró Microsoft Edge para generar el PDF." -Level Error
         return
     }
     $targetPath = Select-ExportPath "Guardar Vista previa como PDF" "Documento PDF (*.pdf)|*.pdf" "pdf"
@@ -2540,10 +2566,10 @@ function Export-PreviewPdf {
             Show-Message "PDF guardado en $targetPath"
         } else {
             $detail = if ($result.Error) { ($result.Error -split "`r?`n")[-1] } else { "Edge terminó con código $($result.ExitCode)." }
-            Show-Message "No se pudo generar el PDF: $detail"
+            Show-Message "No se pudo generar el PDF: $detail" -Level Error
         }
     } catch {
-        Show-Message "No se pudo generar el PDF: $($_.Exception.Message)"
+        Show-Message "No se pudo generar el PDF: $($_.Exception.Message)" -Level Error
     } finally {
         Stop-Busy
         Remove-Item -LiteralPath $workDirectory -Recurse -Force -ErrorAction SilentlyContinue
@@ -2553,11 +2579,11 @@ function Export-PreviewPdf {
 function Export-SpeechMp3 {
     $speechText = Convert-MarkdownToText $textBox.Text
     if ([string]::IsNullOrWhiteSpace($speechText)) {
-        Show-Message "No hay contenido para exportar a MP3."
+        Show-Message "No hay contenido para exportar a MP3." -Level Warning
         return
     }
     if ($voiceCombo.SelectedIndex -lt 0) {
-        Show-Message "No hay una voz seleccionada para generar el MP3."
+        Show-Message "No hay una voz seleccionada para generar el MP3." -Level Warning
         return
     }
 
@@ -2565,12 +2591,12 @@ function Export-SpeechMp3 {
     $voiceName = $voiceNameByDisplay[$voiceDisplay]
     $isEdgeVoice = $voiceProviderByDisplay[$voiceDisplay] -eq "Edge"
     if ($isEdgeVoice -and -not $pythonCommand) {
-        Show-Message "No se encontró Python para generar el MP3 con la voz Edge."
+        Show-Message "No se encontró Python para generar el MP3 con la voz Edge." -Level Error
         return
     }
     $ffmpegCommand = (Get-Command ffmpeg.exe -ErrorAction SilentlyContinue).Source
     if (-not $isEdgeVoice -and -not $ffmpegCommand) {
-        Show-Message "Las voces de Windows necesitan ffmpeg para convertir el audio a MP3."
+        Show-Message "Las voces de Windows necesitan ffmpeg para convertir el audio a MP3." -Level Warning
         return
     }
 
@@ -2613,10 +2639,10 @@ function Export-SpeechMp3 {
             Show-Message "MP3 guardado en $targetPath"
         } else {
             $detail = if ($result.Error) { ($result.Error -split "`r?`n")[-1] } else { "El proceso terminó con código $($result.ExitCode)." }
-            Show-Message "No se pudo generar el MP3: $detail"
+            Show-Message "No se pudo generar el MP3: $detail" -Level Error
         }
     } catch {
-        Show-Message "No se pudo generar el MP3: $($_.Exception.Message)"
+        Show-Message "No se pudo generar el MP3: $($_.Exception.Message)" -Level Error
     } finally {
         Stop-Busy
         Remove-Item -LiteralPath $workDirectory -Recurse -Force -ErrorAction SilentlyContinue
@@ -3026,7 +3052,7 @@ function Invoke-Translation {
 
     $Texto = $textBox.Text
     if (-not (Test-GroqInputAvailable)) {
-        Show-Message "Ingresá texto en el Editor o adjuntá al menos un archivo."
+        Show-Message "Ingresá texto en el Editor o adjuntá al menos un archivo." -Level Warning
         return
     }
 
@@ -3056,7 +3082,7 @@ $Texto
         Open-MarkdownPreview $traducido
         Show-Message "Traducción lista en Vista previa."
     } catch {
-        Show-Message "Error al conectar con la API."
+        Show-Message "Error al conectar con la API." -Level Error
     } finally {
         Stop-Busy
     }
@@ -3116,7 +3142,7 @@ $modelsList.Add_DoubleClick({
     $modelId = [string]$modelsList.SelectedItems[0].Tag
     $capabilities = Get-GroqModelCapabilities $modelId
     if (-not $capabilities.Chat) {
-        $settingsStatus.Text = "$modelId no es un modelo de chat para las acciones del editor."
+        Set-StatusText $settingsStatus "$modelId no es un modelo de chat para las acciones del editor." -Level Warning
         return
     }
     $index = $modelCombo.FindStringExact($modelId)
@@ -3128,24 +3154,24 @@ $modelsList.Add_DoubleClick({
 $btnSaveSettings.Add_Click({
     try {
         Save-AppSettings
-        $settingsStatus.Text = "Configuración guardada de forma segura para este usuario de Windows."
+        Set-StatusText $settingsStatus "Configuración guardada de forma segura para este usuario de Windows."
     } catch {
-        $settingsStatus.Text = "No se pudo guardar: $($_.Exception.Message)"
+        Set-StatusText $settingsStatus "No se pudo guardar: $($_.Exception.Message)" -Level Error
     }
 })
 
 $btnRefreshModels.Add_Click({
     $btnRefreshModels.Enabled = $false
-    $settingsStatus.Text = "Consultando modelos activos de Groq..."
+    Set-StatusText $settingsStatus "Consultando modelos activos de Groq..."
     [Windows.Forms.Application]::DoEvents()
     try {
         $models = Get-GroqModelsFromApi
         $script:groqApiKey = $txtApiKey.Text.Trim()
         Show-GroqModels $models
         Save-AppSettings
-        $settingsStatus.Text = "$($models.Count) modelos activos cargados desde Groq."
+        Set-StatusText $settingsStatus "$($models.Count) modelos activos cargados desde Groq."
     } catch {
-        $settingsStatus.Text = "No se pudieron actualizar los modelos: $($_.Exception.Message)"
+        Set-StatusText $settingsStatus "No se pudieron actualizar los modelos: $($_.Exception.Message)"
     } finally {
         $btnRefreshModels.Enabled = $true
     }
@@ -3168,7 +3194,7 @@ $btnInstallUpdate.Add_Click({
 
     $btnCheckUpdate.Enabled = $false
     $btnInstallUpdate.Enabled = $false
-    $lblUpdateStatus.Text = "Aplicando la actualización..."
+    Set-StatusText $lblUpdateStatus "Aplicando la actualización..."
     [Windows.Forms.Application]::DoEvents()
     try {
         $installedVersion = Install-AppUpdate
@@ -3177,7 +3203,7 @@ $btnInstallUpdate.Add_Click({
         $lblAppVersion.Text = "Aplicación $installedVersion"
         $script:availableUpdateVersion = $null
         $btnInstallUpdate.Visible = $false
-        $lblUpdateStatus.Text = "Actualización instalada. Cerrá y abrí la aplicación."
+        Set-StatusText $lblUpdateStatus "Actualización instalada. Cerrá y abrí la aplicación."
         [void][Windows.Forms.MessageBox]::Show(
             "TXT Preview se actualizó a $installedVersion. Cerrá y volvé a abrir la aplicación para usar el código nuevo.",
             "Actualización completada",
@@ -3185,7 +3211,7 @@ $btnInstallUpdate.Add_Click({
             [Windows.Forms.MessageBoxIcon]::Information
         )
     } catch {
-        $lblUpdateStatus.Text = "No se pudo actualizar: $($_.Exception.Message)"
+        Set-StatusText $lblUpdateStatus "No se pudo actualizar: $($_.Exception.Message)" -Level Error
     } finally {
         $btnCheckUpdate.Enabled = $true
         $btnInstallUpdate.Enabled = $true
@@ -3250,8 +3276,8 @@ $btnAttachFiles.Add_Click({
         $tabEditor.Select()
         Show-Message "Los adjuntos visibles sobre el editor se enviarán en la próxima acción de IA."
     } catch {
-        $settingsStatus.Text = "No se pudo adjuntar: $($_.Exception.Message)"
-        Show-Message "No se pudo adjuntar: $($_.Exception.Message)"
+        Set-StatusText $settingsStatus "No se pudo adjuntar: $($_.Exception.Message)" -Level Error
+        Show-Message "No se pudo adjuntar: $($_.Exception.Message)" -Level Error
     } finally {
         $dialog.Dispose()
     }
@@ -3293,7 +3319,7 @@ $tabs.Add_SelectedIndexChanged({
 $btnCorregir.Add_Click({
     $Texto = $textBox.Text
     if (-not (Test-GroqInputAvailable)) {
-        Show-Message "Ingresá texto en el Editor o adjuntá al menos un archivo."
+        Show-Message "Ingresá texto en el Editor o adjuntá al menos un archivo." -Level Warning
         return
     }
 
@@ -3326,7 +3352,7 @@ $Texto
         Open-MarkdownPreview $corregido
         Show-Message "Se copió al portapapeles. Usá Ctrl+V para pegarlo en cualquier lugar."
     } catch {
-        Show-Message "Error al conectar con la API."
+        Show-Message "Error al conectar con la API." -Level Error
     } finally {
         Stop-Busy
     }
@@ -3339,7 +3365,7 @@ $btnPegar.Add_Click({
     try {
         $contenido = Get-Clipboard -Raw
         if ([string]::IsNullOrWhiteSpace($contenido)) {
-            Show-Message "El portapapeles no contiene texto."
+            Show-Message "El portapapeles no contiene texto." -Level Warning
             return
         }
 
@@ -3350,13 +3376,13 @@ $btnPegar.Add_Click({
         $textBox.SelectionLength = 0
         Show-Message "Texto pegado desde el portapapeles."
     } catch {
-        Show-Message "No se pudo leer el portapapeles."
+        Show-Message "No se pudo leer el portapapeles." -Level Error
     }
 })
 
 $btnCopyMd.Add_Click({
     if ([string]::IsNullOrWhiteSpace($textBox.Text)) {
-        Show-Message "No hay contenido para copiar."
+        Show-Message "No hay contenido para copiar." -Level Warning
         return
     }
 
@@ -3366,7 +3392,7 @@ $btnCopyMd.Add_Click({
 
 $btnCopyTxt.Add_Click({
     if ([string]::IsNullOrWhiteSpace($textBox.Text)) {
-        Show-Message "No hay contenido para copiar."
+        Show-Message "No hay contenido para copiar." -Level Warning
         return
     }
 
@@ -3377,12 +3403,12 @@ $btnCopyTxt.Add_Click({
 $btnLeer.Add_Click({
     $textoParaLeer = Convert-MarkdownToText $textBox.Text
     if ([string]::IsNullOrWhiteSpace($textoParaLeer)) {
-        Show-Message "No hay contenido en Vista previa para leer."
+        Show-Message "No hay contenido en Vista previa para leer." -Level Warning
         return
     }
 
     if ($voiceCombo.SelectedIndex -lt 0) {
-        Show-Message "No hay una voz disponible para leer el contenido."
+        Show-Message "No hay una voz disponible para leer el contenido." -Level Warning
         return
     }
 
@@ -3392,7 +3418,7 @@ $btnLeer.Add_Click({
         Start-SelectedVoicePlayback $textoParaLeer
     } catch {
         Stop-VoicePlayback
-        Show-Message "No se pudo iniciar la lectura en voz alta: $($_.Exception.Message)"
+        Show-Message "No se pudo iniciar la lectura en voz alta: $($_.Exception.Message)" -Level Error
     }
 })
 
@@ -3414,7 +3440,7 @@ $btnPauseVoice.Add_Click({
 $btnPreguntar.Add_Click({
     $Texto = $textBox.Text
     if (-not (Test-GroqInputAvailable)) {
-        Show-Message "Ingresá una consulta en el Editor o adjuntá al menos un archivo."
+        Show-Message "Ingresá una consulta en el Editor o adjuntá al menos un archivo." -Level Warning
         return
     }
 
@@ -3438,7 +3464,7 @@ $Texto
         Open-MarkdownPreview $respuesta
         Show-Message "Respuesta lista. Elegí copiar como MD o TXT."
     } catch {
-        Show-Message "Error al conectar con la API."
+        Show-Message "Error al conectar con la API." -Level Error
     } finally {
         Stop-Busy
     }
@@ -3447,7 +3473,7 @@ $Texto
 $btnResumir.Add_Click({
     $Texto = $textBox.Text
     if (-not (Test-GroqInputAvailable)) {
-        Show-Message "Ingresá contenido en el Editor o adjuntá al menos un archivo."
+        Show-Message "Ingresá contenido en el Editor o adjuntá al menos un archivo." -Level Warning
         return
     }
 
@@ -3480,7 +3506,7 @@ $Texto
         Open-MarkdownPreview $resumen
         Show-Message "Resumen profesional listo en Vista previa."
     } catch {
-        Show-Message "Error al conectar con la API."
+        Show-Message "Error al conectar con la API." -Level Error
     } finally {
         Stop-Busy
     }

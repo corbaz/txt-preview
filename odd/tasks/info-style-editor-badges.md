@@ -20,6 +20,8 @@ Fix the editor typing bug, unify the style of informational messages across them
 - [x] T2 — Shared informational style (Notice color + one font) for status, update, hint, version, attachment labels in both themes (route: inline)
 - [x] T3 — Capability badges (chat, reasoning, web, vision, text files) in green next to "Contexto IA" with tooltips (route: inline)
 
+- [x] T4 — Errors in red (Danger) and warnings in yellow (Warning) for both themes via explicit `-Level`; level persists per control across theme changes (route: inline)
+
 ## Checks
 
 - `python -m unittest discover -s tests` (static contract tests; RED before GREEN)
@@ -33,4 +35,5 @@ Fix the editor typing bug, unify the style of informational messages across them
 - Parser check: 0 errors. App launched for 15 s without runtime errors.
 - Icon glyphs E8BD/E82F/E774/E890/E723 verified present in Segoe Fluent Icons.
 - Review assess: risk medium, review_due false (under_budget).
+- T4: RED 3 failing, GREEN 20 OK; 24 error and 17 warning call sites flagged; app ran 12 s without errors.
 - Pending: visual check by the user (no visible desktop in the agent session).
