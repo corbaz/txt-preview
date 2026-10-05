@@ -47,6 +47,17 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIsNotNone(shown_handler)
         self.assertIn("Update-ToolbarLayout", shown_handler.group("body"))
 
+    def test_clear_chat_also_removes_attachments(self) -> None:
+        clear_handler = re.search(r"\$btnLimpiar\.Add_Click\(\{(?P<body>.*?)\n\}\)", SCRIPT, re.DOTALL)
+        self.assertIsNotNone(clear_handler)
+        self.assertIn("$script:attachedFiles.Clear()", clear_handler.group("body"))
+        self.assertIn("Update-AttachmentSummary", clear_handler.group("body"))
+
+    def test_notices_use_a_theme_aware_color(self) -> None:
+        self.assertEqual(SCRIPT.count('Notice = "#'), 2)
+        self.assertIn('$msgBox.ForeColor = Get-ThemeColor "Notice"', SCRIPT)
+        self.assertIn('$lblAttachments.ForeColor = Get-ThemeColor "Notice"', SCRIPT)
+
     def test_version_uses_requested_format(self) -> None:
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$")

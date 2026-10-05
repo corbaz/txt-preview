@@ -16,6 +16,8 @@
 14. El repositorio no contiene valores con prefijo `gsk_` ni archivos de configuración del usuario.
 15. Consultar, resumir, corregir y traducir pueden ejecutarse con el Editor vacío cuando existe al menos un adjunto; sin texto ni adjuntos, la solicitud se bloquea.
 16. Las filas de botones inferiores aparecen centradas desde el primer despliegue de la ventana y vuelven a centrarse al cambiar su ancho o la visibilidad de acciones contextuales.
+17. **Limpiar chat** vacía el Editor y elimina todos los archivos adjuntos del contexto de la próxima solicitud.
+18. Los avisos generales y el resumen de adjuntos activos usan un verde legible adaptado a los temas claro y oscuro; el estado sin adjuntos conserva el tono secundario.
 
 ## Verificación
 

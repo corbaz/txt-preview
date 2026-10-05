@@ -15,3 +15,5 @@ El Editor reserva una franja superior llamada **Contexto IA**. Allí se muestra 
 La validación de entrada considera dos fuentes equivalentes de contexto: el texto del Editor y los adjuntos activos. Las acciones de IA continúan si cualquiera de las dos contiene información y solo se bloquean cuando ambas están vacías.
 
 El layout de la botonera inferior conserva las coordenadas relativas de cada fila y calcula un desplazamiento común para centrarla. El cálculo final se repite en el evento `Shown`, cuando WinForms ya informa la visibilidad y el ancho efectivos de los controles, además de ejecutarse ante cambios posteriores de tamaño o capacidades del modelo.
+
+La acción **Limpiar chat** restablece conjuntamente el texto y la colección de adjuntos, y actualiza de inmediato la franja de contexto. La paleta incorpora el color semántico `Notice`: verde claro en tema oscuro y verde profundo en tema claro. Se aplica a los mensajes de estado y al resumen cuando existen adjuntos, mientras que el estado vacío permanece atenuado.

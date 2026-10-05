@@ -751,6 +751,7 @@ function Test-GroqInputAvailable {
 function Update-AttachmentSummary {
     if ($script:attachedFiles.Count -eq 0) {
         $lblAttachments.Text = "Sin archivos adjuntos para la próxima solicitud"
+        $lblAttachments.ForeColor = Get-ThemeColor "Muted"
         $contextToolTip.SetToolTip($lblAttachments, "")
         $btnClearAttachments.Visible = $false
         return
@@ -758,6 +759,7 @@ function Update-AttachmentSummary {
     $names = @($script:attachedFiles | ForEach-Object { $_.Name })
     $attachmentText = "Se enviarán a Groq ($($names.Count)): " + ($names -join ", ")
     $lblAttachments.Text = $attachmentText
+    $lblAttachments.ForeColor = Get-ThemeColor "Notice"
     $contextToolTip.SetToolTip($lblAttachments, $attachmentText)
     $btnClearAttachments.Visible = $true
 }
@@ -1086,6 +1088,7 @@ $themePalettes = @{
         Border = "#2A3142"; Text = "#E7EAF3"; Muted = "#8E97AD"; Editor = "#0E121A"
         Accent = "#8B93FF"; AccentHover = "#A3A9FF"; OnAccent = "#0B0E14"
         Play = "#34D399"; Pause = "#FBBF24"; Stop = "#FB7185"; OnState = "#0B0E14"
+        Notice = "#6EE7B7"
         Code = "#151A25"; Heading = "#F3F5FB"; Link = "#A3A9FF"
         SpeechBackground = "#3B3F8F"; SpeechForeground = "#FFFFFF"
         Scrollbar = "#2A3142"; ScrollbarArrow = "#6B7490"
@@ -1095,6 +1098,7 @@ $themePalettes = @{
         Border = "#DCE0EA"; Text = "#161A26"; Muted = "#5E667A"; Editor = "#FFFFFF"
         Accent = "#5056E0"; AccentHover = "#6369EA"; OnAccent = "#FFFFFF"
         Play = "#059669"; Pause = "#D97706"; Stop = "#E11D48"; OnState = "#FFFFFF"
+        Notice = "#047857"
         Code = "#F3F4F8"; Heading = "#0F1220"; Link = "#4248D6"
         SpeechBackground = "#DDE0FF"; SpeechForeground = "#1A1D6B"
         Scrollbar = "#CDD2DE"; ScrollbarArrow = "#8A92A6"
@@ -2513,7 +2517,7 @@ function Set-Theme {
     $textBox.BackColor = Get-ThemeColor "Editor"
     $textBox.ForeColor = Get-ThemeColor "Text"
     $msgBox.BackColor = Get-ThemeColor "Surface"
-    $msgBox.ForeColor = Get-ThemeColor "Muted"
+    $msgBox.ForeColor = Get-ThemeColor "Notice"
     $spinnerLabel.BackColor = Get-ThemeColor "Surface"
     $spinnerLabel.ForeColor = Get-ThemeColor "Accent"
     $lblVoice.BackColor = Get-ThemeColor "Surface"
@@ -2543,7 +2547,11 @@ function Set-Theme {
     $lblContextTitle.ForeColor = Get-ThemeColor "Accent"
     $lblContextTitle.Font = New-Object Drawing.Font($uiStrongFontName, 9)
     $lblAttachments.BackColor = Get-ThemeColor "Elevated"
-    $lblAttachments.ForeColor = Get-ThemeColor "Muted"
+    $lblAttachments.ForeColor = if ($script:attachedFiles.Count -gt 0) {
+        Get-ThemeColor "Notice"
+    } else {
+        Get-ThemeColor "Muted"
+    }
     $lblAttachments.Font = New-Object Drawing.Font($uiFontName, 9)
     $checkWebSearch.BackColor = Get-ThemeColor "Elevated"
     $checkWebSearch.ForeColor = Get-ThemeColor "Text"
@@ -3210,8 +3218,10 @@ $Texto
 
 $btnLimpiar.Add_Click({
     $textBox.Clear()
+    $script:attachedFiles.Clear()
+    Update-AttachmentSummary
     $tabs.SelectedTab = $tabEditor
-    Show-Message "Editor limpiado."
+    Show-Message "Editor y adjuntos limpiados."
 })
 
 $btnCerrar.Add_Click({
