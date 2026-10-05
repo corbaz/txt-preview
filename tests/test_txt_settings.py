@@ -27,6 +27,11 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn('type = "browser_search"', SCRIPT)
         self.assertIn('type      = "image_url"', SCRIPT)
 
+    def test_model_selector_is_in_header_and_attachment_is_contextual(self) -> None:
+        self.assertIn("$settingsNavHost.Controls.Add($modelCombo)", SCRIPT)
+        self.assertIn("$panel.Controls.Add($btnAttachFiles)", SCRIPT)
+        self.assertIn("$btnAttachFiles.Visible = $btnAttachFiles.Enabled", SCRIPT)
+
     def test_version_uses_requested_format(self) -> None:
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$")

@@ -363,13 +363,19 @@ $navHost.Controls.Add($btnNavPreview)
 
 $settingsNavHost = New-Object Windows.Forms.Panel
 $settingsNavHost.Dock = "Right"
-$settingsNavHost.Width = 154
+$settingsNavHost.Width = 560
 $statusPanel.Controls.Add($settingsNavHost)
 
 $btnNavSettings = New-Object Windows.Forms.Button
 $btnNavSettings.Text = "Configuración"
 $btnNavSettings.SetBounds(5, 3, 145, 26)
 $settingsNavHost.Controls.Add($btnNavSettings)
+
+$lblHeaderModel = New-Object Windows.Forms.Label
+$lblHeaderModel.Text = "Modelo"
+$lblHeaderModel.TextAlign = [Drawing.ContentAlignment]::MiddleRight
+$lblHeaderModel.SetBounds(158, 3, 58, 26)
+$settingsNavHost.Controls.Add($lblHeaderModel)
 
 $spinnerFrames = @("● ○ ○", "○ ● ○", "○ ○ ●")
 $spinnerTimer = New-Object Windows.Forms.Timer
@@ -441,37 +447,37 @@ $panel.Controls.Add($btnPauseVoice)
 
 $btnPegar = New-Object Windows.Forms.Button
 $btnPegar.Text = "Pegar desde el portapapeles al editor"
-$btnPegar.SetBounds(14, 54, 268, 34)
+$btnPegar.SetBounds(14, 54, 230, 34)
 $panel.Controls.Add($btnPegar)
 
 $btnCopyMd = New-Object Windows.Forms.Button
-$btnCopyMd.Text = "Copiar al portapapeles MD"
-$btnCopyMd.SetBounds(290, 54, 210, 34)
+$btnCopyMd.Text = "Copiar MD"
+$btnCopyMd.SetBounds(415, 54, 160, 34)
 $panel.Controls.Add($btnCopyMd)
 
 $btnCopyTxt = New-Object Windows.Forms.Button
-$btnCopyTxt.Text = "Copiar al portapapeles TXT"
-$btnCopyTxt.SetBounds(508, 54, 220, 34)
+$btnCopyTxt.Text = "Copiar TXT"
+$btnCopyTxt.SetBounds(583, 54, 165, 34)
 $panel.Controls.Add($btnCopyTxt)
 
 $btnMic = New-Object Windows.Forms.Button
 $btnMic.Text = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes("Micrófono"))
-$btnMic.SetBounds(736, 54, 140, 34)
+$btnMic.SetBounds(756, 54, 120, 34)
 $panel.Controls.Add($btnMic)
 
 $btnPdf = New-Object Windows.Forms.Button
 $btnPdf.Text = "PDF"
-$btnPdf.SetBounds(884, 54, 80, 34)
+$btnPdf.SetBounds(884, 54, 70, 34)
 $panel.Controls.Add($btnPdf)
 
 $btnMp3 = New-Object Windows.Forms.Button
 $btnMp3.Text = "MP3"
-$btnMp3.SetBounds(972, 54, 80, 34)
+$btnMp3.SetBounds(962, 54, 70, 34)
 $panel.Controls.Add($btnMp3)
 
 $btnLimpiar = New-Object Windows.Forms.Button
 $btnLimpiar.Text = "Limpiar chat"
-$btnLimpiar.SetBounds(1060, 54, 130, 34)
+$btnLimpiar.SetBounds(1040, 54, 120, 34)
 $panel.Controls.Add($btnLimpiar)
 
 $btnTheme = New-Object Windows.Forms.Button
@@ -599,35 +605,30 @@ $btnRefreshModels.Text = "Actualizar modelos"
 $btnRefreshModels.SetBounds(742, 104, 165, 32)
 $tabSettings.Controls.Add($btnRefreshModels)
 
-$lblGroqModel = New-Object Windows.Forms.Label
-$lblGroqModel.Text = "Modelo activo"
-$lblGroqModel.SetBounds(30, 154, 100, 26)
-$tabSettings.Controls.Add($lblGroqModel)
-
 $modelCombo = New-Object Windows.Forms.ComboBox
 $modelCombo.DropDownStyle = [Windows.Forms.ComboBoxStyle]::DropDownList
 $modelCombo.FlatStyle = [Windows.Forms.FlatStyle]::Flat
-$modelCombo.SetBounds(140, 150, 470, 30)
-$tabSettings.Controls.Add($modelCombo)
+$modelCombo.SetBounds(220, 3, 330, 26)
+$settingsNavHost.Controls.Add($modelCombo)
 
 $checkWebSearch = New-Object Windows.Forms.CheckBox
 $checkWebSearch.Text = "Usar búsqueda web cuando el modelo sea compatible"
-$checkWebSearch.SetBounds(622, 151, 360, 28)
+$checkWebSearch.SetBounds(30, 151, 420, 28)
 $tabSettings.Controls.Add($checkWebSearch)
 
 $btnAttachFiles = New-Object Windows.Forms.Button
 $btnAttachFiles.Text = "Adjuntar archivos"
-$btnAttachFiles.SetBounds(30, 194, 160, 32)
-$tabSettings.Controls.Add($btnAttachFiles)
+$btnAttachFiles.SetBounds(252, 54, 155, 34)
+$panel.Controls.Add($btnAttachFiles)
 
 $btnClearAttachments = New-Object Windows.Forms.Button
 $btnClearAttachments.Text = "Quitar adjuntos"
-$btnClearAttachments.SetBounds(200, 194, 150, 32)
+$btnClearAttachments.SetBounds(30, 194, 150, 32)
 $tabSettings.Controls.Add($btnClearAttachments)
 
 $lblAttachments = New-Object Windows.Forms.Label
 $lblAttachments.Text = "Sin archivos adjuntos"
-$lblAttachments.SetBounds(366, 198, 650, 26)
+$lblAttachments.SetBounds(194, 198, 820, 26)
 $tabSettings.Controls.Add($lblAttachments)
 
 $modelsList = New-Object Windows.Forms.ListView
@@ -742,6 +743,7 @@ function Update-ModelCapabilityControls {
         $checkWebSearch.Checked = $false
     }
     $btnAttachFiles.Enabled = $capabilities.TextFiles -or $capabilities.Vision
+    $btnAttachFiles.Visible = $btnAttachFiles.Enabled
     $settingsStatus.Text = "$($script:selectedGroqModel) · $($capabilities.Summary)"
 
     $incompatible = @($script:attachedFiles | Where-Object { $_.Kind -eq "Image" -and -not $capabilities.Vision })
@@ -749,6 +751,7 @@ function Update-ModelCapabilityControls {
         [void]$script:attachedFiles.Remove($attachment)
     }
     Update-AttachmentSummary
+    Update-ToolbarLayout
 }
 
 function Show-GroqModels {
@@ -2496,7 +2499,7 @@ function Set-Theme {
     $versionLabel.BackColor = Get-ThemeColor "Surface"
     $versionLabel.ForeColor = Get-ThemeColor "Muted"
     $versionLabel.Font = New-Object Drawing.Font($uiFontName, 9)
-    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $lblGroqModel, $lblAttachments, $settingsStatus)) {
+    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $lblAttachments, $settingsStatus)) {
         $label.BackColor = Get-ThemeColor "Window"
         $label.ForeColor = if ($label -eq $settingsTitle) { Get-ThemeColor "Heading" } else { Get-ThemeColor "Muted" }
     }
@@ -2507,6 +2510,9 @@ function Set-Theme {
     }
     $checkWebSearch.BackColor = Get-ThemeColor "Window"
     $checkWebSearch.ForeColor = Get-ThemeColor "Text"
+    $lblHeaderModel.BackColor = Get-ThemeColor "Elevated"
+    $lblHeaderModel.ForeColor = Get-ThemeColor "Muted"
+    $lblHeaderModel.Font = New-Object Drawing.Font($uiStrongFontName, 9)
     $modelsList.BackColor = Get-ThemeColor "Editor"
     $modelsList.ForeColor = Get-ThemeColor "Text"
     $modelsList.Font = New-Object Drawing.Font($uiFontName, 9.5)
@@ -2798,9 +2804,18 @@ foreach ($control in $panel.Controls) {
 }
 
 function Update-ToolbarLayout {
+    # Close the gap left by the contextual attachment button when it is hidden.
+    $attachmentOffset = if ($btnAttachFiles.Visible) { 163 } else { 0 }
+    $toolbarBaseLeft[$btnCopyMd] = 252 + $attachmentOffset
+    $toolbarBaseLeft[$btnCopyTxt] = 420 + $attachmentOffset
+    $toolbarBaseLeft[$btnMic] = 593 + $attachmentOffset
+    $toolbarBaseLeft[$btnPdf] = 721 + $attachmentOffset
+    $toolbarBaseLeft[$btnMp3] = 799 + $attachmentOffset
+    $toolbarBaseLeft[$btnLimpiar] = 877 + $attachmentOffset
+
     $rows = @{}
     foreach ($control in $panel.Controls) {
-        if ($control -eq $versionLabel) {
+        if ($control -eq $versionLabel -or -not $control.Visible) {
             continue
         }
         $rowIndex = [int][Math]::Floor($control.Top / $toolbarRowHeight)
