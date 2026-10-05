@@ -15,8 +15,28 @@ if (-not (Test-Path -LiteralPath $appScript)) {
     throw "No se encontró txt.ps1 en $appDirectory."
 }
 
-$powershellPath = Join-Path $PSHOME "powershell.exe"
-if (-not (Test-Path -LiteralPath $powershellPath)) {
+# The app needs PowerShell 7 (pwsh): Windows PowerShell 5.1 reads its UTF-8 source as
+# ANSI and shows broken accents.
+function Find-Pwsh {
+    $command = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+    $defaultPath = Join-Path $env:ProgramFiles "PowerShell\7\pwsh.exe"
+    if (Test-Path -LiteralPath $defaultPath) {
+        return $defaultPath
+    }
+    return $null
+}
+
+$powershellPath = Find-Pwsh
+if (-not $powershellPath) {
+    Write-Host "Instalando PowerShell 7..."
+    & winget install --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements
+    $powershellPath = Find-Pwsh
+}
+if (-not $powershellPath) {
+    Write-Host "No se pudo instalar PowerShell 7; se usará Windows PowerShell y algunos acentos pueden verse mal." -ForegroundColor Yellow
     $powershellPath = (Get-Command powershell.exe).Source
 }
 $launchArguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$appScript`""

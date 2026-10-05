@@ -29,8 +29,9 @@ El instalador:
 
 1. Descarga la app en `%LOCALAPPDATA%\txt-preview`.
 2. Crea el acceso directo **TXT Preview** en el escritorio.
-3. Si tenés Python, instala `edge-tts` para las voces en línea.
-4. Abre la aplicación.
+3. Si no tenés PowerShell 7, lo instala (la app lo necesita para mostrar bien los acentos).
+4. Si tenés Python, instala `edge-tts` para las voces en línea.
+5. Abre la aplicación.
 
 ## Primeros pasos
 
@@ -53,7 +54,7 @@ Después de instalar Python o FFmpeg, cerrá y volvé a abrir la app.
 
 ## Actualizaciones
 
-En **Configuración**, tocá **Buscar actualización**. Si hay una versión nueva aparece **Actualizar ahora**; al terminar, cerrá y volvé a abrir la app. La actualización nunca pisa cambios que hayas hecho en los archivos de la app: si los hay, te avisa y no actualiza.
+Al abrir la app, si hay una versión nueva aparece un aviso que pregunta si querés actualizar; si aceptás, se actualiza y se reinicia sola. También podés tocar **Buscar actualización** en **Configuración**. La actualización nunca pisa cambios que hayas hecho en los archivos de la app: si los hay, te avisa y no actualiza.
 
 ## Problemas frecuentes
 
@@ -82,7 +83,7 @@ La segunda línea borra tu configuración y la API key guardada.
 
 ## Para desarrolladores
 
-La app es un único script de Windows PowerShell 5.1 con WinForms ([`txt.ps1`](txt.ps1)). Para ejecutarla desde un clon:
+La app es un único script de PowerShell 7 con WinForms ([`txt.ps1`](txt.ps1)). Para ejecutarla desde un clon:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\txt.ps1

@@ -22,6 +22,9 @@ Fix the editor typing bug, unify the style of informational messages across them
 
 - [x] T4 — Errors in red (Danger) and warnings in yellow (Warning) for both themes via explicit `-Level`; level persists per control across theme changes (route: inline)
 
+- [x] T5 — Startup modal offers an available update; Yes installs and restarts with the same host; git calls no longer freeze the UI (route: inline)
+- [x] T6 — Installer targets PowerShell 7 (installs it via winget if missing); Windows PowerShell 5.1 misreads the BOM-less UTF-8 source (route: inline)
+
 ## Checks
 
 - `python -m unittest discover -s tests` (static contract tests; RED before GREEN)

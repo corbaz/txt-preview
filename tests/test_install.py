@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -14,6 +15,7 @@ INSTALLER = ROOT / "install.ps1"
 
 
 @unittest.skipUnless(os.name == "nt", "install.ps1 targets Windows")
+@unittest.skipUnless(shutil.which("pwsh"), "PowerShell 7 is not installed on this machine")
 class InstallScriptTests(unittest.TestCase):
     def test_creates_a_shortcut_that_launches_the_app(self) -> None:
         self.assertTrue(INSTALLER.exists(), "install.ps1 is missing")
@@ -38,7 +40,8 @@ class InstallScriptTests(unittest.TestCase):
                 capture_output=True, text=True, timeout=60,
             )
             target, arguments, working_dir = read.stdout.strip().splitlines()
-            self.assertTrue(target.lower().endswith("powershell.exe"))
+            # The app targets PowerShell 7: Windows PowerShell 5.1 misreads its UTF-8 source.
+            self.assertTrue(target.lower().endswith("pwsh.exe"), target)
             self.assertIn("-ExecutionPolicy Bypass", arguments)
             self.assertIn(str(ROOT / "txt.ps1"), arguments)
             self.assertEqual(Path(working_dir), ROOT)
