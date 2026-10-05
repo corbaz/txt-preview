@@ -16,9 +16,9 @@ Fix the editor typing bug, unify the style of informational messages across them
 
 ## Tasks
 
-- [ ] T1 — Editor not covered by context panel (route: inline, one file, already diagnosed)
-- [ ] T2 — Shared informational style (Notice color + one font) for status, update, hint, version, attachment labels in both themes (route: inline)
-- [ ] T3 — Capability badges (chat, reasoning, web, vision, text files) in green next to "Contexto IA" with tooltips (route: inline)
+- [x] T1 — Editor not covered by context panel (route: inline, one file, already diagnosed)
+- [x] T2 — Shared informational style (Notice color + one font) for status, update, hint, version, attachment labels in both themes (route: inline)
+- [x] T3 — Capability badges (chat, reasoning, web, vision, text files) in green next to "Contexto IA" with tooltips (route: inline)
 
 ## Checks
 
@@ -28,3 +28,9 @@ Fix the editor typing bug, unify the style of informational messages across them
 ## Progress
 
 - Branch: `feat/info-style-editor-badges`
+- T1 `0fce313`, T2 `243a8ea`, T3 `b3cba26`.
+- RED observed (4 failing contract tests), then GREEN: `python -m unittest discover -s tests` -> 17 OK.
+- Parser check: 0 errors. App launched for 15 s without runtime errors.
+- Icon glyphs E8BD/E82F/E774/E890/E723 verified present in Segoe Fluent Icons.
+- Review assess: risk medium, review_due false (under_budget).
+- Pending: visual check by the user (no visible desktop in the agent session).
