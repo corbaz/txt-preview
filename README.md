@@ -31,6 +31,16 @@ Al abrir **Configuración**, la aplicación consulta `origin/main`. Si existe un
 - `ffplay` y `ffprobe` para reproducir y medir el audio Edge.
 - Una API key de Groq para las funciones de IA.
 
+## Instalación en otra PC
+
+Con Git instalado y acceso al repositorio, un solo comando clona la app, crea el acceso directo **TXT Preview** en el escritorio, instala `edge-tts` si hay Python y abre la aplicación:
+
+```powershell
+git clone https://github.com/corbaz/txt-preview.git "$env:LOCALAPPDATA\txt-preview"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\txt-preview\install.ps1"
+```
+
+Instalar en esa carpeta mantiene funcionando **Actualizar ahora**, porque es un clon de Git.
+
 ## Ejecución
 
 ```powershell
