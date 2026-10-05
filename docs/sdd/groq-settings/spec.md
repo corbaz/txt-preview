@@ -14,6 +14,7 @@
 12. La interfaz impide adjuntar tipos no compatibles con el modelo seleccionado.
 13. La esquina inferior derecha muestra la versión en formato `v:yy.mm.dd-HH.mm`, calculada en horario de Buenos Aires al preparar la versión.
 14. El repositorio no contiene valores con prefijo `gsk_` ni archivos de configuración del usuario.
+15. Consultar, resumir, corregir y traducir pueden ejecutarse con el Editor vacío cuando existe al menos un adjunto; sin texto ni adjuntos, la solicitud se bloquea.
 
 ## Verificación
 

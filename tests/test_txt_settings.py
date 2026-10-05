@@ -38,6 +38,10 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn("$contextPanel.Controls.Add($btnClearAttachments)", SCRIPT)
         self.assertIn('"Se enviarán a Groq ($($names.Count)): "', SCRIPT)
 
+    def test_attachment_can_be_the_only_input(self) -> None:
+        self.assertIn("$script:attachedFiles.Count -gt 0", SCRIPT)
+        self.assertEqual(SCRIPT.count("if (-not (Test-GroqInputAvailable))"), 4)
+
     def test_version_uses_requested_format(self) -> None:
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$")

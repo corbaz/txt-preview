@@ -744,6 +744,10 @@ function Get-SelectedModelCapabilities {
     return Get-GroqModelCapabilities $script:selectedGroqModel
 }
 
+function Test-GroqInputAvailable {
+    return -not [string]::IsNullOrWhiteSpace($textBox.Text) -or $script:attachedFiles.Count -gt 0
+}
+
 function Update-AttachmentSummary {
     if ($script:attachedFiles.Count -eq 0) {
         $lblAttachments.Text = "Sin archivos adjuntos para la próxima solicitud"
@@ -2789,8 +2793,8 @@ function Invoke-Translation {
     )
 
     $Texto = $textBox.Text
-    if ([string]::IsNullOrWhiteSpace($Texto)) {
-        Show-Message "No se ingresó texto."
+    if (-not (Test-GroqInputAvailable)) {
+        Show-Message "Ingresá texto en el Editor o adjuntá al menos un archivo."
         return
     }
 
@@ -3010,8 +3014,8 @@ $tabs.Add_SelectedIndexChanged({
 
 $btnCorregir.Add_Click({
     $Texto = $textBox.Text
-    if ([string]::IsNullOrWhiteSpace($Texto)) {
-        Show-Message "No se ingresó texto."
+    if (-not (Test-GroqInputAvailable)) {
+        Show-Message "Ingresá texto en el Editor o adjuntá al menos un archivo."
         return
     }
 
@@ -3131,8 +3135,8 @@ $btnPauseVoice.Add_Click({
 
 $btnPreguntar.Add_Click({
     $Texto = $textBox.Text
-    if ([string]::IsNullOrWhiteSpace($Texto)) {
-        Show-Message "Escribí o pegá una pregunta primero."
+    if (-not (Test-GroqInputAvailable)) {
+        Show-Message "Ingresá una consulta en el Editor o adjuntá al menos un archivo."
         return
     }
 
@@ -3164,8 +3168,8 @@ $Texto
 
 $btnResumir.Add_Click({
     $Texto = $textBox.Text
-    if ([string]::IsNullOrWhiteSpace($Texto)) {
-        Show-Message "Escribí o pegá el contenido que querés resumir."
+    if (-not (Test-GroqInputAvailable)) {
+        Show-Message "Ingresá contenido en el Editor o adjuntá al menos un archivo."
         return
     }
 
