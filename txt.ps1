@@ -665,11 +665,18 @@ $lblContextTitle.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
 $lblContextTitle.SetBounds(8, 8, 105, 28)
 $contextPanel.Controls.Add($lblContextTitle)
 
+# Icons for what the selected model can do; rebuilt by Update-CapabilityBadges.
+$capabilityBadgeHost = New-Object Windows.Forms.Panel
+$capabilityBadgeHost.SetBounds(113, 8, 0, 28)
+$contextPanel.Controls.Add($capabilityBadgeHost)
+$capabilityIconFontName = if ($installedFontNames -contains "Segoe Fluent Icons") { "Segoe Fluent Icons" } else { "Segoe MDL2 Assets" }
+
 $lblAttachments = New-Object Windows.Forms.Label
 $lblAttachments.Text = "Sin archivos adjuntos para la próxima solicitud"
 $lblAttachments.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
 $lblAttachments.AutoEllipsis = $true
-$lblAttachments.Anchor = [Windows.Forms.AnchorStyles]::Top -bor [Windows.Forms.AnchorStyles]::Left -bor [Windows.Forms.AnchorStyles]::Right
+# Left and width are computed by Update-ContextLayout after the badges change.
+$lblAttachments.Anchor = [Windows.Forms.AnchorStyles]::Top -bor [Windows.Forms.AnchorStyles]::Left
 $lblAttachments.SetBounds(378, 8, 610, 28)
 $contextPanel.Controls.Add($lblAttachments)
 
@@ -721,48 +728,48 @@ function Get-GroqModelCapabilities {
 
     if ($modelId -eq "qwen/qwen3.8-27b") {
         return [pscustomobject]@{
-            Chat = $true; Web = $false; Vision = $true; TextFiles = $true
+            Chat = $true; Reasoning = $true; Web = $false; Vision = $true; TextFiles = $true
             Summary = "Texto · Razonamiento · Visión · Imágenes (máx. 3) · Archivos de texto"
         }
     }
     if ($modelId -in @("openai/gpt-oss-120b", "openai/gpt-oss-20b")) {
         return [pscustomobject]@{
-            Chat = $true; Web = $true; Vision = $false; TextFiles = $true
+            Chat = $true; Reasoning = $true; Web = $true; Vision = $false; TextFiles = $true
             Summary = "Texto · Razonamiento · Búsqueda web · Archivos de texto"
         }
     }
     if ($modelId -eq "allam-2-7b") {
         return [pscustomobject]@{
-            Chat = $true; Web = $false; Vision = $false; TextFiles = $true
+            Chat = $true; Reasoning = $false; Web = $false; Vision = $false; TextFiles = $true
             Summary = "Texto · Árabe · Archivos de texto"
         }
     }
     if ($modelId -eq "openai/gpt-oss-safeguard-20b") {
         return [pscustomobject]@{
-            Chat = $false; Web = $true; Vision = $false; TextFiles = $false
+            Chat = $false; Reasoning = $false; Web = $true; Vision = $false; TextFiles = $false
             Summary = "Seguridad · Moderación · Búsqueda web"
         }
     }
     if ($modelId -like "whisper-*") {
         return [pscustomobject]@{
-            Chat = $false; Web = $false; Vision = $false; TextFiles = $false
+            Chat = $false; Reasoning = $false; Web = $false; Vision = $false; TextFiles = $false
             Summary = "Transcripción y traducción de audio"
         }
     }
     if ($modelId -like "canopylabs/orpheus-*") {
         return [pscustomobject]@{
-            Chat = $false; Web = $false; Vision = $false; TextFiles = $false
+            Chat = $false; Reasoning = $false; Web = $false; Vision = $false; TextFiles = $false
             Summary = "Texto a voz"
         }
     }
     if ($modelId -like "meta-llama/llama-prompt-guard-*") {
         return [pscustomobject]@{
-            Chat = $false; Web = $false; Vision = $false; TextFiles = $false
+            Chat = $false; Reasoning = $false; Web = $false; Vision = $false; TextFiles = $false
             Summary = "Clasificación de seguridad de prompts"
         }
     }
     return [pscustomobject]@{
-        Chat = $false; Web = $false; Vision = $false; TextFiles = $false
+        Chat = $false; Reasoning = $false; Web = $false; Vision = $false; TextFiles = $false
         Summary = "Capacidades no catalogadas"
     }
 }
@@ -780,13 +787,68 @@ function Update-AttachmentSummary {
         $lblAttachments.Text = "Sin archivos adjuntos para la próxima solicitud"
         $contextToolTip.SetToolTip($lblAttachments, "")
         $btnClearAttachments.Visible = $false
-        return
+    } else {
+        $names = @($script:attachedFiles | ForEach-Object { $_.Name })
+        $attachmentText = "Se enviarán a Groq ($($names.Count)): " + ($names -join ", ")
+        $lblAttachments.Text = $attachmentText
+        $contextToolTip.SetToolTip($lblAttachments, $attachmentText)
+        $btnClearAttachments.Visible = $true
     }
-    $names = @($script:attachedFiles | ForEach-Object { $_.Name })
-    $attachmentText = "Se enviarán a Groq ($($names.Count)): " + ($names -join ", ")
-    $lblAttachments.Text = $attachmentText
-    $contextToolTip.SetToolTip($lblAttachments, $attachmentText)
-    $btnClearAttachments.Visible = $true
+    Update-ContextLayout
+}
+
+function Update-ContextLayout {
+    $gap = 8
+    $titleWidth = [Windows.Forms.TextRenderer]::MeasureText($lblContextTitle.Text, $lblContextTitle.Font).Width
+    $lblContextTitle.Width = $titleWidth + 4
+    $capabilityBadgeHost.Left = $lblContextTitle.Right + 2
+    $nextLeft = $capabilityBadgeHost.Right + $gap
+    # Read the state, not .Visible: it reports false until the form is shown.
+    if ((Get-SelectedModelCapabilities).Web) {
+        $checkWebSearch.Left = $nextLeft
+        $nextLeft = $checkWebSearch.Right + $gap
+    }
+    $rightLimit = $contextPanel.ClientSize.Width - $contextPanel.Padding.Right
+    if ($script:attachedFiles.Count -gt 0) {
+        $rightLimit -= $btnClearAttachments.Width + $gap
+    }
+    $lblAttachments.Left = $nextLeft
+    $lblAttachments.Width = [Math]::Max(0, $rightLimit - $nextLeft)
+}
+
+function Update-CapabilityBadges {
+    $capabilities = Get-SelectedModelCapabilities
+    $badges = @(
+        @{ Enabled = $capabilities.Chat; Glyph = 0xE8BD; Tip = "Chat de texto" }
+        @{ Enabled = $capabilities.Reasoning; Glyph = 0xE82F; Tip = "Razonamiento" }
+        @{ Enabled = $capabilities.Web; Glyph = 0xE774; Tip = "Navegación y búsqueda web" }
+        @{ Enabled = $capabilities.Vision; Glyph = 0xE890; Tip = "Visión: entiende imágenes" }
+        @{ Enabled = $capabilities.TextFiles; Glyph = 0xE723; Tip = "Archivos de texto adjuntos" }
+    )
+
+    $oldBadges = @($capabilityBadgeHost.Controls)
+    $capabilityBadgeHost.Controls.Clear()
+    foreach ($oldBadge in $oldBadges) {
+        $oldBadge.Dispose()
+    }
+
+    $badgeWidth = 26
+    $left = 0
+    foreach ($badge in @($badges | Where-Object { $_.Enabled })) {
+        $icon = New-Object Windows.Forms.Label
+        $icon.Text = [string][char]$badge.Glyph
+        $icon.Font = New-Object Drawing.Font($capabilityIconFontName, 12)
+        $icon.TextAlign = [Drawing.ContentAlignment]::MiddleCenter
+        $icon.ForeColor = Get-ThemeColor "Notice"
+        $icon.BackColor = Get-ThemeColor "Elevated"
+        $icon.SetBounds($left, 0, $badgeWidth, $capabilityBadgeHost.Height)
+        $contextToolTip.SetToolTip($icon, $badge.Tip)
+        $capabilityBadgeHost.Controls.Add($icon)
+        $left += $badgeWidth
+    }
+    $capabilityBadgeHost.Width = $left
+    $capabilityBadgeHost.BackColor = Get-ThemeColor "Elevated"
+    Update-ContextLayout
 }
 
 function Update-ModelCapabilityControls {
@@ -808,8 +870,11 @@ function Update-ModelCapabilityControls {
         [void]$script:attachedFiles.Remove($attachment)
     }
     Update-AttachmentSummary
+    Update-CapabilityBadges
     Update-ToolbarLayout
 }
+
+$contextPanel.Add_Resize({ Update-ContextLayout })
 
 function Show-GroqModels {
     param($models)
@@ -2711,6 +2776,7 @@ function Set-Theme {
     foreach ($control in $infoControls) {
         Set-InfoStyle $control
     }
+    Update-CapabilityBadges
     $checkWebSearch.BackColor = Get-ThemeColor "Elevated"
     $checkWebSearch.ForeColor = Get-ThemeColor "Text"
     $lblHeaderModel.BackColor = Get-ThemeColor "Elevated"
