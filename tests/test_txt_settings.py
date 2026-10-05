@@ -147,6 +147,45 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn("ReadToEndAsync()", git_helper.group("body"))
         self.assertIn("Wait-TaskWithEvents", git_helper.group("body"))
 
+    def _click_handler(self, button: str) -> str:
+        handler = re.search(r"\$" + button + r"\.Add_Click\(\{(?P<body>.*?)\n\}\)", SCRIPT, re.DOTALL)
+        self.assertIsNotNone(handler, button)
+        return handler.group("body")
+
+    def test_ask_keeps_the_prompt_in_the_editor(self) -> None:
+        body = self._click_handler("btnPreguntar")
+        self.assertNotIn("$textBox.Text = ", body)
+        self.assertNotIn("Set-EditorText", body)
+        self.assertIn("Show-AiResult $respuesta", body)
+
+    def test_transforms_replace_the_editor_with_undo(self) -> None:
+        helper = re.search(r"function Set-EditorText \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
+        self.assertIsNotNone(helper)
+        # .Text and .SelectedText clear the undo buffer; Paste(text) keeps Ctrl+Z.
+        self.assertIn("$textBox.Paste(", helper.group("body"))
+        self.assertNotRegex(SCRIPT, r"\$textBox\.Text = \$")
+        for variable in ("$traducido", "$corregido", "$resumen", "$contenido"):
+            self.assertIn(f"Set-EditorText {variable}", SCRIPT)
+
+    def test_output_actions_use_the_preview_content(self) -> None:
+        self.assertIn("function Get-PreviewContent", SCRIPT)
+        for button in ("btnCopyMd", "btnCopyTxt", "btnLeer"):
+            body = self._click_handler(button)
+            self.assertIn("Get-PreviewContent", body, button)
+            self.assertNotIn("$textBox.Text", body, button)
+        for function in ("Export-PreviewPdf", "Export-SpeechMp3"):
+            body = re.search(r"function " + function + r" \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL).group("body")
+            self.assertIn("Get-PreviewContent", body, function)
+            self.assertNotIn("$textBox.Text", body, function)
+
+    def test_preview_offers_to_bring_the_answer_to_the_editor(self) -> None:
+        self.assertIn("$tabPreview.Controls.Add($previewResultBar)", SCRIPT)
+        self.assertNotIn("$previewResultBar.BringToFront()", SCRIPT)
+        body = self._click_handler("btnUseResult")
+        self.assertIn("Set-EditorText $script:aiResult", body)
+        self.assertIn("Clear-AiResult", self._click_handler("btnDismissResult"))
+        self.assertIn("Clear-AiResult", self._click_handler("btnLimpiar"))
+
     def test_version_uses_requested_format(self) -> None:
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$")

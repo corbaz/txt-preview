@@ -319,6 +319,33 @@ $preview.Dock = "Fill"
 $preview.ScriptErrorsSuppressed = $true
 $tabPreview.Controls.Add($preview)
 
+# Shown while the preview holds an AI answer instead of the editor text.
+$previewResultBar = New-Object Windows.Forms.Panel
+$previewResultBar.Dock = "Top"
+$previewResultBar.Height = 46
+$previewResultBar.Visible = $false
+$tabPreview.Controls.Add($previewResultBar)
+
+$lblPreviewResult = New-Object Windows.Forms.Label
+$lblPreviewResult.Text = "Respuesta de la IA. Tu consulta sigue en el Editor."
+$lblPreviewResult.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+$lblPreviewResult.AutoEllipsis = $true
+$lblPreviewResult.Anchor = [Windows.Forms.AnchorStyles]::Top -bor [Windows.Forms.AnchorStyles]::Left -bor [Windows.Forms.AnchorStyles]::Right
+$lblPreviewResult.SetBounds(16, 9, 700, 28)
+$previewResultBar.Controls.Add($lblPreviewResult)
+
+$btnUseResult = New-Object Windows.Forms.Button
+$btnUseResult.Text = "Llevar al editor"
+$btnUseResult.Anchor = [Windows.Forms.AnchorStyles]::Top -bor [Windows.Forms.AnchorStyles]::Right
+$btnUseResult.SetBounds(860, 7, 150, 32)
+$previewResultBar.Controls.Add($btnUseResult)
+
+$btnDismissResult = New-Object Windows.Forms.Button
+$btnDismissResult.Text = "Ver el editor"
+$btnDismissResult.Anchor = [Windows.Forms.AnchorStyles]::Top -bor [Windows.Forms.AnchorStyles]::Right
+$btnDismissResult.SetBounds(1018, 7, 130, 32)
+$previewResultBar.Controls.Add($btnDismissResult)
+
 $tabs.TabPages.Add($tabEditor)
 $tabs.TabPages.Add($tabPreview)
 $tabs.TabPages.Add($tabSettings)
@@ -1293,7 +1320,8 @@ $actionButtons = @(
     $btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn,
     $btnLeer, $btnPegar, $btnCopyMd, $btnCopyTxt, $btnMic, $btnPdf, $btnMp3, $btnLimpiar,
     $btnTheme, $btnCerrar, $btnPauseVoice, $btnStopVoice, $btnSaveSettings, $btnRefreshModels,
-    $btnCheckUpdate, $btnInstallUpdate, $btnAttachFiles, $btnClearAttachments
+    $btnCheckUpdate, $btnInstallUpdate, $btnAttachFiles, $btnClearAttachments,
+    $btnUseResult, $btnDismissResult
 )
 
 $aiButtons = @($btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn)
@@ -2508,7 +2536,8 @@ function Get-EdgeBrowserPath {
 }
 
 function Export-PreviewPdf {
-    if ([string]::IsNullOrWhiteSpace($textBox.Text)) {
+    $previewContent = Get-PreviewContent
+    if ([string]::IsNullOrWhiteSpace($previewContent)) {
         Show-Message "No hay contenido para exportar a PDF." -Level Warning
         return
     }
@@ -2530,7 +2559,7 @@ function Export-PreviewPdf {
     $htmlPath = Join-Path $workDirectory "preview.html"
     $profilePath = Join-Path $workDirectory "edge-profile"
     [void][IO.Directory]::CreateDirectory($workDirectory)
-    [IO.File]::WriteAllText($htmlPath, (Get-MarkdownPreviewHtml $textBox.Text), [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($htmlPath, (Get-MarkdownPreviewHtml $previewContent), [Text.UTF8Encoding]::new($false))
 
     Start-Busy "Generando PDF..."
     try {
@@ -2581,7 +2610,7 @@ function Export-PreviewPdf {
 }
 
 function Export-SpeechMp3 {
-    $speechText = Convert-MarkdownToText $textBox.Text
+    $speechText = Convert-MarkdownToText (Get-PreviewContent)
     if ([string]::IsNullOrWhiteSpace($speechText)) {
         Show-Message "No hay contenido para exportar a MP3." -Level Warning
         return
@@ -2802,7 +2831,9 @@ function Set-Theme {
     $lblContextTitle.ForeColor = Get-ThemeColor "Accent"
     $lblContextTitle.Font = New-Object Drawing.Font($uiStrongFontName, 9)
     $lblAttachments.BackColor = Get-ThemeColor "Elevated"
-    $infoControls = @($msgBox, $settingsHint, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblAttachments, $versionLabel)
+    $previewResultBar.BackColor = Get-ThemeColor "Elevated"
+    $lblPreviewResult.BackColor = Get-ThemeColor "Elevated"
+    $infoControls = @($msgBox, $settingsHint, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblAttachments, $versionLabel, $lblPreviewResult)
     foreach ($control in $infoControls) {
         Set-InfoStyle $control
     }
@@ -3030,6 +3061,42 @@ function Open-MarkdownPreview {
     [Windows.Forms.Application]::DoEvents()
 }
 
+# The last AI answer shown in Vista previa; $null means the preview mirrors the editor.
+$script:aiResult = $null
+
+# What Vista previa shows. Copy, PDF, MP3 and Play act on it.
+function Get-PreviewContent {
+    if ($null -ne $script:aiResult) {
+        return $script:aiResult
+    }
+    return $textBox.Text
+}
+
+function Show-AiResult {
+    param([string]$markdown)
+
+    $script:aiResult = $markdown
+    $previewResultBar.Visible = $true
+    Open-MarkdownPreview $markdown
+}
+
+function Clear-AiResult {
+    $script:aiResult = $null
+    $previewResultBar.Visible = $false
+    if ($tabs.SelectedTab -eq $tabPreview) {
+        Show-MarkdownPreview (Get-PreviewContent)
+    }
+}
+
+# Replaces the whole editor text. Assigning .Text or .SelectedText clears the undo
+# buffer; Paste(text) keeps it, so Ctrl+Z restores the previous text.
+function Set-EditorText {
+    param([string]$text)
+
+    $textBox.SelectAll()
+    $textBox.Paste(($text -replace "\r?\n", "`r`n"))
+}
+
 function Convert-MarkdownToText {
     param([string]$markdown)
 
@@ -3077,7 +3144,8 @@ $Texto
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
         $traducido = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($response.choices[0].message.content))
-        $textBox.Text = $traducido
+        Clear-AiResult
+        Set-EditorText $traducido
         if ($targetLanguage -eq "inglés") {
             Select-VoiceLanguage "en"
         } else {
@@ -3354,7 +3422,7 @@ $btnTheme.Add_Click({
     $btnTheme.Tag = -not [bool]$btnTheme.Tag
     Set-Theme ([bool]$btnTheme.Tag)
     if ($tabs.SelectedTab -eq $tabPreview) {
-        Show-MarkdownPreview $textBox.Text
+        Show-MarkdownPreview (Get-PreviewContent)
     }
 })
 
@@ -3370,7 +3438,7 @@ $btnNavSettings.Add_Click({
 $tabs.Add_SelectedIndexChanged({
     Update-NavigationState
     if ($tabs.SelectedTab -eq $tabPreview) {
-        Show-MarkdownPreview $textBox.Text
+        Show-MarkdownPreview (Get-PreviewContent)
     }
 })
 
@@ -3405,7 +3473,8 @@ $Texto
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
         $corregido = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($response.choices[0].message.content))
-        $textBox.Text = $corregido
+        Clear-AiResult
+        Set-EditorText $corregido
         $corregido | Set-Clipboard
         Open-MarkdownPreview $corregido
         Show-Message "Se copió al portapapeles. Usá Ctrl+V para pegarlo en cualquier lugar."
@@ -3427,7 +3496,7 @@ $btnPegar.Add_Click({
             return
         }
 
-        $textBox.Text = $contenido
+        Set-EditorText $contenido
         $tabs.SelectedTab = $tabEditor
         $textBox.Focus()
         $textBox.SelectionStart = $textBox.Text.Length
@@ -3439,27 +3508,30 @@ $btnPegar.Add_Click({
 })
 
 $btnCopyMd.Add_Click({
-    if ([string]::IsNullOrWhiteSpace($textBox.Text)) {
+    $previewContent = Get-PreviewContent
+    if ([string]::IsNullOrWhiteSpace($previewContent)) {
         Show-Message "No hay contenido para copiar." -Level Warning
         return
     }
 
-    $textBox.Text | Set-Clipboard
+    $previewContent | Set-Clipboard
     Show-Message "Markdown copiado al portapapeles."
 })
 
 $btnCopyTxt.Add_Click({
-    if ([string]::IsNullOrWhiteSpace($textBox.Text)) {
+    $previewContent = Get-PreviewContent
+    if ([string]::IsNullOrWhiteSpace($previewContent)) {
         Show-Message "No hay contenido para copiar." -Level Warning
         return
     }
 
-    Convert-MarkdownToText $textBox.Text | Set-Clipboard
+    Convert-MarkdownToText $previewContent | Set-Clipboard
     Show-Message "Texto sin formato copiado al portapapeles."
 })
 
 $btnLeer.Add_Click({
-    $textoParaLeer = Convert-MarkdownToText $textBox.Text
+    $previewContent = Get-PreviewContent
+    $textoParaLeer = Convert-MarkdownToText $previewContent
     if ([string]::IsNullOrWhiteSpace($textoParaLeer)) {
         Show-Message "No hay contenido en Vista previa para leer." -Level Warning
         return
@@ -3471,7 +3543,7 @@ $btnLeer.Add_Click({
     }
 
     try {
-        Open-MarkdownPreview $textBox.Text
+        Open-MarkdownPreview $previewContent
         Stop-VoicePlayback
         Start-SelectedVoicePlayback $textoParaLeer
     } catch {
@@ -3518,9 +3590,8 @@ $Texto
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
         $respuesta = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($response.choices[0].message.content))
-        $textBox.Text = $respuesta
-        Open-MarkdownPreview $respuesta
-        Show-Message "Respuesta lista. Elegí copiar como MD o TXT."
+        Show-AiResult $respuesta
+        Show-Message "Respuesta lista en Vista previa. Tu consulta sigue en el Editor."
     } catch {
         Show-Message "Error al conectar con la API." -Level Error
     } finally {
@@ -3560,7 +3631,8 @@ $Texto
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
         $resumen = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($response.choices[0].message.content))
-        $textBox.Text = $resumen
+        Clear-AiResult
+        Set-EditorText $resumen
         Open-MarkdownPreview $resumen
         Show-Message "Resumen profesional listo en Vista previa."
     } catch {
@@ -3572,10 +3644,24 @@ $Texto
 
 $btnLimpiar.Add_Click({
     $textBox.Clear()
+    Clear-AiResult
     $script:attachedFiles.Clear()
     Update-AttachmentSummary
     $tabs.SelectedTab = $tabEditor
     Show-Message "Editor y adjuntos limpiados."
+})
+
+$btnUseResult.Add_Click({
+    Set-EditorText $script:aiResult
+    Clear-AiResult
+    $tabs.SelectedTab = $tabEditor
+    $textBox.Focus()
+    Show-Message "Respuesta llevada al editor. Ctrl+Z recupera tu consulta."
+})
+
+$btnDismissResult.Add_Click({
+    Clear-AiResult
+    Show-Message "Vista previa muestra otra vez el contenido del Editor."
 })
 
 $btnCerrar.Add_Click({
