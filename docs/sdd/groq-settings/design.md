@@ -9,3 +9,5 @@ La lista se obtiene desde Groq y se combina con un catálogo local de capacidade
 Los adjuntos de texto se envían como documentos de contexto. Las imágenes se codifican como URL de datos para el contenido multimodal de Qwen. La búsqueda web agrega la herramienta `browser_search` solamente en modelos compatibles.
 
 El botón **Adjuntar archivos** pertenece a la fila principal de acciones, después de **Pegar**. El catálogo de capacidades controla su visibilidad: se muestra para modelos de chat que aceptan texto o imágenes y se oculta para audio, TTS, seguridad u otros modelos no compatibles.
+
+El Editor reserva una franja superior llamada **Contexto IA**. Allí se muestra **Usar web** únicamente para modelos compatibles, se enumeran con el texto “Se enviarán a Groq” todos los adjuntos activos y se permite quitarlos. Configuración queda limitada a credenciales, actualización del catálogo e información de modelos.

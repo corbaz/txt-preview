@@ -306,6 +306,13 @@ $tabEditor.Controls.Add($textBox)
 $editorScrollBar = New-Object OverlayScrollBar($textBox)
 $tabEditor.Controls.Add($editorScrollBar)
 
+$contextPanel = New-Object Windows.Forms.Panel
+$contextPanel.Dock = "Top"
+$contextPanel.Height = 46
+$contextPanel.Padding = New-Object Windows.Forms.Padding(8, 6, 8, 6)
+$tabEditor.Controls.Add($contextPanel)
+$contextPanel.BringToFront()
+
 $preview = New-Object Windows.Forms.WebBrowser
 $preview.Dock = "Fill"
 $preview.ScriptErrorsSuppressed = $true
@@ -612,9 +619,9 @@ $modelCombo.SetBounds(220, 3, 330, 26)
 $settingsNavHost.Controls.Add($modelCombo)
 
 $checkWebSearch = New-Object Windows.Forms.CheckBox
-$checkWebSearch.Text = "Usar búsqueda web cuando el modelo sea compatible"
-$checkWebSearch.SetBounds(30, 151, 420, 28)
-$tabSettings.Controls.Add($checkWebSearch)
+$checkWebSearch.Text = "Usar web en la próxima consulta"
+$checkWebSearch.SetBounds(120, 8, 245, 28)
+$contextPanel.Controls.Add($checkWebSearch)
 
 $btnAttachFiles = New-Object Windows.Forms.Button
 $btnAttachFiles.Text = "Adjuntar archivos"
@@ -623,13 +630,26 @@ $panel.Controls.Add($btnAttachFiles)
 
 $btnClearAttachments = New-Object Windows.Forms.Button
 $btnClearAttachments.Text = "Quitar adjuntos"
-$btnClearAttachments.SetBounds(30, 194, 150, 32)
-$tabSettings.Controls.Add($btnClearAttachments)
+$btnClearAttachments.Anchor = [Windows.Forms.AnchorStyles]::Top -bor [Windows.Forms.AnchorStyles]::Right
+$btnClearAttachments.SetBounds(1000, 7, 135, 30)
+$contextPanel.Controls.Add($btnClearAttachments)
+
+$lblContextTitle = New-Object Windows.Forms.Label
+$lblContextTitle.Text = "Contexto IA"
+$lblContextTitle.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+$lblContextTitle.SetBounds(8, 8, 105, 28)
+$contextPanel.Controls.Add($lblContextTitle)
 
 $lblAttachments = New-Object Windows.Forms.Label
-$lblAttachments.Text = "Sin archivos adjuntos"
-$lblAttachments.SetBounds(194, 198, 820, 26)
-$tabSettings.Controls.Add($lblAttachments)
+$lblAttachments.Text = "Sin archivos adjuntos para la próxima solicitud"
+$lblAttachments.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+$lblAttachments.AutoEllipsis = $true
+$lblAttachments.Anchor = [Windows.Forms.AnchorStyles]::Top -bor [Windows.Forms.AnchorStyles]::Left -bor [Windows.Forms.AnchorStyles]::Right
+$lblAttachments.SetBounds(378, 8, 610, 28)
+$contextPanel.Controls.Add($lblAttachments)
+
+$contextToolTip = New-Object Windows.Forms.ToolTip
+$contextToolTip.AutoPopDelay = 12000
 
 $modelsList = New-Object Windows.Forms.ListView
 $modelsList.View = [Windows.Forms.View]::Details
@@ -637,7 +657,7 @@ $modelsList.FullRowSelect = $true
 $modelsList.HideSelection = $false
 $modelsList.MultiSelect = $false
 $modelsList.Anchor = [Windows.Forms.AnchorStyles]::Top -bor [Windows.Forms.AnchorStyles]::Bottom -bor [Windows.Forms.AnchorStyles]::Left -bor [Windows.Forms.AnchorStyles]::Right
-$modelsList.SetBounds(30, 244, 1120, 310)
+$modelsList.SetBounds(30, 154, 1120, 400)
 [void]$modelsList.Columns.Add("Modelo", 330)
 [void]$modelsList.Columns.Add("Proveedor", 140)
 [void]$modelsList.Columns.Add("Contexto", 100)
@@ -726,11 +746,16 @@ function Get-SelectedModelCapabilities {
 
 function Update-AttachmentSummary {
     if ($script:attachedFiles.Count -eq 0) {
-        $lblAttachments.Text = "Sin archivos adjuntos"
+        $lblAttachments.Text = "Sin archivos adjuntos para la próxima solicitud"
+        $contextToolTip.SetToolTip($lblAttachments, "")
+        $btnClearAttachments.Visible = $false
         return
     }
     $names = @($script:attachedFiles | ForEach-Object { $_.Name })
-    $lblAttachments.Text = "Adjuntos ($($names.Count)): " + ($names -join ", ")
+    $attachmentText = "Se enviarán a Groq ($($names.Count)): " + ($names -join ", ")
+    $lblAttachments.Text = $attachmentText
+    $contextToolTip.SetToolTip($lblAttachments, $attachmentText)
+    $btnClearAttachments.Visible = $true
 }
 
 function Update-ModelCapabilityControls {
@@ -739,6 +764,7 @@ function Update-ModelCapabilityControls {
     }
     $capabilities = Get-SelectedModelCapabilities
     $checkWebSearch.Enabled = $capabilities.Web
+    $checkWebSearch.Visible = $capabilities.Web
     if (-not $capabilities.Web) {
         $checkWebSearch.Checked = $false
     }
@@ -2499,7 +2525,7 @@ function Set-Theme {
     $versionLabel.BackColor = Get-ThemeColor "Surface"
     $versionLabel.ForeColor = Get-ThemeColor "Muted"
     $versionLabel.Font = New-Object Drawing.Font($uiFontName, 9)
-    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $lblAttachments, $settingsStatus)) {
+    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus)) {
         $label.BackColor = Get-ThemeColor "Window"
         $label.ForeColor = if ($label -eq $settingsTitle) { Get-ThemeColor "Heading" } else { Get-ThemeColor "Muted" }
     }
@@ -2508,7 +2534,14 @@ function Set-Theme {
         $inputControl.ForeColor = Get-ThemeColor "Text"
         $inputControl.Font = New-Object Drawing.Font($uiFontName, 10)
     }
-    $checkWebSearch.BackColor = Get-ThemeColor "Window"
+    $contextPanel.BackColor = Get-ThemeColor "Elevated"
+    $lblContextTitle.BackColor = Get-ThemeColor "Elevated"
+    $lblContextTitle.ForeColor = Get-ThemeColor "Accent"
+    $lblContextTitle.Font = New-Object Drawing.Font($uiStrongFontName, 9)
+    $lblAttachments.BackColor = Get-ThemeColor "Elevated"
+    $lblAttachments.ForeColor = Get-ThemeColor "Muted"
+    $lblAttachments.Font = New-Object Drawing.Font($uiFontName, 9)
+    $checkWebSearch.BackColor = Get-ThemeColor "Elevated"
     $checkWebSearch.ForeColor = Get-ThemeColor "Text"
     $lblHeaderModel.BackColor = Get-ThemeColor "Elevated"
     $lblHeaderModel.ForeColor = Get-ThemeColor "Muted"
@@ -2936,9 +2969,12 @@ $btnAttachFiles.Add_Click({
             }
         }
         Update-AttachmentSummary
-        $settingsStatus.Text = "Adjuntos preparados para la próxima acción de IA."
+        $tabs.SelectedTab = $tabEditor
+        $tabEditor.Select()
+        Show-Message "Los adjuntos visibles sobre el editor se enviarán en la próxima acción de IA."
     } catch {
         $settingsStatus.Text = "No se pudo adjuntar: $($_.Exception.Message)"
+        Show-Message "No se pudo adjuntar: $($_.Exception.Message)"
     } finally {
         $dialog.Dispose()
     }
@@ -2947,7 +2983,8 @@ $btnAttachFiles.Add_Click({
 $btnClearAttachments.Add_Click({
     $script:attachedFiles.Clear()
     Update-AttachmentSummary
-    $settingsStatus.Text = "Se quitaron los archivos adjuntos."
+    $tabs.SelectedTab = $tabEditor
+    Show-Message "Se quitaron los archivos adjuntos del contexto."
 })
 
 Load-AppSettings

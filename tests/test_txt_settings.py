@@ -32,6 +32,12 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn("$panel.Controls.Add($btnAttachFiles)", SCRIPT)
         self.assertIn("$btnAttachFiles.Visible = $btnAttachFiles.Enabled", SCRIPT)
 
+    def test_editor_shows_the_context_sent_to_groq(self) -> None:
+        self.assertIn("$contextPanel.Controls.Add($checkWebSearch)", SCRIPT)
+        self.assertIn("$contextPanel.Controls.Add($lblAttachments)", SCRIPT)
+        self.assertIn("$contextPanel.Controls.Add($btnClearAttachments)", SCRIPT)
+        self.assertIn('"Se enviarán a Groq ($($names.Count)): "', SCRIPT)
+
     def test_version_uses_requested_format(self) -> None:
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$")
