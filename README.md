@@ -1,57 +1,94 @@
 # TXT Preview
 
-Aplicación de escritorio para Windows escrita en PowerShell y WinForms. Permite editar texto, consultar y transformar contenido con Groq, previsualizar Markdown y leer el resultado en voz alta.
+Aplicación de escritorio para Windows que reúne en una sola ventana un editor de texto, una vista previa Markdown, herramientas de IA (consultar, resumir, corregir y traducir con [Groq](https://groq.com)) y lectura en voz alta.
 
-## Funciones actuales
+## Qué podés hacer
 
-- Editor y vista previa Markdown.
-- Consultas, resumen, corrección y traducción mediante Groq.
-- Lectura con voces locales de Windows o voces neuronales de Edge TTS.
-- Control de voz, pausa, detención, velocidad y resaltado de la palabra actual.
-- Exportación de la vista previa como PDF y de la lectura como MP3.
-- Temas claro y oscuro.
-- Pestaña de configuración con selección dinámica de modelos Groq.
-- API key cifrada para el usuario de Windows mediante DPAPI.
-- Búsqueda web con modelos GPT-OSS y adjuntos de texto o imagen según el modelo.
-- Comprobación e instalación segura de actualizaciones desde el clon Git.
+- Escribir o pegar texto y verlo formateado en **Vista previa**.
+- **Consultar IA**, **Resumir**, **Corregir gramática y ortografía** y **Traducir** inglés ↔ español.
+- Adjuntar archivos de texto o imágenes y activar la búsqueda web, según el modelo elegido. Los íconos verdes junto a **Contexto IA** muestran qué puede hacer el modelo actual.
+- Escuchar el resultado con voces de Windows o voces neuronales de Edge, con pausa, velocidad y resaltado de la palabra que se lee.
+- Exportar a **PDF** y **MP3**, copiar como Markdown o texto plano.
+- Elegir tema claro u oscuro.
 
-## Configuración de Groq
+## Instalación
 
-Abrí la pestaña **Configuración**, ingresá tu API key y seleccioná **Actualizar modelos**. Elegí el modelo activo y guardá la configuración. Los datos se almacenan fuera del repositorio en `%LOCALAPPDATA%\TXT Preview\settings.json`; la API key queda cifrada para tu usuario de Windows.
+Necesitás Windows 10 u 11 y [Git](https://git-scm.com/download/win). Si no tenés Git, instalalo primero:
 
-## Actualizaciones
+```powershell
+winget install --id Git.Git -e --source winget
+```
 
-Al abrir **Configuración**, la aplicación consulta `origin/main`. Si existe una versión posterior, aparece **Actualizar ahora**. La actualización requiere Git, la rama `main` y un árbol de trabajo sin cambios; usa `git pull --ff-only` y nunca sobrescribe modificaciones locales. Después hay que cerrar y volver a abrir TXT Preview.
-
-## Requisitos
-
-- Windows 10 u 11.
-- Windows PowerShell 5.1.
-- Python con `edge-tts` para las voces en línea.
-- `ffplay` y `ffprobe` para reproducir y medir el audio Edge.
-- Una API key de Groq para las funciones de IA.
-
-## Instalación en otra PC
-
-Con Git instalado y acceso al repositorio, un solo comando clona la app, crea el acceso directo **TXT Preview** en el escritorio, instala `edge-tts` si hay Python y abre la aplicación:
+Después abrí **PowerShell** (no hace falta como administrador) y pegá este comando:
 
 ```powershell
 git clone https://github.com/corbaz/txt-preview.git "$env:LOCALAPPDATA\txt-preview"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\txt-preview\install.ps1"
 ```
 
-Instalar en esa carpeta mantiene funcionando **Actualizar ahora**, porque es un clon de Git.
+El instalador:
 
-## Ejecución
+1. Descarga la app en `%LOCALAPPDATA%\txt-preview`.
+2. Crea el acceso directo **TXT Preview** en el escritorio.
+3. Si tenés Python, instala `edge-tts` para las voces en línea.
+4. Abre la aplicación.
+
+## Primeros pasos
+
+1. Creá una API key gratuita en [console.groq.com/keys](https://console.groq.com/keys).
+2. En la app, abrí **Configuración**, pegá la API key y tocá **Guardar**.
+3. Tocá **Actualizar modelos** y elegí uno en el selector de la parte superior. `openai/gpt-oss-120b` es una buena opción general; `qwen/qwen3.8-27b` entiende imágenes.
+4. Volvé al **Editor**, escribí algo y probá **Consultar IA**.
+
+La API key se guarda cifrada para tu usuario de Windows en `%LOCALAPPDATA%\TXT Preview\settings.json`. Nunca se sube al repositorio.
+
+## Voces y audio (opcional)
+
+| Para | Necesitás | Cómo instalarlo |
+|------|-----------|-----------------|
+| Voces de Windows | Nada extra | — |
+| Voces neuronales de Edge | Python y `edge-tts` | `winget install Python.Python.3.12` y volver a ejecutar `install.ps1` |
+| Reproducir voces de Edge y exportar MP3 | FFmpeg (`ffplay`, `ffprobe`, `ffmpeg`) | `winget install Gyan.FFmpeg` |
+
+Después de instalar Python o FFmpeg, cerrá y volvé a abrir la app.
+
+## Actualizaciones
+
+En **Configuración**, tocá **Buscar actualización**. Si hay una versión nueva aparece **Actualizar ahora**; al terminar, cerrá y volvé a abrir la app. La actualización nunca pisa cambios que hayas hecho en los archivos de la app: si los hay, te avisa y no actualiza.
+
+## Problemas frecuentes
+
+| Mensaje o síntoma | Solución |
+|-------------------|----------|
+| `git` no se reconoce | Instalá Git con el comando de arriba y abrí una ventana nueva de PowerShell. |
+| `destination path ... already exists` | La app ya está instalada. Ejecutá solo `powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\txt-preview\install.ps1"`. |
+| Mensaje rojo "Error al conectar con la API" | Revisá la API key en **Configuración** y tu conexión a internet. |
+| No suenan las voces de Edge | Instalá Python y FFmpeg (ver tabla de voces). |
+
+Los mensajes de la app usan colores: verde para información, amarillo para advertencias y rojo para errores.
+
+## Desinstalación
+
+Cerrá la app y ejecutá en PowerShell:
+
+```powershell
+Remove-Item "$env:LOCALAPPDATA\txt-preview" -Recurse -Force
+Remove-Item "$env:LOCALAPPDATA\TXT Preview" -Recurse -Force
+Remove-Item "$([Environment]::GetFolderPath('Desktop'))\TXT Preview.lnk"
+```
+
+La segunda línea borra tu configuración y la API key guardada.
+
+---
+
+## Para desarrolladores
+
+La app es un único script de Windows PowerShell 5.1 con WinForms ([`txt.ps1`](txt.ps1)). Para ejecutarla desde un clon:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\txt.ps1
 ```
 
-## Seguridad
-
-Las credenciales no forman parte del código ni del repositorio. No agregues archivos `.env`, `settings.json` ni API keys al control de versiones.
-
-## Pruebas
+### Pruebas
 
 ```powershell
 python -m unittest discover -s tests -v
@@ -66,6 +103,14 @@ $errors = $null
 $errors
 ```
 
-## Documentación
+### Publicar una versión
 
-Las decisiones y tareas SDD se guardan en [`docs/sdd/`](docs/sdd/).
+La actualización automática compara el archivo [`VERSION`](VERSION) (formato `v:yy.mm.dd-HH.mm`) con el de `origin/main`. Cada cambio en la app publicado en `main` tiene que actualizar `VERSION`; si no, los usuarios no reciben el aviso. Los cambios solo de documentación no lo necesitan.
+
+### Seguridad
+
+Las credenciales no forman parte del código ni del repositorio. No agregues archivos `.env`, `settings.json`, `.rdp` ni API keys al control de versiones.
+
+### Documentación
+
+Las decisiones y tareas de diseño se guardan en [`docs/sdd/`](docs/sdd/) y [`odd/tasks/`](odd/tasks/).
