@@ -310,8 +310,9 @@ $contextPanel = New-Object Windows.Forms.Panel
 $contextPanel.Dock = "Top"
 $contextPanel.Height = 46
 $contextPanel.Padding = New-Object Windows.Forms.Padding(8, 6, 8, 6)
+# Keep the default z-order: docking runs back to front, so this Top panel reserves its
+# strip before the Fill editor. BringToFront() would dock it last, over the first lines.
 $tabEditor.Controls.Add($contextPanel)
-$contextPanel.BringToFront()
 
 $preview = New-Object Windows.Forms.WebBrowser
 $preview.Dock = "Fill"

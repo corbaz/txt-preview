@@ -55,8 +55,37 @@ class SettingsContractTests(unittest.TestCase):
 
     def test_notices_use_a_theme_aware_color(self) -> None:
         self.assertEqual(SCRIPT.count('Notice = "#'), 2)
-        self.assertIn('$msgBox.ForeColor = Get-ThemeColor "Notice"', SCRIPT)
-        self.assertIn('$lblAttachments.ForeColor = Get-ThemeColor "Notice"', SCRIPT)
+        style_helper = re.search(r"function Set-InfoStyle \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
+        self.assertIsNotNone(style_helper)
+        self.assertIn('Get-ThemeColor "Notice"', style_helper.group("body"))
+        self.assertIn("$infoFontSize", style_helper.group("body"))
+
+    def test_every_informational_message_shares_the_info_style(self) -> None:
+        info_controls = re.search(r"\$infoControls = @\((?P<body>[^)]*)\)", SCRIPT)
+        self.assertIsNotNone(info_controls)
+        for control in (
+            "$msgBox", "$settingsHint", "$settingsStatus", "$lblAppVersion",
+            "$lblUpdateStatus", "$lblAttachments", "$versionLabel",
+        ):
+            self.assertIn(control, info_controls.group("body"))
+        self.assertIn("Set-InfoStyle $control", SCRIPT)
+        self.assertNotIn('$lblUpdateStatus.ForeColor = Get-ThemeColor "Muted"', SCRIPT)
+        self.assertNotIn('$lblAttachments.ForeColor = Get-ThemeColor "Muted"', SCRIPT)
+
+    def test_context_panel_does_not_cover_the_editor(self) -> None:
+        # A Top panel brought to front docks after the Fill editor and hides its first lines.
+        self.assertNotIn("$contextPanel.BringToFront()", SCRIPT)
+
+    def test_context_shows_selected_model_capability_badges(self) -> None:
+        badges = re.search(r"function Update-CapabilityBadges \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
+        self.assertIsNotNone(badges)
+        body = badges.group("body")
+        for glyph in ("0xE774", "0xE890", "0xE723", "0xE8BD", "0xE82F"):
+            self.assertIn(glyph, body)
+        self.assertIn('Get-ThemeColor "Notice"', body)
+        self.assertIn("$contextToolTip.SetToolTip", body)
+        self.assertIn("$contextPanel.Controls.Add($capabilityBadgeHost)", SCRIPT)
+        self.assertIn("Update-CapabilityBadges", SCRIPT.split("function Update-ModelCapabilityControls", 1)[1])
 
     def test_settings_can_check_for_repository_updates(self) -> None:
         self.assertIn("$tabSettings.Controls.Add($btnCheckUpdate)", SCRIPT)
