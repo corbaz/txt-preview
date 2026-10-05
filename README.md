@@ -10,6 +10,13 @@ Aplicación de escritorio para Windows escrita en PowerShell y WinForms. Permite
 - Control de voz, pausa, detención, velocidad y resaltado de la palabra actual.
 - Exportación de la vista previa como PDF y de la lectura como MP3.
 - Temas claro y oscuro.
+- Pestaña de configuración con selección dinámica de modelos Groq.
+- API key cifrada para el usuario de Windows mediante DPAPI.
+- Búsqueda web con modelos GPT-OSS y adjuntos de texto o imagen según el modelo.
+
+## Configuración de Groq
+
+Abrí la pestaña **Configuración**, ingresá tu API key y seleccioná **Actualizar modelos**. Elegí el modelo activo y guardá la configuración. Los datos se almacenan fuera del repositorio en `%LOCALAPPDATA%\TXT Preview\settings.json`; la API key queda cifrada para tu usuario de Windows.
 
 ## Requisitos
 

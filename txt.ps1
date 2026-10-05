@@ -267,6 +267,12 @@ $form.Size = New-Object Drawing.Size(1200, 720)
 $form.StartPosition = "CenterScreen"
 $form.MinimumSize = New-Object Drawing.Size(1300, 600)
 $form.WindowState = [Windows.Forms.FormWindowState]::Maximized
+$appVersionPath = Join-Path $PSScriptRoot "VERSION"
+$appVersion = if (Test-Path -LiteralPath $appVersionPath) {
+    (Get-Content -LiteralPath $appVersionPath -Raw).Trim()
+} else {
+    "v:00.00.00-00.00"
+}
 
 $tabs = New-Object TablessTabControl
 $tabs.Dock = "Fill"
@@ -277,6 +283,10 @@ $tabEditor.Padding = New-Object Windows.Forms.Padding(20, 16, 4, 16)
 
 $tabPreview = New-Object Windows.Forms.TabPage
 $tabPreview.Text = "Vista previa"
+
+$tabSettings = New-Object Windows.Forms.TabPage
+$tabSettings.Text = "Configuración"
+$tabSettings.Padding = New-Object Windows.Forms.Padding(28)
 
 $textBox = New-Object Windows.Forms.TextBox
 $textBox.Multiline = $true
@@ -303,6 +313,7 @@ $tabPreview.Controls.Add($preview)
 
 $tabs.TabPages.Add($tabEditor)
 $tabs.TabPages.Add($tabPreview)
+$tabs.TabPages.Add($tabSettings)
 # The native tab strip cannot be themed; TablessTabControl hides it and the header
 # segmented control below drives navigation instead.
 $form.Controls.Add($tabs)
@@ -349,6 +360,16 @@ $btnNavPreview = New-Object Windows.Forms.Button
 $btnNavPreview.Text = "Vista previa"
 $btnNavPreview.SetBounds(120, 3, 113, 26)
 $navHost.Controls.Add($btnNavPreview)
+
+$settingsNavHost = New-Object Windows.Forms.Panel
+$settingsNavHost.Dock = "Right"
+$settingsNavHost.Width = 154
+$statusPanel.Controls.Add($settingsNavHost)
+
+$btnNavSettings = New-Object Windows.Forms.Button
+$btnNavSettings.Text = "Configuración"
+$btnNavSettings.SetBounds(5, 3, 145, 26)
+$settingsNavHost.Controls.Add($btnNavSettings)
 
 $spinnerFrames = @("● ○ ○", "○ ● ○", "○ ○ ●")
 $spinnerTimer = New-Object Windows.Forms.Timer
@@ -540,6 +561,319 @@ $lblSpeedValue.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
 $lblSpeedValue.SetBounds(430, 138, 65, 34)
 $panel.Controls.Add($lblSpeedValue)
 
+$versionLabel = New-Object Windows.Forms.Label
+$versionLabel.Text = $appVersion
+$versionLabel.TextAlign = [Drawing.ContentAlignment]::MiddleRight
+$versionLabel.Anchor = [Windows.Forms.AnchorStyles]::Bottom -bor [Windows.Forms.AnchorStyles]::Right
+$versionLabel.SetBounds(1060, 146, 180, 26)
+$panel.Controls.Add($versionLabel)
+
+$settingsTitle = New-Object Windows.Forms.Label
+$settingsTitle.Text = "Configuración de Groq"
+$settingsTitle.Font = New-Object Drawing.Font($uiStrongFontName, 18)
+$settingsTitle.SetBounds(28, 24, 500, 40)
+$tabSettings.Controls.Add($settingsTitle)
+
+$settingsHint = New-Object Windows.Forms.Label
+$settingsHint.Text = "La API key se cifra para tu usuario de Windows. Los modelos se consultan directamente desde Groq."
+$settingsHint.SetBounds(30, 67, 900, 26)
+$tabSettings.Controls.Add($settingsHint)
+
+$lblApiKey = New-Object Windows.Forms.Label
+$lblApiKey.Text = "API key"
+$lblApiKey.SetBounds(30, 110, 100, 26)
+$tabSettings.Controls.Add($lblApiKey)
+
+$txtApiKey = New-Object Windows.Forms.TextBox
+$txtApiKey.UseSystemPasswordChar = $true
+$txtApiKey.SetBounds(140, 106, 470, 30)
+$tabSettings.Controls.Add($txtApiKey)
+
+$btnSaveSettings = New-Object Windows.Forms.Button
+$btnSaveSettings.Text = "Guardar"
+$btnSaveSettings.SetBounds(622, 104, 110, 32)
+$tabSettings.Controls.Add($btnSaveSettings)
+
+$btnRefreshModels = New-Object Windows.Forms.Button
+$btnRefreshModels.Text = "Actualizar modelos"
+$btnRefreshModels.SetBounds(742, 104, 165, 32)
+$tabSettings.Controls.Add($btnRefreshModels)
+
+$lblGroqModel = New-Object Windows.Forms.Label
+$lblGroqModel.Text = "Modelo activo"
+$lblGroqModel.SetBounds(30, 154, 100, 26)
+$tabSettings.Controls.Add($lblGroqModel)
+
+$modelCombo = New-Object Windows.Forms.ComboBox
+$modelCombo.DropDownStyle = [Windows.Forms.ComboBoxStyle]::DropDownList
+$modelCombo.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+$modelCombo.SetBounds(140, 150, 470, 30)
+$tabSettings.Controls.Add($modelCombo)
+
+$checkWebSearch = New-Object Windows.Forms.CheckBox
+$checkWebSearch.Text = "Usar búsqueda web cuando el modelo sea compatible"
+$checkWebSearch.SetBounds(622, 151, 360, 28)
+$tabSettings.Controls.Add($checkWebSearch)
+
+$btnAttachFiles = New-Object Windows.Forms.Button
+$btnAttachFiles.Text = "Adjuntar archivos"
+$btnAttachFiles.SetBounds(30, 194, 160, 32)
+$tabSettings.Controls.Add($btnAttachFiles)
+
+$btnClearAttachments = New-Object Windows.Forms.Button
+$btnClearAttachments.Text = "Quitar adjuntos"
+$btnClearAttachments.SetBounds(200, 194, 150, 32)
+$tabSettings.Controls.Add($btnClearAttachments)
+
+$lblAttachments = New-Object Windows.Forms.Label
+$lblAttachments.Text = "Sin archivos adjuntos"
+$lblAttachments.SetBounds(366, 198, 650, 26)
+$tabSettings.Controls.Add($lblAttachments)
+
+$modelsList = New-Object Windows.Forms.ListView
+$modelsList.View = [Windows.Forms.View]::Details
+$modelsList.FullRowSelect = $true
+$modelsList.HideSelection = $false
+$modelsList.MultiSelect = $false
+$modelsList.Anchor = [Windows.Forms.AnchorStyles]::Top -bor [Windows.Forms.AnchorStyles]::Bottom -bor [Windows.Forms.AnchorStyles]::Left -bor [Windows.Forms.AnchorStyles]::Right
+$modelsList.SetBounds(30, 244, 1120, 310)
+[void]$modelsList.Columns.Add("Modelo", 330)
+[void]$modelsList.Columns.Add("Proveedor", 140)
+[void]$modelsList.Columns.Add("Contexto", 100)
+[void]$modelsList.Columns.Add("Funciones", 500)
+$tabSettings.Controls.Add($modelsList)
+
+$settingsStatus = New-Object Windows.Forms.Label
+$settingsStatus.Text = "Configurá una API key para actualizar la lista."
+$settingsStatus.Anchor = [Windows.Forms.AnchorStyles]::Bottom -bor [Windows.Forms.AnchorStyles]::Left -bor [Windows.Forms.AnchorStyles]::Right
+$settingsStatus.SetBounds(30, 564, 1120, 28)
+$tabSettings.Controls.Add($settingsStatus)
+
+$settingsDirectory = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "TXT Preview"
+$settingsPath = Join-Path $settingsDirectory "settings.json"
+$script:groqApiKey = ""
+$script:selectedGroqModel = "openai/gpt-oss-120b"
+$script:attachedFiles = [Collections.Generic.List[object]]::new()
+$script:availableGroqModels = @(
+    [pscustomobject]@{ id = "allam-2-7b"; owned_by = "SDAIA"; context_window = 4096; active = $true }
+    [pscustomobject]@{ id = "canopylabs/orpheus-arabic-saudi"; owned_by = "Canopy Labs"; context_window = 4000; active = $true }
+    [pscustomobject]@{ id = "canopylabs/orpheus-v1-english"; owned_by = "Canopy Labs"; context_window = 4000; active = $true }
+    [pscustomobject]@{ id = "meta-llama/llama-prompt-guard-2-22m"; owned_by = "Meta"; context_window = 512; active = $true }
+    [pscustomobject]@{ id = "meta-llama/llama-prompt-guard-2-86m"; owned_by = "Meta"; context_window = 512; active = $true }
+    [pscustomobject]@{ id = "openai/gpt-oss-120b"; owned_by = "OpenAI"; context_window = 131072; active = $true }
+    [pscustomobject]@{ id = "openai/gpt-oss-20b"; owned_by = "OpenAI"; context_window = 131072; active = $true }
+    [pscustomobject]@{ id = "openai/gpt-oss-safeguard-20b"; owned_by = "OpenAI"; context_window = 131072; active = $true }
+    [pscustomobject]@{ id = "qwen/qwen3.8-27b"; owned_by = "Alibaba Cloud"; context_window = 131072; active = $true }
+    [pscustomobject]@{ id = "whisper-large-v3"; owned_by = "OpenAI"; context_window = 448; active = $true }
+    [pscustomobject]@{ id = "whisper-large-v3-turbo"; owned_by = "OpenAI"; context_window = 448; active = $true }
+)
+
+function Get-GroqModelCapabilities {
+    param([string]$modelId)
+
+    if ($modelId -eq "qwen/qwen3.8-27b") {
+        return [pscustomobject]@{
+            Chat = $true; Web = $false; Vision = $true; TextFiles = $true
+            Summary = "Texto · Razonamiento · Visión · Imágenes (máx. 3) · Archivos de texto"
+        }
+    }
+    if ($modelId -in @("openai/gpt-oss-120b", "openai/gpt-oss-20b")) {
+        return [pscustomobject]@{
+            Chat = $true; Web = $true; Vision = $false; TextFiles = $true
+            Summary = "Texto · Razonamiento · Búsqueda web · Archivos de texto"
+        }
+    }
+    if ($modelId -eq "allam-2-7b") {
+        return [pscustomobject]@{
+            Chat = $true; Web = $false; Vision = $false; TextFiles = $true
+            Summary = "Texto · Árabe · Archivos de texto"
+        }
+    }
+    if ($modelId -eq "openai/gpt-oss-safeguard-20b") {
+        return [pscustomobject]@{
+            Chat = $false; Web = $true; Vision = $false; TextFiles = $false
+            Summary = "Seguridad · Moderación · Búsqueda web"
+        }
+    }
+    if ($modelId -like "whisper-*") {
+        return [pscustomobject]@{
+            Chat = $false; Web = $false; Vision = $false; TextFiles = $false
+            Summary = "Transcripción y traducción de audio"
+        }
+    }
+    if ($modelId -like "canopylabs/orpheus-*") {
+        return [pscustomobject]@{
+            Chat = $false; Web = $false; Vision = $false; TextFiles = $false
+            Summary = "Texto a voz"
+        }
+    }
+    if ($modelId -like "meta-llama/llama-prompt-guard-*") {
+        return [pscustomobject]@{
+            Chat = $false; Web = $false; Vision = $false; TextFiles = $false
+            Summary = "Clasificación de seguridad de prompts"
+        }
+    }
+    return [pscustomobject]@{
+        Chat = $false; Web = $false; Vision = $false; TextFiles = $false
+        Summary = "Capacidades no catalogadas"
+    }
+}
+
+function Get-SelectedModelCapabilities {
+    return Get-GroqModelCapabilities $script:selectedGroqModel
+}
+
+function Update-AttachmentSummary {
+    if ($script:attachedFiles.Count -eq 0) {
+        $lblAttachments.Text = "Sin archivos adjuntos"
+        return
+    }
+    $names = @($script:attachedFiles | ForEach-Object { $_.Name })
+    $lblAttachments.Text = "Adjuntos ($($names.Count)): " + ($names -join ", ")
+}
+
+function Update-ModelCapabilityControls {
+    if ($modelCombo.SelectedIndex -ge 0) {
+        $script:selectedGroqModel = [string]$modelCombo.SelectedItem
+    }
+    $capabilities = Get-SelectedModelCapabilities
+    $checkWebSearch.Enabled = $capabilities.Web
+    if (-not $capabilities.Web) {
+        $checkWebSearch.Checked = $false
+    }
+    $btnAttachFiles.Enabled = $capabilities.TextFiles -or $capabilities.Vision
+    $settingsStatus.Text = "$($script:selectedGroqModel) · $($capabilities.Summary)"
+
+    $incompatible = @($script:attachedFiles | Where-Object { $_.Kind -eq "Image" -and -not $capabilities.Vision })
+    foreach ($attachment in $incompatible) {
+        [void]$script:attachedFiles.Remove($attachment)
+    }
+    Update-AttachmentSummary
+}
+
+function Show-GroqModels {
+    param($models)
+
+    $script:availableGroqModels = @($models | Sort-Object id)
+    $modelsList.BeginUpdate()
+    $modelsList.Items.Clear()
+    $modelCombo.BeginUpdate()
+    $modelCombo.Items.Clear()
+
+    foreach ($model in $script:availableGroqModels) {
+        $capabilities = Get-GroqModelCapabilities $model.id
+        $context = if ($null -ne $model.context_window) { "{0:N0}" -f [int64]$model.context_window } else { "-" }
+        $item = New-Object Windows.Forms.ListViewItem([string]$model.id)
+        [void]$item.SubItems.Add([string]$model.owned_by)
+        [void]$item.SubItems.Add($context)
+        [void]$item.SubItems.Add($capabilities.Summary)
+        $item.Tag = [string]$model.id
+        [void]$modelsList.Items.Add($item)
+        if ($capabilities.Chat) {
+            [void]$modelCombo.Items.Add([string]$model.id)
+        }
+    }
+
+    $modelCombo.EndUpdate()
+    $modelsList.EndUpdate()
+    $selectedIndex = $modelCombo.FindStringExact($script:selectedGroqModel)
+    if ($selectedIndex -lt 0 -and $modelCombo.Items.Count -gt 0) {
+        $selectedIndex = 0
+    }
+    if ($selectedIndex -ge 0) {
+        $modelCombo.SelectedIndex = $selectedIndex
+    }
+    Update-ModelCapabilityControls
+}
+
+function Convert-SecureStringToPlainText {
+    param([Security.SecureString]$secureValue)
+
+    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureValue)
+    try {
+        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+    }
+}
+
+function Load-AppSettings {
+    $environmentKey = [Environment]::GetEnvironmentVariable("GROQ_API_KEY", "User")
+    if ([string]::IsNullOrWhiteSpace($environmentKey)) {
+        $environmentKey = $env:GROQ_API_KEY
+    }
+    if ($environmentKey) {
+        $script:groqApiKey = $environmentKey
+        $txtApiKey.Text = $environmentKey
+    }
+
+    if (-not (Test-Path -LiteralPath $settingsPath)) {
+        Show-GroqModels $script:availableGroqModels
+        return
+    }
+
+    try {
+        $settings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($settings.EncryptedApiKey) {
+            $secureKey = ConvertTo-SecureString ([string]$settings.EncryptedApiKey)
+            $script:groqApiKey = Convert-SecureStringToPlainText $secureKey
+            $txtApiKey.Text = $script:groqApiKey
+        }
+        if ($settings.Model) {
+            $script:selectedGroqModel = [string]$settings.Model
+        }
+        $checkWebSearch.Checked = [bool]$settings.WebSearch
+    } catch {
+        $settingsStatus.Text = "No se pudo cargar la configuración: $($_.Exception.Message)"
+    }
+    Show-GroqModels $script:availableGroqModels
+}
+
+function Save-AppSettings {
+    $apiKey = $txtApiKey.Text.Trim()
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        throw "Ingresá una API key de Groq."
+    }
+
+    [void][IO.Directory]::CreateDirectory($settingsDirectory)
+    $secureKey = ConvertTo-SecureString $apiKey -AsPlainText -Force
+    $settings = [ordered]@{
+        EncryptedApiKey = ConvertFrom-SecureString $secureKey
+        Model          = $script:selectedGroqModel
+        WebSearch      = $checkWebSearch.Checked
+    }
+    [IO.File]::WriteAllText(
+        $settingsPath,
+        ($settings | ConvertTo-Json),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $script:groqApiKey = $apiKey
+}
+
+function Get-GroqModelsFromApi {
+    $apiKey = $txtApiKey.Text.Trim()
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        throw "Ingresá una API key de Groq."
+    }
+
+    $client = [Net.Http.HttpClient]::new()
+    $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, "https://api.groq.com/openai/v1/models")
+    $response = $null
+    try {
+        $request.Headers.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new("Bearer", $apiKey)
+        $response = Wait-TaskWithEvents ($client.SendAsync($request))
+        $responseText = Wait-TaskWithEvents ($response.Content.ReadAsStringAsync())
+        if (-not $response.IsSuccessStatusCode) {
+            throw "Groq devolvió el estado HTTP $([int]$response.StatusCode)."
+        }
+        return @((ConvertFrom-Json $responseText).data | Where-Object { $_.active -ne $false })
+    } finally {
+        if ($null -ne $response) { $response.Dispose() }
+        $request.Dispose()
+        $client.Dispose()
+    }
+}
+
 $speechSynth = [System.Speech.Synthesis.SpeechSynthesizer]::new()
 $pythonCommand = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
 $edgeTtsWordsScript = Join-Path $PSScriptRoot "edge_tts_words.py"
@@ -702,7 +1036,8 @@ $speechAlignmentWindow = 8
 $actionButtons = @(
     $btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn,
     $btnLeer, $btnPegar, $btnCopyMd, $btnCopyTxt, $btnMic, $btnPdf, $btnMp3, $btnLimpiar,
-    $btnTheme, $btnCerrar, $btnPauseVoice, $btnStopVoice
+    $btnTheme, $btnCerrar, $btnPauseVoice, $btnStopVoice, $btnSaveSettings, $btnRefreshModels,
+    $btnAttachFiles, $btnClearAttachments
 )
 
 $aiButtons = @($btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn)
@@ -802,13 +1137,17 @@ function Set-ToggleTones {
 }
 
 function Update-NavigationState {
-    if ($tabs.SelectedTab -ne $tabPreview) {
-        Set-ButtonTone $btnNavEditor "Accent" "OnAccent" "AccentHover" "Accent"
-        Set-ButtonTone $btnNavPreview "Elevated" "Muted" "Hover" "Elevated"
-    } else {
-        Set-ButtonTone $btnNavEditor "Elevated" "Muted" "Hover" "Elevated"
-        Set-ButtonTone $btnNavPreview "Accent" "OnAccent" "AccentHover" "Accent"
+    foreach ($button in @($btnNavEditor, $btnNavPreview, $btnNavSettings)) {
+        Set-ButtonTone $button "Elevated" "Muted" "Hover" "Elevated"
     }
+    $activeNavigationButton = if ($tabs.SelectedTab -eq $tabPreview) {
+        $btnNavPreview
+    } elseif ($tabs.SelectedTab -eq $tabSettings) {
+        $btnNavSettings
+    } else {
+        $btnNavEditor
+    }
+    Set-ButtonTone $activeNavigationButton "Accent" "OnAccent" "AccentHover" "Accent"
 }
 
 function Set-AudioControlState {
@@ -2056,9 +2395,9 @@ function Invoke-GroqRequest {
 }
 
 function Get-GroqHeaders {
-    $apiKey = [Environment]::GetEnvironmentVariable("GROQ_API_KEY", "User")
-    if ([string]::IsNullOrWhiteSpace($apiKey)) {
-        $apiKey = $env:GROQ_API_KEY
+    $apiKey = $script:groqApiKey
+    if ([string]::IsNullOrWhiteSpace($apiKey) -and $null -ne $txtApiKey) {
+        $apiKey = $txtApiKey.Text.Trim()
     }
     if ([string]::IsNullOrWhiteSpace($apiKey)) {
         throw "Falta configurar la API key de Groq."
@@ -2068,6 +2407,58 @@ function Get-GroqHeaders {
         "Content-Type"  = "application/json"
         "Authorization" = "Bearer $apiKey"
     }
+}
+
+function Get-ImageMediaType {
+    param([string]$extension)
+
+    switch ($extension.ToLowerInvariant()) {
+        ".png" { return "image/png" }
+        ".webp" { return "image/webp" }
+        ".gif" { return "image/gif" }
+        default { return "image/jpeg" }
+    }
+}
+
+function New-GroqRequestJson {
+    param([string]$prompt)
+
+    $textParts = [Collections.Generic.List[string]]::new()
+    $textParts.Add($prompt)
+    foreach ($attachment in $script:attachedFiles) {
+        if ($attachment.Kind -eq "Text") {
+            $textParts.Add("---`nArchivo adjunto: $($attachment.Name)`n---`n$($attachment.Content)")
+        }
+    }
+    $combinedText = $textParts -join "`n`n"
+
+    $images = @($script:attachedFiles | Where-Object { $_.Kind -eq "Image" })
+    if ($images.Count -gt 0) {
+        $content = [Collections.Generic.List[object]]::new()
+        $content.Add([ordered]@{ type = "text"; text = $combinedText })
+        foreach ($imageAttachment in $images) {
+            $base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($imageAttachment.Path))
+            $mediaType = Get-ImageMediaType ([IO.Path]::GetExtension($imageAttachment.Path))
+            $content.Add([ordered]@{
+                type      = "image_url"
+                image_url = [ordered]@{ url = "data:$mediaType;base64,$base64" }
+            })
+        }
+        $messageContent = $content.ToArray()
+    } else {
+        $messageContent = $combinedText
+    }
+
+    $body = [ordered]@{
+        model    = $script:selectedGroqModel
+        messages = @([ordered]@{ role = "user"; content = $messageContent })
+    }
+    $capabilities = Get-SelectedModelCapabilities
+    if ($checkWebSearch.Checked -and $capabilities.Web) {
+        $body.tools = @([ordered]@{ type = "browser_search" })
+        $body.tool_choice = "auto"
+    }
+    return $body | ConvertTo-Json -Depth 10
 }
 
 function Set-Theme {
@@ -2080,10 +2471,12 @@ function Set-Theme {
     $panel.BackColor = Get-ThemeColor "Surface"
     $statusPanel.BackColor = Get-ThemeColor "Surface"
     $navHost.BackColor = Get-ThemeColor "Elevated"
+    $settingsNavHost.BackColor = Get-ThemeColor "Elevated"
     $msgHost.BackColor = Get-ThemeColor "Surface"
     $tabs.BackColor = Get-ThemeColor "Window"
     $tabEditor.BackColor = Get-ThemeColor "Editor"
     $tabPreview.BackColor = Get-ThemeColor "Window"
+    $tabSettings.BackColor = Get-ThemeColor "Window"
     $textBox.BackColor = Get-ThemeColor "Editor"
     $textBox.ForeColor = Get-ThemeColor "Text"
     $msgBox.BackColor = Get-ThemeColor "Surface"
@@ -2100,6 +2493,23 @@ function Set-Theme {
     }
     $speedSlider.BackColor = Get-ThemeColor "Surface"
     $speedSlider.ForeColor = Get-ThemeColor "Accent"
+    $versionLabel.BackColor = Get-ThemeColor "Surface"
+    $versionLabel.ForeColor = Get-ThemeColor "Muted"
+    $versionLabel.Font = New-Object Drawing.Font($uiFontName, 9)
+    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $lblGroqModel, $lblAttachments, $settingsStatus)) {
+        $label.BackColor = Get-ThemeColor "Window"
+        $label.ForeColor = if ($label -eq $settingsTitle) { Get-ThemeColor "Heading" } else { Get-ThemeColor "Muted" }
+    }
+    foreach ($inputControl in @($txtApiKey, $modelCombo)) {
+        $inputControl.BackColor = Get-ThemeColor "Elevated"
+        $inputControl.ForeColor = Get-ThemeColor "Text"
+        $inputControl.Font = New-Object Drawing.Font($uiFontName, 10)
+    }
+    $checkWebSearch.BackColor = Get-ThemeColor "Window"
+    $checkWebSearch.ForeColor = Get-ThemeColor "Text"
+    $modelsList.BackColor = Get-ThemeColor "Editor"
+    $modelsList.ForeColor = Get-ThemeColor "Text"
+    $modelsList.Font = New-Object Drawing.Font($uiFontName, 9.5)
     $voiceCombo.BackColor = Get-ThemeColor "Elevated"
     $voiceCombo.ForeColor = Get-ThemeColor "Text"
     $voiceCombo.Font = New-Object Drawing.Font($uiFontName, 9.75)
@@ -2108,7 +2518,7 @@ function Set-Theme {
     $busyLabel.ForeColor = Get-ThemeColor "Text"
 
     $buttonFont = New-Object Drawing.Font($uiStrongFontName, 9)
-    foreach ($button in @($actionButtons + $btnNavEditor + $btnNavPreview)) {
+    foreach ($button in @($actionButtons + $btnNavEditor + $btnNavPreview + $btnNavSettings)) {
         $button.FlatStyle = [Windows.Forms.FlatStyle]::Flat
         $button.FlatAppearance.BorderSize = 1
         $button.Font = $buttonFont
@@ -2356,10 +2766,7 @@ Texto original:
 $Texto
 "@
 
-    $body = @{
-        model    = "openai/gpt-oss-120b"
-        messages = @(@{ role = "user"; content = $prompt })
-    } | ConvertTo-Json -Depth 3
+    $body = New-GroqRequestJson $prompt
 
     Start-Busy "Traduciendo con IA..."
     try {
@@ -2384,12 +2791,18 @@ $Texto
 $toolbarRowHeight = 42
 $toolbarBaseLeft = @{}
 foreach ($control in $panel.Controls) {
+    if ($control -eq $versionLabel) {
+        continue
+    }
     $toolbarBaseLeft[$control] = $control.Left
 }
 
 function Update-ToolbarLayout {
     $rows = @{}
     foreach ($control in $panel.Controls) {
+        if ($control -eq $versionLabel) {
+            continue
+        }
         $rowIndex = [int][Math]::Floor($control.Top / $toolbarRowHeight)
         if (-not $rows.ContainsKey($rowIndex)) {
             $rows[$rowIndex] = [Collections.Generic.List[object]]::new()
@@ -2410,6 +2823,119 @@ function Update-ToolbarLayout {
 $panel.Add_Resize({ Update-ToolbarLayout })
 Update-ToolbarLayout
 
+$modelCombo.Add_SelectedIndexChanged({ Update-ModelCapabilityControls })
+
+$modelsList.Add_DoubleClick({
+    if ($modelsList.SelectedItems.Count -eq 0) {
+        return
+    }
+    $modelId = [string]$modelsList.SelectedItems[0].Tag
+    $capabilities = Get-GroqModelCapabilities $modelId
+    if (-not $capabilities.Chat) {
+        $settingsStatus.Text = "$modelId no es un modelo de chat para las acciones del editor."
+        return
+    }
+    $index = $modelCombo.FindStringExact($modelId)
+    if ($index -ge 0) {
+        $modelCombo.SelectedIndex = $index
+    }
+})
+
+$btnSaveSettings.Add_Click({
+    try {
+        Save-AppSettings
+        $settingsStatus.Text = "Configuración guardada de forma segura para este usuario de Windows."
+    } catch {
+        $settingsStatus.Text = "No se pudo guardar: $($_.Exception.Message)"
+    }
+})
+
+$btnRefreshModels.Add_Click({
+    $btnRefreshModels.Enabled = $false
+    $settingsStatus.Text = "Consultando modelos activos de Groq..."
+    [Windows.Forms.Application]::DoEvents()
+    try {
+        $models = Get-GroqModelsFromApi
+        $script:groqApiKey = $txtApiKey.Text.Trim()
+        Show-GroqModels $models
+        Save-AppSettings
+        $settingsStatus.Text = "$($models.Count) modelos activos cargados desde Groq."
+    } catch {
+        $settingsStatus.Text = "No se pudieron actualizar los modelos: $($_.Exception.Message)"
+    } finally {
+        $btnRefreshModels.Enabled = $true
+    }
+})
+
+$btnAttachFiles.Add_Click({
+    $capabilities = Get-SelectedModelCapabilities
+    $dialog = New-Object Windows.Forms.OpenFileDialog
+    $dialog.Multiselect = $true
+    $dialog.Title = "Adjuntar archivos para $($script:selectedGroqModel)"
+    $dialog.Filter = if ($capabilities.Vision) {
+        "Documentos e imágenes|*.txt;*.md;*.json;*.csv;*.xml;*.html;*.htm;*.ps1;*.py;*.js;*.ts;*.yaml;*.yml;*.png;*.jpg;*.jpeg;*.webp;*.gif|Todos los archivos|*.*"
+    } else {
+        "Documentos de texto|*.txt;*.md;*.json;*.csv;*.xml;*.html;*.htm;*.ps1;*.py;*.js;*.ts;*.yaml;*.yml|Todos los archivos|*.*"
+    }
+
+    try {
+        if ($dialog.ShowDialog($form) -ne [Windows.Forms.DialogResult]::OK) {
+            return
+        }
+        $imageExtensions = @(".png", ".jpg", ".jpeg", ".webp", ".gif")
+        $textExtensions = @(".txt", ".md", ".json", ".csv", ".xml", ".html", ".htm", ".ps1", ".py", ".js", ".ts", ".yaml", ".yml")
+        foreach ($path in $dialog.FileNames) {
+            if (@($script:attachedFiles | Where-Object { $_.Path -eq $path }).Count -gt 0) {
+                continue
+            }
+            $extension = [IO.Path]::GetExtension($path).ToLowerInvariant()
+            $fileInfo = Get-Item -LiteralPath $path
+            if ($extension -in $imageExtensions) {
+                if (-not $capabilities.Vision) {
+                    throw "El modelo elegido no admite imágenes."
+                }
+                $currentImages = @($script:attachedFiles | Where-Object { $_.Kind -eq "Image" })
+                if ($currentImages.Count -ge 3) {
+                    throw "Qwen admite como máximo tres imágenes por solicitud."
+                }
+                $imageBytes = ($currentImages | Measure-Object -Property Size -Sum).Sum + $fileInfo.Length
+                if ($imageBytes -gt 14MB) {
+                    throw "Las imágenes superan el límite seguro de 14 MB para una solicitud codificada."
+                }
+                $script:attachedFiles.Add([pscustomobject]@{
+                    Name = $fileInfo.Name; Path = $fileInfo.FullName; Kind = "Image"; Size = $fileInfo.Length; Content = $null
+                })
+            } elseif ($extension -in $textExtensions) {
+                if (-not $capabilities.TextFiles) {
+                    throw "El modelo elegido no admite documentos de texto en esta aplicación."
+                }
+                if ($fileInfo.Length -gt 2MB) {
+                    throw "$($fileInfo.Name) supera el límite de 2 MB para documentos de texto."
+                }
+                $script:attachedFiles.Add([pscustomobject]@{
+                    Name = $fileInfo.Name; Path = $fileInfo.FullName; Kind = "Text"; Size = $fileInfo.Length
+                    Content = [IO.File]::ReadAllText($fileInfo.FullName)
+                })
+            } else {
+                throw "Tipo de archivo no compatible: $extension"
+            }
+        }
+        Update-AttachmentSummary
+        $settingsStatus.Text = "Adjuntos preparados para la próxima acción de IA."
+    } catch {
+        $settingsStatus.Text = "No se pudo adjuntar: $($_.Exception.Message)"
+    } finally {
+        $dialog.Dispose()
+    }
+})
+
+$btnClearAttachments.Add_Click({
+    $script:attachedFiles.Clear()
+    Update-AttachmentSummary
+    $settingsStatus.Text = "Se quitaron los archivos adjuntos."
+})
+
+Load-AppSettings
 Set-Theme ([bool]$btnTheme.Tag)
 $btnTheme.Add_Click({
     $btnTheme.Tag = -not [bool]$btnTheme.Tag
@@ -2421,6 +2947,7 @@ $btnTheme.Add_Click({
 
 $btnNavEditor.Add_Click({ $tabs.SelectedTab = $tabEditor })
 $btnNavPreview.Add_Click({ $tabs.SelectedTab = $tabPreview })
+$btnNavSettings.Add_Click({ $tabs.SelectedTab = $tabSettings })
 
 $tabs.Add_SelectedIndexChanged({
     Update-NavigationState
@@ -2454,10 +2981,7 @@ Texto original:
 $Texto
 "@
 
-    $body = @{
-        model    = "openai/gpt-oss-120b"
-        messages = @(@{ role = "user"; content = $prompt })
-    } | ConvertTo-Json -Depth 3
+    $body = New-GroqRequestJson $prompt
 
     Start-Busy "Corrigiendo gramática y ortografía..."
     try {
@@ -2570,10 +3094,7 @@ Consulta:
 $Texto
 "@
 
-    $body = @{
-        model    = "openai/gpt-oss-120b"
-        messages = @(@{ role = "user"; content = $prompt })
-    } | ConvertTo-Json -Depth 3
+    $body = New-GroqRequestJson $prompt
 
     Start-Busy "Consultando a la IA..."
     try {
@@ -2615,10 +3136,7 @@ Contenido:
 $Texto
 "@
 
-    $body = @{
-        model    = "openai/gpt-oss-120b"
-        messages = @(@{ role = "user"; content = $prompt })
-    } | ConvertTo-Json -Depth 3
+    $body = New-GroqRequestJson $prompt
 
     Start-Busy "Creando resumen profesional..."
     try {
@@ -2686,4 +3204,6 @@ $form.Add_Resize({
     }
 })
 
-[void]$form.ShowDialog()
+if ($env:TXT_PREVIEW_TEST_MODE -ne "1") {
+    [void]$form.ShowDialog()
+}
