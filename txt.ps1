@@ -778,7 +778,6 @@ function Test-GroqInputAvailable {
 function Update-AttachmentSummary {
     if ($script:attachedFiles.Count -eq 0) {
         $lblAttachments.Text = "Sin archivos adjuntos para la próxima solicitud"
-        $lblAttachments.ForeColor = Get-ThemeColor "Muted"
         $contextToolTip.SetToolTip($lblAttachments, "")
         $btnClearAttachments.Visible = $false
         return
@@ -786,7 +785,6 @@ function Update-AttachmentSummary {
     $names = @($script:attachedFiles | ForEach-Object { $_.Name })
     $attachmentText = "Se enviarán a Groq ($($names.Count)): " + ($names -join ", ")
     $lblAttachments.Text = $attachmentText
-    $lblAttachments.ForeColor = Get-ThemeColor "Notice"
     $contextToolTip.SetToolTip($lblAttachments, $attachmentText)
     $btnClearAttachments.Visible = $true
 }
@@ -994,7 +992,6 @@ function Get-AvailableAppUpdate {
 function Update-AppUpdateControls {
     $btnCheckUpdate.Enabled = $false
     $btnInstallUpdate.Visible = $false
-    $lblUpdateStatus.ForeColor = Get-ThemeColor "Muted"
     $lblUpdateStatus.Text = "Buscando una versión nueva en origin/main..."
     [Windows.Forms.Application]::DoEvents()
     try {
@@ -1002,7 +999,6 @@ function Update-AppUpdateControls {
         if ($update.Available) {
             $script:availableUpdateVersion = $update.Version
             $lblUpdateStatus.Text = "Nueva versión $($update.Version) disponible."
-            $lblUpdateStatus.ForeColor = Get-ThemeColor "Notice"
             $btnInstallUpdate.Visible = $true
         } else {
             $script:availableUpdateVersion = $null
@@ -1266,6 +1262,16 @@ function Get-ThemeColor {
     param([string]$name)
 
     return [Drawing.ColorTranslator]::FromHtml($activePalette[$name])
+}
+
+$infoFontSize = 9
+
+# Informational messages (status, updates, hints, attachments) share one color and font.
+function Set-InfoStyle {
+    param($control)
+
+    $control.ForeColor = Get-ThemeColor "Notice"
+    $control.Font = New-Object Drawing.Font($uiStrongFontName, $infoFontSize)
 }
 
 function Set-WindowChrome {
@@ -2673,7 +2679,6 @@ function Set-Theme {
     $textBox.BackColor = Get-ThemeColor "Editor"
     $textBox.ForeColor = Get-ThemeColor "Text"
     $msgBox.BackColor = Get-ThemeColor "Surface"
-    $msgBox.ForeColor = Get-ThemeColor "Notice"
     $spinnerLabel.BackColor = Get-ThemeColor "Surface"
     $spinnerLabel.ForeColor = Get-ThemeColor "Accent"
     $lblVoice.BackColor = Get-ThemeColor "Surface"
@@ -2687,15 +2692,11 @@ function Set-Theme {
     $speedSlider.BackColor = Get-ThemeColor "Surface"
     $speedSlider.ForeColor = Get-ThemeColor "Accent"
     $versionLabel.BackColor = Get-ThemeColor "Surface"
-    $versionLabel.ForeColor = Get-ThemeColor "Muted"
-    $versionLabel.Font = New-Object Drawing.Font($uiFontName, 9)
     foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus)) {
         $label.BackColor = Get-ThemeColor "Window"
-        $label.ForeColor = if ($label -eq $settingsTitle) { Get-ThemeColor "Heading" } else { Get-ThemeColor "Muted" }
     }
-    if ($script:availableUpdateVersion) {
-        $lblUpdateStatus.ForeColor = Get-ThemeColor "Notice"
-    }
+    $settingsTitle.ForeColor = Get-ThemeColor "Heading"
+    $lblApiKey.ForeColor = Get-ThemeColor "Muted"
     foreach ($inputControl in @($txtApiKey, $modelCombo)) {
         $inputControl.BackColor = Get-ThemeColor "Elevated"
         $inputControl.ForeColor = Get-ThemeColor "Text"
@@ -2706,12 +2707,10 @@ function Set-Theme {
     $lblContextTitle.ForeColor = Get-ThemeColor "Accent"
     $lblContextTitle.Font = New-Object Drawing.Font($uiStrongFontName, 9)
     $lblAttachments.BackColor = Get-ThemeColor "Elevated"
-    $lblAttachments.ForeColor = if ($script:attachedFiles.Count -gt 0) {
-        Get-ThemeColor "Notice"
-    } else {
-        Get-ThemeColor "Muted"
+    $infoControls = @($msgBox, $settingsHint, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblAttachments, $versionLabel)
+    foreach ($control in $infoControls) {
+        Set-InfoStyle $control
     }
-    $lblAttachments.Font = New-Object Drawing.Font($uiFontName, 9)
     $checkWebSearch.BackColor = Get-ThemeColor "Elevated"
     $checkWebSearch.ForeColor = Get-ThemeColor "Text"
     $lblHeaderModel.BackColor = Get-ThemeColor "Elevated"
@@ -3112,7 +3111,6 @@ $btnInstallUpdate.Add_Click({
         $lblAppVersion.Text = "Aplicación $installedVersion"
         $script:availableUpdateVersion = $null
         $btnInstallUpdate.Visible = $false
-        $lblUpdateStatus.ForeColor = Get-ThemeColor "Notice"
         $lblUpdateStatus.Text = "Actualización instalada. Cerrá y abrí la aplicación."
         [void][Windows.Forms.MessageBox]::Show(
             "TXT Preview se actualizó a $installedVersion. Cerrá y volvé a abrir la aplicación para usar el código nuevo.",
