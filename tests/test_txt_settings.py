@@ -191,6 +191,36 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn("Clear-AiResult", self._click_handler("btnDismissResult"))
         self.assertIn("Clear-AiResult", self._click_handler("btnLimpiar"))
 
+    def test_web_search_is_on_by_default_for_web_models(self) -> None:
+        controls = re.search(r"function Update-ModelCapabilityControls \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
+        self.assertIn("$checkWebSearch.Checked = $true", controls.group("body"))
+        self.assertNotIn("$settings.WebSearch", SCRIPT)
+
+    def test_webview2_is_downloaded_once_and_signature_checked(self) -> None:
+        bootstrap = re.search(r"function Initialize-WebView2 \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
+        self.assertIsNotNone(bootstrap)
+        body = bootstrap.group("body")
+        self.assertIn("$webView2PackageVersion", body)
+        self.assertIn("Get-AuthenticodeSignature", body)
+        self.assertIn("CN=Microsoft Corporation", body)
+        self.assertIn("SetLoaderDllFolderPath", body)
+        self.assertIn('$webView2PackageVersion = "1.0.4258.31"', SCRIPT)
+
+    def test_browser_tab_has_history_address_bar_and_external_fallback(self) -> None:
+        self.assertIn("$tabs.TabPages.Add($tabBrowser)", SCRIPT)
+        self.assertIn("$navHost.Controls.Add($btnNavBrowser)", SCRIPT)
+        self.assertIn("GoBack()", self._click_handler("btnBrowserBack"))
+        self.assertIn("GoForward()", self._click_handler("btnBrowserForward"))
+        self.assertIn("Start-Process $url", self._click_handler("btnBrowserExternal"))
+        self.assertIn("Open-BrowserUrl", SCRIPT.split("$txtBrowserUrl.Add_KeyDown", 1)[1][:400])
+        self.assertIn("add_NewWindowRequested", SCRIPT)
+
+    def test_preview_links_open_in_the_browser_tab(self) -> None:
+        handler = re.search(r"\$preview\.Add_Navigating\(\{(?P<body>.*?)\n\}\)", SCRIPT, re.DOTALL)
+        self.assertIsNotNone(handler)
+        self.assertIn("$_.Cancel = $true", handler.group("body"))
+        self.assertIn("Open-BrowserUrl", handler.group("body"))
+
     def test_version_uses_requested_format(self) -> None:
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$")

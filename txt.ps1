@@ -346,9 +346,65 @@ $btnDismissResult.Anchor = [Windows.Forms.AnchorStyles]::Top -bor [Windows.Forms
 $btnDismissResult.SetBounds(1018, 7, 130, 32)
 $previewResultBar.Controls.Add($btnDismissResult)
 
+# Embedded browser for links opened from Vista previa. The WebView2 control itself is
+# created on first use (Initialize-BrowserView), so startup never downloads anything.
+$tabBrowser = New-Object Windows.Forms.TabPage
+$tabBrowser.Text = "Navegador"
+
+$browserHost = New-Object Windows.Forms.Panel
+$browserHost.Dock = "Fill"
+$tabBrowser.Controls.Add($browserHost)
+
+$lblBrowserEmpty = New-Object Windows.Forms.Label
+$lblBrowserEmpty.Text = "Escribí una dirección arriba o hacé clic en un link de la Vista previa."
+$lblBrowserEmpty.TextAlign = [Drawing.ContentAlignment]::MiddleCenter
+$lblBrowserEmpty.Dock = "Fill"
+$browserHost.Controls.Add($lblBrowserEmpty)
+
+# Docking runs back to front: the controls added last take the outer edges, so the bar
+# reads [Atrás][Adelante][ dirección ... ][Ir][Abrir en navegador].
+$browserBar = New-Object Windows.Forms.Panel
+$browserBar.Dock = "Top"
+$browserBar.Height = 44
+$browserBar.Padding = New-Object Windows.Forms.Padding(8, 7, 8, 7)
+$tabBrowser.Controls.Add($browserBar)
+
+$browserUrlHost = New-Object Windows.Forms.Panel
+$browserUrlHost.Dock = "Fill"
+$browserUrlHost.Padding = New-Object Windows.Forms.Padding(8, 4, 8, 0)
+$browserBar.Controls.Add($browserUrlHost)
+
+$txtBrowserUrl = New-Object Windows.Forms.TextBox
+$txtBrowserUrl.Dock = "Fill"
+$txtBrowserUrl.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
+$browserUrlHost.Controls.Add($txtBrowserUrl)
+
+$btnBrowserGo = New-Object Windows.Forms.Button
+$btnBrowserGo.Text = "Ir"
+$btnBrowserGo.Dock = "Right"
+$btnBrowserGo.Width = 60
+$browserBar.Controls.Add($btnBrowserGo)
+
+$btnBrowserExternal = New-Object Windows.Forms.Button
+$btnBrowserExternal.Text = "Abrir en navegador"
+$btnBrowserExternal.Dock = "Right"
+$btnBrowserExternal.Width = 170
+$browserBar.Controls.Add($btnBrowserExternal)
+
+$btnBrowserForward = New-Object Windows.Forms.Button
+$btnBrowserForward.Dock = "Left"
+$btnBrowserForward.Width = 40
+$browserBar.Controls.Add($btnBrowserForward)
+
+$btnBrowserBack = New-Object Windows.Forms.Button
+$btnBrowserBack.Dock = "Left"
+$btnBrowserBack.Width = 40
+$browserBar.Controls.Add($btnBrowserBack)
+
 $tabs.TabPages.Add($tabEditor)
 $tabs.TabPages.Add($tabPreview)
 $tabs.TabPages.Add($tabSettings)
+$tabs.TabPages.Add($tabBrowser)
 # The native tab strip cannot be themed; TablessTabControl hides it and the header
 # segmented control below drives navigation instead.
 $form.Controls.Add($tabs)
@@ -383,7 +439,7 @@ $statusPanel.Controls.Add($spinnerLabel)
 
 $navHost = New-Object Windows.Forms.Panel
 $navHost.Dock = "Left"
-$navHost.Width = 236
+$navHost.Width = 352
 $statusPanel.Controls.Add($navHost)
 
 $btnNavEditor = New-Object Windows.Forms.Button
@@ -395,6 +451,11 @@ $btnNavPreview = New-Object Windows.Forms.Button
 $btnNavPreview.Text = "Vista previa"
 $btnNavPreview.SetBounds(120, 3, 113, 26)
 $navHost.Controls.Add($btnNavPreview)
+
+$btnNavBrowser = New-Object Windows.Forms.Button
+$btnNavBrowser.Text = "Navegador"
+$btnNavBrowser.SetBounds(237, 3, 113, 26)
+$navHost.Controls.Add($btnNavBrowser)
 
 $settingsNavHost = New-Object Windows.Forms.Panel
 $settingsNavHost.Dock = "Right"
@@ -1473,11 +1534,13 @@ function Set-ToggleTones {
 }
 
 function Update-NavigationState {
-    foreach ($button in @($btnNavEditor, $btnNavPreview, $btnNavSettings)) {
+    foreach ($button in @($btnNavEditor, $btnNavPreview, $btnNavBrowser, $btnNavSettings)) {
         Set-ButtonTone $button "Elevated" "Muted" "Hover" "Elevated"
     }
     $activeNavigationButton = if ($tabs.SelectedTab -eq $tabPreview) {
         $btnNavPreview
+    } elseif ($tabs.SelectedTab -eq $tabBrowser) {
+        $btnNavBrowser
     } elseif ($tabs.SelectedTab -eq $tabSettings) {
         $btnNavSettings
     } else {
@@ -2868,7 +2931,8 @@ function Set-Theme {
     $busyLabel.ForeColor = Get-ThemeColor "Text"
 
     $buttonFont = New-Object Drawing.Font($uiStrongFontName, 9)
-    foreach ($button in @($actionButtons + $btnNavEditor + $btnNavPreview + $btnNavSettings)) {
+    $browserButtons = @($btnBrowserBack, $btnBrowserForward, $btnBrowserGo, $btnBrowserExternal)
+    foreach ($button in @($actionButtons + $btnNavEditor + $btnNavPreview + $btnNavBrowser + $btnNavSettings + $browserButtons)) {
         $button.FlatStyle = [Windows.Forms.FlatStyle]::Flat
         $button.FlatAppearance.BorderSize = 1
         $button.Font = $buttonFont
@@ -2877,6 +2941,21 @@ function Set-Theme {
     }
     # The primary action gets the accent fill; everything else stays tonal.
     Set-ButtonTone $btnPreguntar "Accent" "OnAccent" "AccentHover" "Accent"
+    $browserIconFont = New-Object Drawing.Font($capabilityIconFontName, 11)
+    $btnBrowserBack.Font = $browserIconFont
+    $btnBrowserBack.Text = [string][char]0xE72B
+    $btnBrowserForward.Font = $browserIconFont
+    $btnBrowserForward.Text = [string][char]0xE72A
+    $tabBrowser.BackColor = Get-ThemeColor "Window"
+    $browserHost.BackColor = Get-ThemeColor "Editor"
+    $lblBrowserEmpty.ForeColor = Get-ThemeColor "Muted"
+    $lblBrowserEmpty.Font = New-Object Drawing.Font($uiFontName, 11)
+    foreach ($barControl in @($browserBar, $browserUrlHost)) {
+        $barControl.BackColor = Get-ThemeColor "Elevated"
+    }
+    $txtBrowserUrl.BackColor = Get-ThemeColor "Editor"
+    $txtBrowserUrl.ForeColor = Get-ThemeColor "Text"
+    $txtBrowserUrl.Font = New-Object Drawing.Font($uiFontName, 10.5)
 
     Set-WindowChrome $form ([bool]$enabled)
     Set-WindowChrome $busyForm ([bool]$enabled)
@@ -3109,6 +3188,180 @@ function Set-EditorText {
 
     $textBox.SelectAll()
     $textBox.Paste(($text -replace "\r?\n", "`r`n"))
+}
+
+# WebView2 .NET wrapper pinned to one NuGet release; the Edge runtime itself ships with Windows.
+$webView2PackageVersion = "1.0.4258.31"
+$script:webView2Ready = $false
+$script:browserView = $null
+
+# Downloads the wrapper once into %LOCALAPPDATA%, refuses any DLL without a valid
+# Microsoft signature, and loads it.
+function Initialize-WebView2 {
+    $isCore = $PSVersionTable.PSEdition -eq "Core"
+    $libraryPath = if ($isCore) { "lib_manual/netcoreapp3.0" } else { "lib/net462" }
+    $runtimeId = switch ([Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()) {
+        "Arm64" { "win-arm64" }
+        "X86" { "win-x86" }
+        default { "win-x64" }
+    }
+    $edition = if ($isCore) { "core" } else { "desktop" }
+    $folder = Join-Path $settingsDirectory "webview2\$webView2PackageVersion\$edition-$runtimeId"
+    $files = [ordered]@{
+        "Microsoft.Web.WebView2.Core.dll"     = "$libraryPath/Microsoft.Web.WebView2.Core.dll"
+        "Microsoft.Web.WebView2.WinForms.dll" = "$libraryPath/Microsoft.Web.WebView2.WinForms.dll"
+        "WebView2Loader.dll"                  = "runtimes/$runtimeId/native/WebView2Loader.dll"
+    }
+
+    $missing = @($files.Keys | Where-Object { -not (Test-Path -LiteralPath (Join-Path $folder $_)) })
+    if ($missing.Count -gt 0) {
+        [void][IO.Directory]::CreateDirectory($folder)
+        $packageUrl = "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/$webView2PackageVersion/microsoft.web.webview2.$webView2PackageVersion.nupkg"
+        $packagePath = Join-Path ([IO.Path]::GetTempPath()) "txt-preview-webview2-$webView2PackageVersion.nupkg"
+        $client = [Net.Http.HttpClient]::new()
+        try {
+            # Stream to disk: returning the bytes through PowerShell would unroll them.
+            $download = Wait-TaskWithEvents ($client.GetStreamAsync($packageUrl))
+            $fileStream = [IO.File]::Create($packagePath)
+            try {
+                [void](Wait-TaskWithEvents ($download.CopyToAsync($fileStream)))
+            } finally {
+                $fileStream.Dispose()
+                $download.Dispose()
+            }
+        } finally {
+            $client.Dispose()
+        }
+
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $package = [IO.Compression.ZipFile]::OpenRead($packagePath)
+        try {
+            foreach ($name in $files.Keys) {
+                $entry = $package.GetEntry($files[$name])
+                if ($null -eq $entry) {
+                    throw "El paquete WebView2 no contiene $($files[$name])."
+                }
+                [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $folder $name), $true)
+            }
+        } finally {
+            $package.Dispose()
+            Remove-Item -LiteralPath $packagePath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    foreach ($name in $files.Keys) {
+        $signature = Get-AuthenticodeSignature -LiteralPath (Join-Path $folder $name)
+        if ($signature.Status -ne "Valid" -or $signature.SignerCertificate.Subject -notmatch '(^|,\s*)CN=Microsoft Corporation(,|$)') {
+            Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue
+            throw "La firma de $name no es válida; se descartó la descarga."
+        }
+    }
+
+    Add-Type -Path (Join-Path $folder "Microsoft.Web.WebView2.Core.dll")
+    Add-Type -Path (Join-Path $folder "Microsoft.Web.WebView2.WinForms.dll")
+    [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::SetLoaderDllFolderPath($folder)
+}
+
+function Update-BrowserButtons {
+    $btnBrowserBack.Enabled = $null -ne $script:browserView -and $script:browserView.CanGoBack
+    $btnBrowserForward.Enabled = $null -ne $script:browserView -and $script:browserView.CanGoForward
+}
+
+function Initialize-BrowserView {
+    if ($null -ne $script:browserView) {
+        return
+    }
+
+    if (-not $script:webView2Ready) {
+        Start-Busy "Preparando el navegador (solo la primera vez)..."
+        try {
+            Initialize-WebView2
+            $script:webView2Ready = $true
+        } finally {
+            Stop-Busy
+        }
+    }
+
+    $view = New-Object Microsoft.Web.WebView2.WinForms.WebView2
+    $view.Dock = "Fill"
+    $browserHost.Controls.Add($view)
+    try {
+        # The default user-data folder sits next to pwsh.exe, which is not writable.
+        $environment = Wait-TaskWithEvents ([Microsoft.Web.WebView2.Core.CoreWebView2Environment]::CreateAsync(
+            $null, (Join-Path $settingsDirectory "webview2-data")))
+        [void](Wait-TaskWithEvents ($view.EnsureCoreWebView2Async($environment)))
+    } catch {
+        $browserHost.Controls.Remove($view)
+        $view.Dispose()
+        throw
+    }
+
+    $lblBrowserEmpty.Visible = $false
+    $script:browserView = $view
+    $core = $view.CoreWebView2
+    $core.add_SourceChanged({
+        $txtBrowserUrl.Text = $script:browserView.Source.AbsoluteUri
+    })
+    $core.add_HistoryChanged({ Update-BrowserButtons })
+    # Keep target="_blank" links inside the same browser tab.
+    $core.add_NewWindowRequested({
+        param($source, $windowArgs)
+        $windowArgs.Handled = $true
+        $script:browserView.CoreWebView2.Navigate($windowArgs.Uri)
+    })
+    $core.add_NavigationCompleted({
+        param($source, $navigationArgs)
+        if (-not $navigationArgs.IsSuccess -and $navigationArgs.WebErrorStatus.ToString() -ne "OperationCanceled") {
+            Show-Message "No se pudo cargar la página ($($navigationArgs.WebErrorStatus)). Probá con Abrir en navegador." -Level Error
+        }
+    })
+}
+
+# Accepts full URLs, bare domains ("example.com") and plain words (searched on Google).
+function ConvertTo-BrowserUrl {
+    param([string]$address)
+
+    $address = $address.Trim()
+    if ([string]::IsNullOrWhiteSpace($address)) {
+        return $null
+    }
+    $uri = $null
+    if ([Uri]::TryCreate($address, [UriKind]::Absolute, [ref]$uri) -and $uri.Scheme -in @("http", "https")) {
+        return $uri.AbsoluteUri
+    }
+    if ($address -notmatch '\s' -and $address -match '^[^/\\]+\.[^/\\]+') {
+        return "https://$address"
+    }
+    return "https://www.google.com/search?q=" + [Uri]::EscapeDataString($address)
+}
+
+function Open-BrowserUrl {
+    param([string]$address)
+
+    $url = ConvertTo-BrowserUrl $address
+    if (-not $url) {
+        Show-Message "Escribí una dirección para navegar." -Level Warning
+        return
+    }
+    $tabs.SelectedTab = $tabBrowser
+    $txtBrowserUrl.Text = $url
+    try {
+        Initialize-BrowserView
+        $script:browserView.CoreWebView2.Navigate($url)
+        Show-Message "Abriendo $url"
+    } catch {
+        Show-Message "No se pudo abrir el navegador integrado: $($_.Exception.Message)" -Level Error
+        $answer = [Windows.Forms.MessageBox]::Show(
+            $form,
+            "El navegador integrado no está disponible.`n`n¿Querés abrir $url en tu navegador predeterminado?",
+            "Navegador",
+            [Windows.Forms.MessageBoxButtons]::YesNo,
+            [Windows.Forms.MessageBoxIcon]::Question
+        )
+        if ($answer -eq [Windows.Forms.DialogResult]::Yes) {
+            Start-Process $url
+        }
+    }
 }
 
 function Convert-MarkdownToText {
@@ -3667,6 +3920,50 @@ $btnUseResult.Add_Click({
 $btnDismissResult.Add_Click({
     Clear-AiResult
     Show-Message "Vista previa muestra otra vez el contenido del Editor."
+})
+
+$btnNavBrowser.Add_Click({
+    $tabs.SelectedTab = $tabBrowser
+    $txtBrowserUrl.Focus()
+})
+
+$btnBrowserBack.Add_Click({
+    if ($null -ne $script:browserView -and $script:browserView.CanGoBack) {
+        $script:browserView.GoBack()
+    }
+})
+
+$btnBrowserForward.Add_Click({
+    if ($null -ne $script:browserView -and $script:browserView.CanGoForward) {
+        $script:browserView.GoForward()
+    }
+})
+
+$btnBrowserGo.Add_Click({ Open-BrowserUrl $txtBrowserUrl.Text })
+
+$txtBrowserUrl.Add_KeyDown({
+    if ($_.KeyCode -eq [Windows.Forms.Keys]::Enter) {
+        $_.SuppressKeyPress = $true
+        Open-BrowserUrl $txtBrowserUrl.Text
+    }
+})
+
+$btnBrowserExternal.Add_Click({
+    $url = ConvertTo-BrowserUrl $txtBrowserUrl.Text
+    if (-not $url) {
+        Show-Message "No hay una dirección para abrir." -Level Warning
+        return
+    }
+    Start-Process $url
+})
+
+# Links clicked in Vista previa leave the preview and open in the Navegador tab.
+$preview.Add_Navigating({
+    $target = $_.Url
+    if ($null -ne $target -and $target.Scheme -in @("http", "https")) {
+        $_.Cancel = $true
+        Open-BrowserUrl $target.AbsoluteUri
+    }
 })
 
 $btnCerrar.Add_Click({
