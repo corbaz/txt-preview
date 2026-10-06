@@ -734,6 +734,8 @@ $settingsDirectory = Join-Path ([Environment]::GetFolderPath("LocalApplicationDa
 $settingsPath = Join-Path $settingsDirectory "settings.json"
 $script:groqApiKey = ""
 $script:selectedGroqModel = "openai/gpt-oss-120b"
+# Model for which the web-search default was last applied (see Update-ModelCapabilityControls).
+$script:webDefaultAppliedModel = $null
 $script:attachedFiles = [Collections.Generic.List[object]]::new()
 $script:updateCheckCompleted = $false
 $script:availableUpdateVersion = $null
@@ -891,6 +893,14 @@ function Update-ModelCapabilityControls {
     $capabilities = Get-SelectedModelCapabilities
     $checkWebSearch.Enabled = $capabilities.Web
     $checkWebSearch.Visible = $capabilities.Web
+    # Web search starts on whenever a web-capable model is chosen; unchecking it only
+    # lasts until the model changes or the app restarts.
+    if ($script:selectedGroqModel -ne $script:webDefaultAppliedModel) {
+        $script:webDefaultAppliedModel = $script:selectedGroqModel
+        if ($capabilities.Web) {
+            $checkWebSearch.Checked = $true
+        }
+    }
     if (-not $capabilities.Web) {
         $checkWebSearch.Checked = $false
     }
@@ -980,7 +990,6 @@ function Import-AppSettings {
         if ($settings.Model) {
             $script:selectedGroqModel = [string]$settings.Model
         }
-        $checkWebSearch.Checked = [bool]$settings.WebSearch
     } catch {
         Set-StatusText $settingsStatus "No se pudo cargar la configuración: $($_.Exception.Message)" -Level Error
     }
@@ -998,7 +1007,6 @@ function Save-AppSettings {
     $settings = [ordered]@{
         EncryptedApiKey = ConvertFrom-SecureString $secureKey
         Model          = $script:selectedGroqModel
-        WebSearch      = $checkWebSearch.Checked
     }
     [IO.File]::WriteAllText(
         $settingsPath,
