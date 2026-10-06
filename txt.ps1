@@ -487,32 +487,32 @@ $panel.Controls.Add($btnPegar)
 
 $btnCopyMd = New-Object Windows.Forms.Button
 $btnCopyMd.Text = "Copiar MD"
-$btnCopyMd.SetBounds(415, 54, 160, 34)
+$btnCopyMd.SetBounds(252, 54, 160, 34)
 $panel.Controls.Add($btnCopyMd)
 
 $btnCopyTxt = New-Object Windows.Forms.Button
 $btnCopyTxt.Text = "Copiar TXT"
-$btnCopyTxt.SetBounds(583, 54, 165, 34)
+$btnCopyTxt.SetBounds(420, 54, 165, 34)
 $panel.Controls.Add($btnCopyTxt)
 
 $btnMic = New-Object Windows.Forms.Button
 $btnMic.Text = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes("Micrófono"))
-$btnMic.SetBounds(756, 54, 120, 34)
+$btnMic.SetBounds(593, 54, 120, 34)
 $panel.Controls.Add($btnMic)
 
 $btnPdf = New-Object Windows.Forms.Button
 $btnPdf.Text = "PDF"
-$btnPdf.SetBounds(884, 54, 70, 34)
+$btnPdf.SetBounds(721, 54, 70, 34)
 $panel.Controls.Add($btnPdf)
 
 $btnMp3 = New-Object Windows.Forms.Button
 $btnMp3.Text = "MP3"
-$btnMp3.SetBounds(962, 54, 70, 34)
+$btnMp3.SetBounds(799, 54, 70, 34)
 $panel.Controls.Add($btnMp3)
 
 $btnLimpiar = New-Object Windows.Forms.Button
 $btnLimpiar.Text = "Limpiar chat"
-$btnLimpiar.SetBounds(1040, 54, 120, 34)
+$btnLimpiar.SetBounds(877, 54, 120, 34)
 $panel.Controls.Add($btnLimpiar)
 
 $btnTheme = New-Object Windows.Forms.Button
@@ -677,8 +677,9 @@ $contextPanel.Controls.Add($checkWebSearch)
 
 $btnAttachFiles = New-Object Windows.Forms.Button
 $btnAttachFiles.Text = "Adjuntar archivos"
-$btnAttachFiles.SetBounds(252, 54, 155, 34)
-$panel.Controls.Add($btnAttachFiles)
+# Lives next to the web checkbox; Update-ContextLayout places it when the model accepts files.
+$btnAttachFiles.SetBounds(0, 7, 150, 30)
+$contextPanel.Controls.Add($btnAttachFiles)
 
 $btnClearAttachments = New-Object Windows.Forms.Button
 $btnClearAttachments.Text = "Quitar adjuntos"
@@ -831,9 +832,14 @@ function Update-ContextLayout {
     $capabilityBadgeHost.Left = $lblContextTitle.Right + 2
     $nextLeft = $capabilityBadgeHost.Right + $gap
     # Read the state, not .Visible: it reports false until the form is shown.
-    if ((Get-SelectedModelCapabilities).Web) {
+    $capabilities = Get-SelectedModelCapabilities
+    if ($capabilities.Web) {
         $checkWebSearch.Left = $nextLeft
         $nextLeft = $checkWebSearch.Right + $gap
+    }
+    if ($capabilities.TextFiles -or $capabilities.Vision) {
+        $btnAttachFiles.Left = $nextLeft
+        $nextLeft = $btnAttachFiles.Right + $gap
     }
     $rightLimit = $contextPanel.ClientSize.Width - $contextPanel.Padding.Right
     if ($script:attachedFiles.Count -gt 0) {
@@ -3171,15 +3177,6 @@ foreach ($control in $panel.Controls) {
 }
 
 function Update-ToolbarLayout {
-    # Close the gap left by the contextual attachment button when it is hidden.
-    $attachmentOffset = if ($btnAttachFiles.Visible) { 163 } else { 0 }
-    $toolbarBaseLeft[$btnCopyMd] = 252 + $attachmentOffset
-    $toolbarBaseLeft[$btnCopyTxt] = 420 + $attachmentOffset
-    $toolbarBaseLeft[$btnMic] = 593 + $attachmentOffset
-    $toolbarBaseLeft[$btnPdf] = 721 + $attachmentOffset
-    $toolbarBaseLeft[$btnMp3] = 799 + $attachmentOffset
-    $toolbarBaseLeft[$btnLimpiar] = 877 + $attachmentOffset
-
     $rows = @{}
     foreach ($control in $panel.Controls) {
         if ($control -eq $versionLabel -or -not $control.Visible) {

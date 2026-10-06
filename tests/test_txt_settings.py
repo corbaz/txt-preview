@@ -29,7 +29,12 @@ class SettingsContractTests(unittest.TestCase):
 
     def test_model_selector_is_in_header_and_attachment_is_contextual(self) -> None:
         self.assertIn("$settingsNavHost.Controls.Add($modelCombo)", SCRIPT)
-        self.assertIn("$panel.Controls.Add($btnAttachFiles)", SCRIPT)
+        # Like the web checkbox, attaching lives in the editor context bar, not the toolbar.
+        self.assertIn("$contextPanel.Controls.Add($btnAttachFiles)", SCRIPT)
+        self.assertNotIn("$panel.Controls.Add($btnAttachFiles)", SCRIPT)
+        self.assertNotIn("attachmentOffset", SCRIPT)
+        layout = re.search(r"function Update-ContextLayout \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
+        self.assertIn("$btnAttachFiles.Left = $nextLeft", layout.group("body"))
         self.assertIn("$btnAttachFiles.Visible = $btnAttachFiles.Enabled", SCRIPT)
 
     def test_editor_shows_the_context_sent_to_groq(self) -> None:
