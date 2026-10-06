@@ -5,11 +5,12 @@ Aplicación de escritorio para Windows que reúne en una sola ventana un editor 
 ## Qué podés hacer
 
 - Escribir o pegar texto y verlo formateado en **Vista previa**.
-- **Consultar IA**, **Resumir**, **Corregir gramática y ortografía** y **Traducir** inglés ↔ español.
-- Adjuntar archivos de texto o imágenes y activar la búsqueda web, según el modelo elegido. Los íconos verdes junto a **Contexto IA** muestran qué puede hacer el modelo actual.
+- **Consultar IA**: tu consulta queda en el Editor y la respuesta aparece en **Vista previa**. Desde ahí podés usar **Llevar al editor** para seguir trabajando sobre la respuesta, o **Ver el editor** para volver a ver tu texto.
+- **Resumir**, **Corregir gramática y ortografía** y **Traducir** inglés ↔ español reemplazan el texto del Editor; **Ctrl+Z** recupera el original.
+- En la barra **Contexto IA**, arriba del Editor: búsqueda web (activada por defecto en los modelos que navegan) y **Adjuntar archivos** de texto o imágenes, según el modelo elegido. Los íconos verdes muestran qué puede hacer el modelo actual.
 - Abrir los links de las respuestas en la pestaña **Navegador**, con barra de direcciones, atrás y adelante, o en tu navegador predeterminado. La primera vez la app descarga el componente WebView2 de Microsoft (~10 MB, verificado por firma digital).
 - Escuchar el resultado con voces de Windows o voces neuronales de Edge, con pausa, velocidad y resaltado de la palabra que se lee.
-- Exportar a **PDF** y **MP3**, copiar como Markdown o texto plano.
+- Exportar a **PDF** y **MP3**, copiar como Markdown o texto plano. Estas acciones y **Play** usan lo que muestra la Vista previa: la respuesta de la IA si hay una, o el texto del Editor.
 - Elegir tema claro u oscuro.
 
 ## Instalación

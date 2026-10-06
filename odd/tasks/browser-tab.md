@@ -24,7 +24,8 @@ Web search on by default for web-capable models, and an embedded browser tab: li
 
 ## Progress
 
-- Branch: `feat/keep-prompt` (not pushed)
+- Branch: `feat/keep-prompt`, merged into `main` and pushed with the version bump.
+- Native review: approved and acknowledged (lineage review-4b5bab069ee8dbda) after excluding `.git/.gentle-ai-*` from the VS Code file watcher.
 - T1 `3ced18e`; T2-T4 in the next commit.
 - Tests: RED 4 failing, GREEN 32 OK; parser 0 errors; VS Code diagnostics empty.
 - Smoke (test mode): example.com opened in 0.9-1.9 s (first run includes download); back/forward states correct; a preview link click switched to Navegador and loaded the page.
