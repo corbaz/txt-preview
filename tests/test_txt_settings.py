@@ -244,6 +244,22 @@ class SettingsContractTests(unittest.TestCase):
             body = re.search(r"function " + function + r" \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL).group("body")
             self.assertIn("ConvertTo-PreviewBodyHtml $markdown", body, function)
 
+    def test_attachments_accept_pdf_and_office_documents_as_text(self) -> None:
+        handler = self._click_handler("btnAttachFiles")
+        for extension in ("*.pdf", "*.docx", "*.doc", "*.pptx", "*.ppt"):
+            self.assertIn(extension, handler)
+        self.assertIn("ConvertFrom-DocumentFile $fileInfo.FullName", handler)
+        # Groq only accepts text and images, so documents travel as extracted text.
+        self.assertIn('Kind = "Text"', handler)
+
+    def test_pdf_library_is_pinned_by_version_and_hash(self) -> None:
+        self.assertIn('$pdfPigPackageVersion = "0.1.16"', SCRIPT)
+        self.assertIn('$pdfPigPackageSha256 = "d67171846ea8c28f50359137065fec4514266d7a32b23eae6c5f2ebed8ffcfc4"', SCRIPT)
+        loader = re.search(r"function Initialize-PdfPig \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
+        self.assertIsNotNone(loader)
+        self.assertIn("Get-FileHash", loader.group("body"))
+        self.assertIn("$pdfPigPackageSha256", loader.group("body"))
+
     def test_version_uses_requested_format(self) -> None:
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$")

@@ -820,19 +820,19 @@ function Get-GroqModelCapabilities {
     if ($modelId -eq "qwen/qwen3.8-27b") {
         return [pscustomobject]@{
             Chat = $true; Reasoning = $true; Web = $false; Vision = $true; TextFiles = $true
-            Summary = "Texto · Razonamiento · Visión · Imágenes (máx. 3) · Archivos de texto"
+            Summary = "Texto · Razonamiento · Visión · Imágenes (máx. 3) · Documentos (texto, PDF, Word, PowerPoint)"
         }
     }
     if ($modelId -in @("openai/gpt-oss-120b", "openai/gpt-oss-20b")) {
         return [pscustomobject]@{
             Chat = $true; Reasoning = $true; Web = $true; Vision = $false; TextFiles = $true
-            Summary = "Texto · Razonamiento · Búsqueda web · Archivos de texto"
+            Summary = "Texto · Razonamiento · Búsqueda web · Documentos (texto, PDF, Word, PowerPoint)"
         }
     }
     if ($modelId -eq "allam-2-7b") {
         return [pscustomobject]@{
             Chat = $true; Reasoning = $false; Web = $false; Vision = $false; TextFiles = $true
-            Summary = "Texto · Árabe · Archivos de texto"
+            Summary = "Texto · Árabe · Documentos (texto, PDF, Word, PowerPoint)"
         }
     }
     if ($modelId -eq "openai/gpt-oss-safeguard-20b") {
@@ -919,7 +919,7 @@ function Update-CapabilityBadges {
         @{ Enabled = $capabilities.Reasoning; Glyph = 0xE82F; Tip = "Razonamiento" }
         @{ Enabled = $capabilities.Web; Glyph = 0xE774; Tip = "Navegación y búsqueda web" }
         @{ Enabled = $capabilities.Vision; Glyph = 0xE890; Tip = "Visión: entiende imágenes" }
-        @{ Enabled = $capabilities.TextFiles; Glyph = 0xE723; Tip = "Archivos de texto adjuntos" }
+        @{ Enabled = $capabilities.TextFiles; Glyph = 0xE723; Tip = "Adjuntar documentos: texto, PDF, Word y PowerPoint" }
     )
 
     $oldBadges = @($capabilityBadgeHost.Controls)
@@ -3430,6 +3430,209 @@ function Open-BrowserUrl {
     }
 }
 
+# Groq only accepts text and images, so documents are attached as text extracted here.
+# PdfPig (Apache-2.0) is unsigned, so the downloaded package must match this exact hash.
+$pdfPigPackageVersion = "0.1.16"
+$pdfPigPackageSha256 = "d67171846ea8c28f50359137065fec4514266d7a32b23eae6c5f2ebed8ffcfc4"
+$script:pdfPigReady = $false
+# Keeps a large document from exhausting the model context (about 100k tokens).
+$documentTextLimit = 300000
+
+function Initialize-PdfPig {
+    if ($script:pdfPigReady) {
+        return
+    }
+    if ($PSVersionTable.PSEdition -ne "Core") {
+        throw "Leer PDF requiere PowerShell 7."
+    }
+    $folder = Join-Path $settingsDirectory "pdfpig\$pdfPigPackageVersion"
+    if (-not (Test-Path -LiteralPath (Join-Path $folder "UglyToad.PdfPig.dll"))) {
+        $packageUrl = "https://api.nuget.org/v3-flatcontainer/pdfpig/$pdfPigPackageVersion/pdfpig.$pdfPigPackageVersion.nupkg"
+        $packagePath = Join-Path ([IO.Path]::GetTempPath()) "txt-preview-pdfpig-$pdfPigPackageVersion.nupkg"
+        $client = [Net.Http.HttpClient]::new()
+        try {
+            $download = Wait-TaskWithEvents ($client.GetStreamAsync($packageUrl))
+            $fileStream = [IO.File]::Create($packagePath)
+            try {
+                [void](Wait-TaskWithEvents ($download.CopyToAsync($fileStream)))
+            } finally {
+                $fileStream.Dispose()
+                $download.Dispose()
+            }
+        } finally {
+            $client.Dispose()
+        }
+        try {
+            $actualHash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash
+            if ($actualHash -ne $pdfPigPackageSha256) {
+                throw "El paquete PdfPig descargado no coincide con la huella esperada; se descartó."
+            }
+            [void][IO.Directory]::CreateDirectory($folder)
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $package = [IO.Compression.ZipFile]::OpenRead($packagePath)
+            try {
+                foreach ($entry in @($package.Entries | Where-Object { $_.FullName -like "lib/net8.0/*.dll" })) {
+                    [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $folder $entry.Name), $true)
+                }
+            } finally {
+                $package.Dispose()
+            }
+        } finally {
+            Remove-Item -LiteralPath $packagePath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    foreach ($library in Get-ChildItem -LiteralPath $folder -Filter "*.dll") {
+        Add-Type -Path $library.FullName
+    }
+    $script:pdfPigReady = $true
+}
+
+function ConvertFrom-PdfFile {
+    param([string]$path)
+
+    Initialize-PdfPig
+    $document = [UglyToad.PdfPig.PdfDocument]::Open($path)
+    try {
+        $pages = foreach ($page in $document.GetPages()) {
+            $pageText = [UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor.ContentOrderTextExtractor]::GetText($page)
+            "--- Página $($page.Number) ---`n$pageText"
+        }
+        $text = $pages -join "`n`n"
+    } finally {
+        $document.Dispose()
+    }
+    if ([string]::IsNullOrWhiteSpace(($text -replace '--- Página \d+ ---', ''))) {
+        throw "El PDF no tiene texto seleccionable (parece escaneado)."
+    }
+    return $text
+}
+
+# .docx and .pptx are ZIP packages of XML, so they need no Office installation.
+function Get-OpenXmlParagraphs {
+    param(
+        [IO.Compression.ZipArchiveEntry]$entry,
+        [string]$namespace,
+        [string]$textTag
+    )
+
+    $reader = [IO.StreamReader]::new($entry.Open())
+    try {
+        $xml = [xml]$reader.ReadToEnd()
+    } finally {
+        $reader.Dispose()
+    }
+    $names = [Xml.XmlNamespaceManager]::new($xml.NameTable)
+    $names.AddNamespace("x", $namespace)
+    foreach ($paragraph in $xml.SelectNodes("//x:p", $names)) {
+        $parts = foreach ($node in $paragraph.SelectNodes(".//x:$textTag | .//x:tab | .//x:br", $names)) {
+            switch ($node.LocalName) {
+                "tab" { "`t" }
+                "br" { "`n" }
+                default { $node.InnerText }
+            }
+        }
+        -join $parts
+    }
+}
+
+function ConvertFrom-OpenXmlFile {
+    param([string]$path)
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $package = [IO.Compression.ZipFile]::OpenRead($path)
+    try {
+        if ([IO.Path]::GetExtension($path) -ieq ".docx") {
+            $entry = $package.GetEntry("word/document.xml")
+            if ($null -eq $entry) {
+                throw "El archivo no es un documento de Word válido."
+            }
+            return (Get-OpenXmlParagraphs $entry "http://schemas.openxmlformats.org/wordprocessingml/2006/main" "t") -join "`n"
+        }
+
+        # slide10.xml sorts before slide2.xml as text; order slides by their number.
+        $slides = @($package.Entries |
+            Where-Object { $_.FullName -match '^ppt/slides/slide(\d+)\.xml$' } |
+            Sort-Object { [int]([regex]::Match($_.FullName, '(\d+)\.xml$').Groups[1].Value) })
+        if ($slides.Count -eq 0) {
+            throw "El archivo no es una presentación de PowerPoint válida."
+        }
+        $slideNumber = 0
+        $sections = foreach ($slide in $slides) {
+            $slideNumber++
+            $lines = @(Get-OpenXmlParagraphs $slide "http://schemas.openxmlformats.org/drawingml/2006/main" "t" |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            "--- Diapositiva $slideNumber ---`n" + ($lines -join "`n")
+        }
+        return $sections -join "`n`n"
+    } finally {
+        $package.Dispose()
+    }
+}
+
+# Legacy binary .doc/.ppt files can only be read through an installed Office.
+function ConvertFrom-LegacyOfficeFile {
+    param([string]$path)
+
+    $isWord = [IO.Path]::GetExtension($path) -ieq ".doc"
+    $progId = if ($isWord) { "Word.Application" } else { "PowerPoint.Application" }
+    try {
+        $application = New-Object -ComObject $progId
+    } catch {
+        $format = if ($isWord) { ".docx" } else { ".pptx" }
+        throw "Para leer este archivo hace falta Microsoft Office. Guardalo como $format y volvé a adjuntarlo."
+    }
+    try {
+        if ($isWord) {
+            $application.Visible = $false
+            $application.DisplayAlerts = 0
+            # Open(FileName, ConfirmConversions, ReadOnly)
+            $document = $application.Documents.Open($path, $false, $true)
+            try {
+                return ($document.Content.Text -replace "`r", "`n").Trim()
+            } finally {
+                $document.Close(0)
+            }
+        }
+        # Open(FileName, ReadOnly = msoTrue, Untitled = msoFalse, WithWindow = msoFalse)
+        $presentation = $application.Presentations.Open($path, -1, 0, 0)
+        try {
+            $sections = foreach ($slide in $presentation.Slides) {
+                $lines = foreach ($shape in $slide.Shapes) {
+                    if ($shape.HasTextFrame -and $shape.TextFrame.HasText) {
+                        $shape.TextFrame.TextRange.Text -replace "`r", "`n"
+                    }
+                }
+                "--- Diapositiva $($slide.SlideIndex) ---`n" + ($lines -join "`n")
+            }
+            return $sections -join "`n`n"
+        } finally {
+            $presentation.Close()
+        }
+    } finally {
+        $application.Quit()
+        [void][Runtime.InteropServices.Marshal]::ReleaseComObject($application)
+    }
+}
+
+function ConvertFrom-DocumentFile {
+    param([string]$path)
+
+    $text = switch ([IO.Path]::GetExtension($path).ToLowerInvariant()) {
+        ".pdf" { ConvertFrom-PdfFile $path }
+        { $_ -in ".docx", ".pptx" } { ConvertFrom-OpenXmlFile $path }
+        { $_ -in ".doc", ".ppt" } { ConvertFrom-LegacyOfficeFile $path }
+        default { throw "Tipo de documento no compatible: $_" }
+    }
+    $text = [string]$text
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        throw "No se encontró texto en $([IO.Path]::GetFileName($path))."
+    }
+    if ($text.Length -gt $documentTextLimit) {
+        $text = $text.Substring(0, $documentTextLimit) + "`n`n[Documento recortado: supera $documentTextLimit caracteres.]"
+    }
+    return $text
+}
+
 function Convert-MarkdownToText {
     param([string]$markdown)
 
@@ -3673,10 +3876,11 @@ $btnAttachFiles.Add_Click({
     $dialog = New-Object Windows.Forms.OpenFileDialog
     $dialog.Multiselect = $true
     $dialog.Title = "Adjuntar archivos para $($script:selectedGroqModel)"
+    $documentPatterns = "*.pdf;*.docx;*.doc;*.pptx;*.ppt;*.txt;*.md;*.json;*.csv;*.xml;*.html;*.htm;*.ps1;*.py;*.js;*.ts;*.yaml;*.yml"
     $dialog.Filter = if ($capabilities.Vision) {
-        "Documentos e imágenes|*.txt;*.md;*.json;*.csv;*.xml;*.html;*.htm;*.ps1;*.py;*.js;*.ts;*.yaml;*.yml;*.png;*.jpg;*.jpeg;*.webp;*.gif|Todos los archivos|*.*"
+        "Documentos e imágenes|$documentPatterns;*.png;*.jpg;*.jpeg;*.webp;*.gif|Todos los archivos|*.*"
     } else {
-        "Documentos de texto|*.txt;*.md;*.json;*.csv;*.xml;*.html;*.htm;*.ps1;*.py;*.js;*.ts;*.yaml;*.yml|Todos los archivos|*.*"
+        "Documentos|$documentPatterns|Todos los archivos|*.*"
     }
 
     try {
@@ -3685,6 +3889,7 @@ $btnAttachFiles.Add_Click({
         }
         $imageExtensions = @(".png", ".jpg", ".jpeg", ".webp", ".gif")
         $textExtensions = @(".txt", ".md", ".json", ".csv", ".xml", ".html", ".htm", ".ps1", ".py", ".js", ".ts", ".yaml", ".yml")
+        $documentExtensions = @(".pdf", ".docx", ".doc", ".pptx", ".ppt")
         foreach ($path in $dialog.FileNames) {
             if (@($script:attachedFiles | Where-Object { $_.Path -eq $path }).Count -gt 0) {
                 continue
@@ -3716,6 +3921,23 @@ $btnAttachFiles.Add_Click({
                 $script:attachedFiles.Add([pscustomobject]@{
                     Name = $fileInfo.Name; Path = $fileInfo.FullName; Kind = "Text"; Size = $fileInfo.Length
                     Content = [IO.File]::ReadAllText($fileInfo.FullName)
+                })
+            } elseif ($extension -in $documentExtensions) {
+                if (-not $capabilities.TextFiles) {
+                    throw "El modelo elegido no admite documentos en esta aplicación."
+                }
+                if ($fileInfo.Length -gt 50MB) {
+                    throw "$($fileInfo.Name) supera el límite de 50 MB para documentos."
+                }
+                Start-Busy "Leyendo $($fileInfo.Name)..."
+                try {
+                    $documentText = ConvertFrom-DocumentFile $fileInfo.FullName
+                } finally {
+                    Stop-Busy
+                }
+                $script:attachedFiles.Add([pscustomobject]@{
+                    Name = $fileInfo.Name; Path = $fileInfo.FullName; Kind = "Text"; Size = $fileInfo.Length
+                    Content = $documentText
                 })
             } else {
                 throw "Tipo de archivo no compatible: $extension"
