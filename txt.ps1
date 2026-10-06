@@ -2636,7 +2636,7 @@ function Export-PreviewPdf {
     $htmlPath = Join-Path $workDirectory "preview.html"
     $profilePath = Join-Path $workDirectory "edge-profile"
     [void][IO.Directory]::CreateDirectory($workDirectory)
-    [IO.File]::WriteAllText($htmlPath, (Get-MarkdownPreviewHtml $previewContent), [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($htmlPath, (Get-PrintHtml $previewContent), [Text.UTF8Encoding]::new($false))
 
     Start-Busy "Generando PDF..."
     try {
@@ -2972,7 +2972,8 @@ function Set-Theme {
     Set-AudioControlState $speechState.ControlState
 }
 
-function Get-MarkdownPreviewHtml {
+# Markdown to the HTML body shared by Vista previa and the PDF export.
+function ConvertTo-PreviewBodyHtml {
     param([string]$markdown)
 
     if ([string]::IsNullOrWhiteSpace($markdown)) {
@@ -2985,11 +2986,83 @@ function Get-MarkdownPreviewHtml {
 
     # El motor WebBrowser no representa bien las secuencias emoji de teclas (1️⃣, 2️⃣, etc.).
     $keycapPattern = '([0-9#*])(?:&#xFE0F;|️)?(?:&#x20E3;|⃣)'
-    $bodyHtml = [regex]::Replace(
+    return [regex]::Replace(
         $bodyHtml,
         $keycapPattern,
         '<span class="emoji-keycap">$1</span>'
     )
+}
+
+# Print-only document for the PDF export: A4 paper, real page margins on every page,
+# page numbers and break rules. Paper is always light, whatever the app theme.
+function Get-PrintHtml {
+    param([string]$markdown)
+
+    $bodyHtml = ConvertTo-PreviewBodyHtml $markdown
+    $paper = $themePalettes.Light
+    $text = $paper.Text
+    $muted = $paper.Muted
+    $heading = $paper.Heading
+    $border = $paper.Border
+    $codeBackground = $paper.Code
+    $accent = $paper.Accent
+    $link = $paper.Link
+
+    return @"
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+@page {
+    size: A4;
+    margin: 22mm 20mm 24mm 20mm;
+    @bottom-right {
+        content: "Página " counter(page) " de " counter(pages);
+        color: $muted;
+        font-family: "Segoe UI", Arial, sans-serif;
+        font-size: 8pt;
+    }
+}
+html, body { background: #FFFFFF; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { color: $text; font-family: "Segoe UI Variable Text", "Segoe UI", "Segoe UI Emoji", Arial, sans-serif; font-size: 10.5pt; hyphens: auto; line-height: 1.55; margin: 0; }
+h1, h2, h3, h4 { break-after: avoid; break-inside: avoid; color: $heading; font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif; font-weight: 600; hyphens: manual; line-height: 1.25; page-break-after: avoid; }
+h1 { border-bottom: 1.5pt solid $accent; font-size: 22pt; letter-spacing: -.01em; margin: 0 0 14pt; padding-bottom: 6pt; }
+h2 { border-bottom: .6pt solid $border; font-size: 15pt; margin: 20pt 0 8pt; padding-bottom: 3pt; }
+h3 { font-size: 12.5pt; margin: 16pt 0 6pt; }
+h4 { font-size: 11pt; margin: 14pt 0 4pt; }
+body > :first-child { margin-top: 0; }
+p { margin: 0 0 8pt; orphans: 3; widows: 3; }
+ul, ol { margin: 0 0 8pt; padding-left: 16pt; }
+li { break-inside: avoid; margin: 2pt 0; orphans: 3; widows: 3; }
+strong { color: $heading; font-weight: 600; }
+a { color: $link; text-decoration: none; }
+code { background: $codeBackground; border: .5pt solid $border; border-radius: 3pt; font-family: "Cascadia Code", Consolas, monospace; font-size: 8.8pt; padding: .5pt 3pt; }
+pre { background: $codeBackground; border: .6pt solid $border; border-radius: 4pt; break-inside: avoid; font-size: 8.8pt; line-height: 1.45; margin: 0 0 10pt; padding: 8pt 10pt; white-space: pre-wrap; }
+pre code { background: transparent; border: 0; padding: 0; }
+blockquote { background: $codeBackground; border-left: 2.5pt solid $accent; break-inside: avoid; color: $muted; margin: 10pt 0; padding: 6pt 10pt; }
+blockquote p:last-child { margin-bottom: 0; }
+table { border-collapse: collapse; font-size: 9.5pt; margin: 0 0 10pt; width: 100%; }
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+th { background: $codeBackground; color: $heading; font-weight: 600; }
+th, td { border: .5pt solid $border; padding: 4pt 7pt; text-align: left; vertical-align: top; }
+img { break-inside: avoid; max-width: 100%; }
+hr { border: 0; border-top: .6pt solid $border; margin: 14pt 0; }
+.emoji-keycap { background: $accent; border-radius: 3pt; color: #FFFFFF; display: inline-block; font-size: .78em; font-weight: 700; line-height: 1.35; margin-right: .28em; min-width: 1.35em; padding: 0 .16em; text-align: center; }
+</style>
+</head>
+<body>
+$bodyHtml
+</body>
+</html>
+"@
+}
+
+function Get-MarkdownPreviewHtml {
+    param([string]$markdown)
+
+    $bodyHtml = ConvertTo-PreviewBodyHtml $markdown
 
     $background = $activePalette.Window
     $foreground = $activePalette.Text
@@ -3034,13 +3107,6 @@ a { border-bottom: 1px solid $border; color: $link; text-decoration: none; }
 .emoji-keycap { background: $accent; border-radius: 6px; color: $background; display: inline-block; font-family: "Segoe UI", Arial, sans-serif; font-size: .78em; font-weight: 700; line-height: 1.35; margin-right: .28em; min-width: 1.35em; padding: .05em .16em; text-align: center; vertical-align: .12em; }
 .speech-word { border-radius: 5px; transition: background-color .14s ease-out, color .14s ease-out, box-shadow .14s ease-out; }
 .speech-active { background: $speechActiveBackground; box-shadow: 0 0 0 3px $speechActiveBackground; color: $speechActiveForeground; }
-@page { margin: 0; }
-@media print {
-    html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: $background; }
-    html { min-height: 100%; }
-    body { padding: 18mm 16mm; }
-    pre, blockquote, table, h1, h2, h3 { break-inside: avoid; }
-}
 </style>
 <script>
 var speechWords = [];

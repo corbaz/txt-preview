@@ -221,6 +221,29 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn("$_.Cancel = $true", handler.group("body"))
         self.assertIn("Open-BrowserUrl", handler.group("body"))
 
+    def test_pdf_uses_a_dedicated_a4_print_layout(self) -> None:
+        export = re.search(r"function Export-PreviewPdf \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL).group("body")
+        self.assertIn("Get-PrintHtml $previewContent", export)
+        # The function returns a here-string whose CSS has its own column-0 braces.
+        printer = re.search(r"function Get-PrintHtml \{(?P<body>.*?)\n\"@\n\}", SCRIPT, re.DOTALL)
+        self.assertIsNotNone(printer)
+        body = printer.group("body")
+        # Paper is always light, whatever the app theme.
+        self.assertIn("$themePalettes.Light", body)
+        self.assertNotIn("$activePalette", body)
+        # Real page margins on every page (not body padding) and page numbers.
+        self.assertRegex(body, r"@page \{[^}]*size: A4;[^}]*margin: \d+mm")
+        self.assertIn("counter(pages)", body)
+        # Professional page breaks.
+        for rule in ("break-after: avoid", "orphans: 3", "widows: 3", "display: table-header-group"):
+            self.assertIn(rule, body)
+
+    def test_preview_and_print_share_one_markdown_conversion(self) -> None:
+        self.assertIn("function ConvertTo-PreviewBodyHtml", SCRIPT)
+        for function in ("Get-MarkdownPreviewHtml", "Get-PrintHtml"):
+            body = re.search(r"function " + function + r" \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL).group("body")
+            self.assertIn("ConvertTo-PreviewBodyHtml $markdown", body, function)
+
     def test_version_uses_requested_format(self) -> None:
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$")
