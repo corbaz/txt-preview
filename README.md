@@ -66,6 +66,8 @@ Al abrir la app, si hay una versión nueva aparece un aviso que pregunta si quer
 | `destination path ... already exists` | La app ya está instalada. Ejecutá solo `powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\txt-preview\install.ps1"`. |
 | Mensaje rojo "Error al conectar con la API" | Revisá la API key en **Configuración** y tu conexión a internet. |
 | No suenan las voces de Edge | Instalá Python y FFmpeg (ver tabla de voces). |
+| "El PDF no tiene texto seleccionable" | Es un PDF escaneado (imágenes). Pasalo por un OCR o adjuntá las páginas como imágenes en un modelo con visión. |
+| "Hace falta Microsoft Office" al adjuntar .doc o .ppt | Abrilo y guardalo como .docx o .pptx; esos formatos se leen sin Office. |
 
 Los mensajes de la app usan colores: verde para información, amarillo para advertencias y rojo para errores.
 
@@ -79,7 +81,7 @@ Remove-Item "$env:LOCALAPPDATA\TXT Preview" -Recurse -Force
 Remove-Item "$([Environment]::GetFolderPath('Desktop'))\TXT Preview.lnk"
 ```
 
-La segunda línea borra tu configuración y la API key guardada.
+La segunda línea borra tu configuración, la API key guardada y los componentes descargados (WebView2 y PdfPig).
 
 ---
 
