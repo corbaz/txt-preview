@@ -105,5 +105,23 @@ class SpeechReplayTests(unittest.TestCase):
         self.assertIn("Clear-SpeechReplayCache", closed)
 
 
+class TrackingHighlightTests(unittest.TestCase):
+    def test_tracking_highlight_is_bubblegum_pink_in_both_themes(self) -> None:
+        self.assertEqual(SCRIPT.count('SpeechBackground = "#FF69B4"'), 2)
+        self.assertEqual(SCRIPT.count('SpeechForeground = "#2B0016"'), 2)
+        self.assertIn(".speech-active::selection", SCRIPT)
+
+    def test_selection_is_cleared_once_captured(self) -> None:
+        self.assertIn("function clearSpeechSelection()", SCRIPT)
+        body = function_body("Get-PreviewSpeechSelection")
+        # The native selection paints over the tracking highlight, so it is dropped after capture.
+        self.assertIn('InvokeScript("clearSpeechSelection")', body)
+
+    def test_tracked_word_is_kept_near_the_top(self) -> None:
+        scroll = block(r"function keepSpeechWordInView\(element\) \{(?P<body>.*?)\n\}")
+        self.assertIn("viewHeight * 0.2", scroll)
+        self.assertIn("viewHeight * 0.5", scroll)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1452,7 +1452,7 @@ $themePalettes = @{
         Play = "#34D399"; Pause = "#FBBF24"; Stop = "#FB7185"; OnState = "#0B0E14"
         Notice = "#6EE7B7"; Warning = "#FBBF24"; Danger = "#F87171"
         Code = "#151A25"; Heading = "#F3F5FB"; Link = "#A3A9FF"
-        SpeechBackground = "#3B3F8F"; SpeechForeground = "#FFFFFF"
+        SpeechBackground = "#FF69B4"; SpeechForeground = "#2B0016"
         Scrollbar = "#2A3142"; ScrollbarArrow = "#6B7490"
     }
     Light = @{
@@ -1462,7 +1462,7 @@ $themePalettes = @{
         Play = "#059669"; Pause = "#D97706"; Stop = "#E11D48"; OnState = "#FFFFFF"
         Notice = "#047857"; Warning = "#B45309"; Danger = "#DC2626"
         Code = "#F3F4F8"; Heading = "#0F1220"; Link = "#4248D6"
-        SpeechBackground = "#DDE0FF"; SpeechForeground = "#1A1D6B"
+        SpeechBackground = "#FF69B4"; SpeechForeground = "#2B0016"
         Scrollbar = "#CDD2DE"; ScrollbarArrow = "#8A92A6"
     }
 }
@@ -1666,6 +1666,8 @@ function Get-PreviewSpeechSelection {
         }
         $startWord = -1
         [void][int]::TryParse([string]$preview.Document.InvokeScript("getSpeechSelectionStartWord"), [ref]$startWord)
+        # Text and start word are captured; the visible selection would hide the pink highlight.
+        [void]$preview.Document.InvokeScript("clearSpeechSelection")
         return [pscustomobject]@{ Text = $selectedText.Trim(); StartWord = $startWord }
     } catch {
         return $empty
@@ -3484,6 +3486,7 @@ a { border-bottom: 1px solid $border; color: $link; text-decoration: none; }
 .emoji-keycap { background: $accent; border-radius: 6px; color: $background; display: inline-block; font-family: "Segoe UI", Arial, sans-serif; font-size: .78em; font-weight: 700; line-height: 1.35; margin-right: .28em; min-width: 1.35em; padding: .05em .16em; text-align: center; vertical-align: .12em; }
 .speech-word { border-radius: 5px; transition: background-color .14s ease-out, color .14s ease-out, box-shadow .14s ease-out; }
 .speech-active { background: $speechActiveBackground; box-shadow: 0 0 0 3px $speechActiveBackground; color: $speechActiveForeground; }
+.speech-active::selection { background: $speechActiveBackground; color: $speechActiveForeground; }
 </style>
 <script>
 var speechWords = [];
@@ -3541,11 +3544,13 @@ function getSpeechWords() {
 }
 
 function keepSpeechWordInView(element) {
+    // Keep the tracked word in the upper part of the viewport: once it leaves the band
+    // between 10% and 50% of the height, scroll so it sits at 20% from the top.
     var rect = element.getBoundingClientRect();
     var viewHeight = document.documentElement.clientHeight;
-    if (rect.top < viewHeight * 0.2 || rect.bottom > viewHeight * 0.7) {
+    if (rect.top < viewHeight * 0.1 || rect.bottom > viewHeight * 0.5) {
         var currentTop = window.pageYOffset || document.documentElement.scrollTop;
-        window.scrollTo(0, Math.max(0, currentTop + rect.top - viewHeight * 0.38));
+        window.scrollTo(0, Math.max(0, currentTop + rect.top - viewHeight * 0.2));
     }
 }
 
@@ -3582,6 +3587,16 @@ function getSpeechSelection() {
         return String(document.selection.createRange().text || "");
     }
     return "";
+}
+
+function clearSpeechSelection() {
+    // The native selection paints over the tracking highlight, so it is dropped once read.
+    if (window.getSelection) {
+        var selected = window.getSelection();
+        if (selected) { selected.removeAllRanges(); }
+    } else if (document.selection) {
+        document.selection.empty();
+    }
 }
 
 function getSpeechSelectionStartWord() {

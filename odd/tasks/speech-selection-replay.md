@@ -15,6 +15,8 @@ Text-to-speech improvements in Vista previa:
 
 - [x] T1 — Play reads only the preview selection when one exists (route: delegated, writer trigger: large file needing preparation reading)
 - [x] T2 — Cached audio + Replay button + seek slider (route: delegated)
+- [x] T3 — Bubblegum pink tracking highlight visible over a selection in both themes; tracked word kept near the top (route: delegated)
+- [ ] T4 — Caret click sets the reading start; clicks while reading jump voice and highlight (route: delegated)
 
 ## Checks
 
@@ -37,3 +39,5 @@ Text-to-speech improvements in Vista previa:
 - T2: Repetir button, replay TrackBar (tenths of a second) and `m:ss / m:ss` label in the speed row; disabled without cache or without ffplay. Tests RED 8 -> GREEN 50 OK; parser 0 errors.
 - T2 smoke (test mode, silent WAV): cache enables controls, WAV header duration 3.33 s vs ffprobe 3.328 s, replay from 1.0 s reported 2.0 s after 1 s, pause freezes the clock, seeking while paused stays paused at 2.5 s, natural end returns to Idle and keeps the cache, close removes it. Edge concat: 2.184 s + 3.600 s chunks -> 5.784 s, decodes without errors.
 - Not exercised: live audible playback through the full app window (DocumentText does not load in the hidden test-mode form).
+- T3: tracking highlight `#FF69B4` with `#2B0016` text (about 7.9:1 contrast) in both palettes, plus `.speech-active::selection`; the native selection is cleared (`clearSpeechSelection`) right after its text and start word are captured, since it painted over the highlight. Auto-scroll keeps the word between 10% and 50% of the viewport, re-anchoring it at 20%. Tests RED 3 -> GREEN; parser 0 errors.
+- T3 smoke (standalone WebBrowser, real preview HTML, light and dark): selection read then cleared to empty; computed active-word style `rgb(255, 105, 180) / rgb(43, 0, 22)` in both themes; jumping to word 300 scrolled it to 20% of the viewport.
