@@ -261,6 +261,45 @@ public static class AudioProcessControl {
 "@
 }
 
+if (-not ("SpeechRenderTrack" -as [type])) {
+    $renderTrackReferences = @(
+        [System.Speech.Synthesis.SpeechSynthesizer].Assembly.Location,
+        [System.ComponentModel.AsyncCompletedEventArgs].Assembly.Location,
+        "System.Collections",
+        "System.Runtime",
+        "System.Threading"
+    ) | Select-Object -Unique
+    Add-Type -ReferencedAssemblies $renderTrackReferences -TypeDefinition @"
+using System;
+using System.Collections.Generic;
+using System.Speech.Synthesis;
+// Collects word positions while a SpeechSynthesizer renders to a file. A synthesizer started
+// outside the UI thread raises its events on worker threads, where PowerShell script blocks
+// cannot run, so the handlers live in compiled code.
+public sealed class SpeechRenderTrack {
+    private readonly object gate = new object();
+    private readonly List<double> seconds = new List<double>();
+    private readonly List<string> words = new List<string>();
+    private volatile bool completed;
+    public SpeechRenderTrack(SpeechSynthesizer synthesizer) {
+        synthesizer.SpeakProgress += (sender, e) => {
+            lock (gate) {
+                seconds.Add(e.AudioPosition.TotalSeconds);
+                words.Add(e.Text ?? "");
+            }
+        };
+        // Progress and completion share one serialized worker, so all words precede this.
+        synthesizer.SpeakCompleted += (sender, e) => {
+            if (!e.Cancelled && e.Error == null) { completed = true; }
+        };
+    }
+    public bool Completed { get { return completed; } }
+    public double[] Seconds { get { lock (gate) { return seconds.ToArray(); } } }
+    public string[] Words { get { lock (gate) { return words.ToArray(); } } }
+}
+"@
+}
+
 $form = New-Object Windows.Forms.Form
 $form.Text = "Corrector de Prompt"
 $form.Size = New-Object Drawing.Size(1200, 720)
@@ -1414,6 +1453,16 @@ $speechState = @{
     WindowsRenderSynth       = $null
     WindowsRenderPrompt      = $null
     WindowsRenderFile        = $null
+    WindowsRenderTrack       = $null
+    # Preview words the reading was aligned to, and the word before its first spoken word.
+    AlignWordsKey            = $null
+    CacheStartCursor         = $null
+    # Cached word timings: audio offset (s) -> preview word index, valid for ReplayWordsKey.
+    ReplayMarkSeconds        = [double[]]@()
+    ReplayMarkWords          = [int[]]@()
+    ReplayWordsKey           = $null
+    ReplayHighlight          = $false
+    ReplayHighlightChecked   = $false
     ControlState             = "Idle"
     SessionId                = 0
 }
@@ -2111,7 +2160,13 @@ function Start-WindowsSpeechSession {
             $speechState.WindowsRenderFile = $renderFile
             $renderSynth.SelectVoice($voiceName)
             $renderSynth.Rate = $speechSynth.Rate
-            $renderSynth.SetOutputToWaveFile($renderFile)
+            # 16 kHz 16-bit mono: SAPI reports AudioPosition on that clock, so word times match
+            # the file (a 22.05 kHz file made them run about 38% ahead of the audio).
+            $renderFormat = [System.Speech.AudioFormat.SpeechAudioFormatInfo]::new(16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)
+            $renderSynth.SetOutputToWaveFile($renderFile, $renderFormat)
+            # Word positions in the WAV feed the Repetir highlight; they count only if the
+            # render completes, so a cancelled render never leaves partial timings.
+            $speechState.WindowsRenderTrack = [SpeechRenderTrack]::new($renderSynth)
             $speechState.WindowsRenderPrompt = $renderSynth.SpeakAsync($text)
         } catch {
             Remove-WindowsSpeechRender
@@ -2142,6 +2197,8 @@ function Start-SelectedVoicePlayback {
         }
         Reset-SpeechAlignment ($SelectionStartWord - 1)
         Clear-PreviewSpeechProgress
+        # Where the cached word timings start; unknown selection starts get no timings.
+        $speechState.CacheStartCursor = if ($SelectionOnly -and $SelectionStartWord -lt 0) { $null } else { [Math]::Max(-1, $SelectionStartWord - 1) }
     }
     # Only a reading started by Play is a new generation; voice or speed restarts are partial.
     $speechState.CacheEligible = -not $ContinueHighlight
@@ -2228,6 +2285,7 @@ function Reset-SpeechAlignment {
     param([int]$startCursor = -1)
 
     $speechState.AlignWords = [string[]]@()
+    $speechState.AlignWordsKey = $null
     $speechState.AlignCursor = [Math]::Max(-1, $startCursor)
     # Words at or before the floor were not spoken in this reading and are never highlighted.
     $speechState.AlignFloor = $speechState.AlignCursor
@@ -2251,24 +2309,36 @@ function Initialize-SpeechAlignment {
         return $false
     }
     $speechState.AlignWords = [string[]]@($rawWords -split "`n" | ForEach-Object { Get-SpeechAlignmentKey $_ })
+    # Identifies the rendered text, so cached timings are only reused on the same preview.
+    $speechState.AlignWordsKey = Get-SpeechWordsKey $rawWords
     return $true
 }
 
-function Step-SpeechAlignment {
-    param([string]$spokenWord)
+function Get-SpeechWordsKey {
+    param([string]$rawWords)
+
+    return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($rawWords)))
+}
+
+function Get-NextAlignmentCursor {
+    param(
+        [string[]]$words,
+        [int]$cursor,
+        [int]$misses,
+        [string]$spokenWord
+    )
 
     # Sequential text-to-DOM alignment: every engine word event advances a cursor over the
     # rendered preview words, so the highlight follows reading order instead of a ratio.
+    # Returns the new cursor and miss count; the live reading and the Repetir cache share it.
     $key = Get-SpeechAlignmentKey $spokenWord
     if (-not $key) {
-        return
+        return [int[]]@($cursor, $misses)
     }
 
-    $words = $speechState.AlignWords
-    $cursor = $speechState.AlignCursor
     $start = $cursor + 1
     if ($start -ge $words.Count) {
-        return
+        return [int[]]@($cursor, $misses)
     }
 
     # Skip preview tokens without letters or digits (emoji, dashes, bullets).
@@ -2278,31 +2348,64 @@ function Step-SpeechAlignment {
     }
     $nextWord = $words[$next]
     if ($nextWord -and ($nextWord -eq $key -or $nextWord.StartsWith($key) -or $key.StartsWith($nextWord))) {
-        $speechState.AlignCursor = $next
-        $speechState.AlignMisses = 0
-        return
+        return [int[]]@($next, 0)
     }
 
     # Engines split compound tokens ("e-mail", "2026-10-04"); stay on the current word.
     if ($cursor -ge 0 -and $words[$cursor] -and $words[$cursor].Contains($key)) {
-        return
+        return [int[]]@($cursor, $misses)
     }
 
     $limit = [Math]::Min($words.Count - 1, $start + $speechAlignmentWindow)
     for ($index = $next + 1; $index -le $limit; $index++) {
         if ($words[$index] -eq $key) {
-            $speechState.AlignCursor = $index
-            $speechState.AlignMisses = 0
-            return
+            return [int[]]@($index, 0)
         }
     }
 
     # Unmatched words (numbers read aloud, abbreviations) advance one step after two misses
     # so the highlight never freezes and never jumps far ahead.
-    $speechState.AlignMisses++
-    if ($speechState.AlignMisses -ge 2) {
-        $speechState.AlignCursor = $next
-        $speechState.AlignMisses = 0
+    $misses++
+    if ($misses -ge 2) {
+        return [int[]]@($next, 0)
+    }
+    return [int[]]@($cursor, $misses)
+}
+
+function Step-SpeechAlignment {
+    param([string]$spokenWord)
+
+    $step = Get-NextAlignmentCursor $speechState.AlignWords $speechState.AlignCursor $speechState.AlignMisses $spokenWord
+    $speechState.AlignCursor = $step[0]
+    $speechState.AlignMisses = $step[1]
+}
+
+function Get-ReplayWordTimings {
+    param(
+        [double[]]$markSeconds,
+        [string[]]$spokenWords,
+        [string[]]$words,
+        [int]$startCursor
+    )
+
+    # Replays the live aligner over every spoken word, so Repetir marks the same preview
+    # words the original reading did.
+    $seconds = [Collections.Generic.List[double]]::new()
+    $wordIndices = [Collections.Generic.List[int]]::new()
+    $cursor = $startCursor
+    $misses = 0
+    for ($index = 0; $index -lt $spokenWords.Count; $index++) {
+        $step = Get-NextAlignmentCursor $words $cursor $misses $spokenWords[$index]
+        $cursor = $step[0]
+        $misses = $step[1]
+        if ($cursor -gt $startCursor -and ($wordIndices.Count -eq 0 -or $wordIndices[$wordIndices.Count - 1] -ne $cursor)) {
+            $seconds.Add($markSeconds[$index])
+            $wordIndices.Add($cursor)
+        }
+    }
+    return [pscustomobject]@{
+        Seconds = $seconds.ToArray()
+        Words   = $wordIndices.ToArray()
     }
 }
 
@@ -2656,6 +2759,9 @@ function Clear-SpeechReplayCache {
     $speechState.ReplayFile = $null
     $speechState.ReplayDuration = 0.0
     $speechState.ReplayVoice = $null
+    $speechState.ReplayMarkSeconds = [double[]]@()
+    $speechState.ReplayMarkWords = [int[]]@()
+    $speechState.ReplayWordsKey = $null
     Update-ReplayControls
 }
 
@@ -2695,6 +2801,7 @@ function Complete-WindowsSpeechRender {
     $speechState.WindowsRenderSynth = $null
     $speechState.WindowsRenderPrompt = $null
     $speechState.WindowsRenderFile = $null
+    $speechState.WindowsRenderTrack = $null
     if ($null -eq $renderSynth) {
         return $null
     }
@@ -2734,6 +2841,8 @@ function Save-SpeechReplayCache {
     $speechState.CacheEligible = $false
 
     $targetFile = $null
+    $markSeconds = [Collections.Generic.List[double]]::new()
+    $spokenWords = [Collections.Generic.List[string]]::new()
     try {
         if ($speechState.Provider -eq "Edge") {
             $chunks = @($speechState.Chunks)
@@ -2756,14 +2865,28 @@ function Save-SpeechReplayCache {
             } finally {
                 $output.Dispose()
             }
+            # Each chunk's word offsets move by the length of the chunks joined before it.
+            $chunkOffset = 0.0
+            foreach ($chunk in $chunks) {
+                foreach ($mark in @($chunk.WordMarks)) {
+                    $markSeconds.Add($chunkOffset + $mark.StartSeconds)
+                    $spokenWords.Add([string]$mark.Text)
+                }
+                $chunkOffset += $chunk.DurationSeconds
+            }
             $duration = ($chunks | Measure-Object -Property DurationSeconds -Sum).Sum
             if ($ffprobeCommand) {
                 $duration = Get-AudioDurationSeconds $targetFile (($chunks | ForEach-Object { $_.Text }) -join " ")
             }
         } elseif ($speechState.Provider -eq "Windows") {
+            $renderTrack = $speechState.WindowsRenderTrack
             $targetFile = Complete-WindowsSpeechRender
             if (-not $targetFile) {
                 return
+            }
+            if ($null -ne $renderTrack -and $renderTrack.Completed) {
+                $markSeconds.AddRange([double[]]$renderTrack.Seconds)
+                $spokenWords.AddRange([string[]]$renderTrack.Words)
             }
             $duration = Get-WaveDurationSeconds $targetFile
         } else {
@@ -2773,11 +2896,31 @@ function Save-SpeechReplayCache {
         if ($duration -le 0) {
             throw "El audio generado está vacío."
         }
+        if ($markSeconds.Count -gt 0 -and $markSeconds[$markSeconds.Count - 1] -gt $duration + 0.05) {
+            # Word times beyond the audio mean a clock mismatch: keep the audio, drop the marks.
+            $markSeconds.Clear()
+            $spokenWords.Clear()
+        }
+        $timings = $null
+        if (
+            $markSeconds.Count -gt 0 -and
+            $null -ne $speechState.CacheStartCursor -and
+            $speechState.AlignWords.Count -gt 0 -and
+            $speechState.AlignWordsKey
+        ) {
+            $timings = Get-ReplayWordTimings $markSeconds.ToArray() $spokenWords.ToArray() $speechState.AlignWords $speechState.CacheStartCursor
+        }
         $voice = $speechState.VoiceDisplay
+        $wordsKey = $speechState.AlignWordsKey
         Clear-SpeechReplayCache
         $speechState.ReplayFile = $targetFile
         $speechState.ReplayDuration = [double]$duration
         $speechState.ReplayVoice = $voice
+        if ($null -ne $timings -and $timings.Seconds.Count -gt 0) {
+            $speechState.ReplayMarkSeconds = [double[]]$timings.Seconds
+            $speechState.ReplayMarkWords = [int[]]$timings.Words
+            $speechState.ReplayWordsKey = $wordsKey
+        }
         Update-ReplayControls
     } catch {
         # Caching is best effort: the reading itself already worked.
@@ -2793,6 +2936,55 @@ function Get-ReplayPositionSeconds {
         return $speechState.ReplayOffset
     }
     return [Math]::Min($speechState.ReplayDuration, $speechState.ReplayOffset + $elapsed)
+}
+
+function Update-ReplayHighlight {
+    param([double]$positionSeconds)
+
+    $marks = $speechState.ReplayMarkSeconds
+    if ($marks.Count -eq 0) {
+        return
+    }
+    if (-not $speechState.ReplayHighlightChecked) {
+        # The timings belong to the text rendered when the audio was made; any other text
+        # gets no highlight rather than wrong words.
+        $speechState.ReplayHighlightChecked = $true
+        $speechState.ReplayHighlight = $false
+        if ($null -ne $preview.Document) {
+            try {
+                $rawWords = [string]$preview.Document.InvokeScript("getSpeechWords")
+                $speechState.ReplayHighlight = -not [string]::IsNullOrEmpty($rawWords) -and (Get-SpeechWordsKey $rawWords) -eq $speechState.ReplayWordsKey
+            } catch {
+                $speechState.ReplayHighlight = $false
+            }
+        }
+        if (-not $speechState.ReplayHighlight) {
+            Clear-PreviewSpeechProgress
+        }
+    }
+    if (-not $speechState.ReplayHighlight) {
+        return
+    }
+
+    # Binary search for the last word whose audio onset has been reached.
+    $lookupTime = $positionSeconds + $speechHighlightLeadSeconds
+    $low = 0
+    $high = $marks.Count - 1
+    $found = -1
+    while ($low -le $high) {
+        $middle = [int][Math]::Floor(($low + $high) / 2)
+        if ($marks[$middle] -le $lookupTime) {
+            $found = $middle
+            $low = $middle + 1
+        } else {
+            $high = $middle - 1
+        }
+    }
+    if ($found -lt 0) {
+        Clear-PreviewSpeechProgress
+        return
+    }
+    Set-PreviewSpeechWordIndex $speechState.ReplayMarkWords[$found]
 }
 
 function Start-ReplayPlayback {
@@ -2834,6 +3026,8 @@ function Start-ReplayPlayback {
         $btnPauseVoice.Text = "Pausar"
         Set-AudioControlState "Play"
         Set-ReplaySliderPosition $offset
+        $speechState.ReplayHighlightChecked = $false
+        Update-ReplayHighlight $offset
         $edgeVoiceTimer.Start()
         if ($wasPausedReplay) {
             # Seeking while paused moves the position and stays paused.
@@ -2853,7 +3047,9 @@ function Update-ReplayPlayback {
         return
     }
     if (-not $player.HasExited) {
-        Set-ReplaySliderPosition (Get-ReplayPositionSeconds)
+        $position = Get-ReplayPositionSeconds
+        Set-ReplaySliderPosition $position
+        Update-ReplayHighlight $position
         return
     }
 
@@ -2891,7 +3087,13 @@ $replaySlider.Add_KeyUp({
         Invoke-ReplaySeek
     }
 })
-$replaySlider.Add_ValueChanged({ Update-ReplayTimeLabel })
+$replaySlider.Add_ValueChanged({
+    Update-ReplayTimeLabel
+    # Dragging during Repetir previews the word at the new position before the seek.
+    if ($script:replaySeeking -and $speechState.Provider -eq "Replay") {
+        Update-ReplayHighlight ($replaySlider.Value / 10.0)
+    }
+})
 
 $edgeVoiceTimer.Add_Tick({
     if ($speechState.Provider -in @("Edge", "Windows") -and $speechState.Mode -ne "Idle") {
@@ -4834,6 +5036,11 @@ $btnBrowserExternal.Add_Click({
 })
 
 # Links clicked in Vista previa leave the preview and open in the Navegador tab.
+$preview.Add_DocumentCompleted({
+    # A re-rendered preview may show other text: Repetir re-checks it before highlighting.
+    $speechState.ReplayHighlightChecked = $false
+})
+
 $preview.Add_Navigating({
     $target = $_.Url
     if ($null -ne $target -and $target.Scheme -in @("http", "https")) {

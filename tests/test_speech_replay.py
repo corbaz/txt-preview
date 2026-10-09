@@ -155,5 +155,50 @@ class ClickPositionTests(unittest.TestCase):
         self.assertIn("$speechState.CacheEligible = -not $ContinueHighlight", body)
 
 
+class ReplayHighlightTests(unittest.TestCase):
+    def test_aligner_core_is_shared_by_live_reading_and_cache(self) -> None:
+        self.assertIn("function Get-NextAlignmentCursor {", SCRIPT)
+        self.assertIn("Get-NextAlignmentCursor", function_body("Step-SpeechAlignment"))
+        self.assertIn("Get-NextAlignmentCursor", function_body("Get-ReplayWordTimings"))
+
+    def test_reading_records_its_preview_words_and_start(self) -> None:
+        self.assertIn("$speechState.AlignWordsKey", function_body("Initialize-SpeechAlignment"))
+        self.assertIn("$speechState.CacheStartCursor", function_body("Start-SelectedVoicePlayback"))
+
+    def test_timings_are_cached_for_both_providers(self) -> None:
+        save = function_body("Save-SpeechReplayCache")
+        self.assertIn("Get-ReplayWordTimings", save)
+        self.assertIn("$speechState.AlignWordsKey", save)
+        # Edge marks are offset by the duration of the chunks joined before them.
+        self.assertIn("$chunkOffset + $mark.StartSeconds", save)
+        self.assertIn("$chunkOffset += $chunk.DurationSeconds", save)
+        windows = function_body("Start-WindowsSpeechSession")
+        # Render events can arrive on worker threads, so a compiled collector records them.
+        self.assertIn("[SpeechRenderTrack]::new($renderSynth)", windows)
+        self.assertIn("seconds.Add(e.AudioPosition.TotalSeconds)", SCRIPT)
+        self.assertNotIn("$renderSynth.add_SpeakProgress", SCRIPT)
+        # SAPI reports AudioPosition on a 16 kHz clock; other WAV rates skew the word times.
+        self.assertIn("SpeechAudioFormatInfo]::new(16000", windows)
+        # Timings that run past the audio are dropped rather than marking the wrong words.
+        self.assertIn("$markSeconds[$markSeconds.Count - 1] -gt $duration", save)
+
+    def test_replay_highlight_follows_position_and_seeks(self) -> None:
+        self.assertIn("Update-ReplayHighlight", function_body("Update-ReplayPlayback"))
+        start = function_body("Start-ReplayPlayback")
+        self.assertIn("$speechState.ReplayHighlightChecked = $false", start)
+        self.assertIn("Update-ReplayHighlight $offset", start)
+        self.assertIn("Update-ReplayHighlight", block(r"\$replaySlider\.Add_ValueChanged\(\{(?P<body>.*?)\n\}\)"))
+
+    def test_replay_highlight_is_disabled_when_the_preview_changed(self) -> None:
+        body = function_body("Update-ReplayHighlight")
+        self.assertIn("$speechState.ReplayWordsKey", body)
+        self.assertIn("Clear-PreviewSpeechProgress", body)
+        completed = block(r"\$preview\.Add_DocumentCompleted\(\{(?P<body>.*?)\n\}\)")
+        self.assertIn("$speechState.ReplayHighlightChecked = $false", completed)
+
+    def test_clicks_still_do_not_move_a_replay(self) -> None:
+        self.assertIn('$speechState.Provider -eq "Replay"', function_body("Move-SpeechToWord"))
+
+
 if __name__ == "__main__":
     unittest.main()
