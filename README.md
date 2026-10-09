@@ -41,7 +41,7 @@ El instalador:
 
 1. Creá una API key gratuita en [console.groq.com/keys](https://console.groq.com/keys).
 2. En la app, abrí **Configuración**, pegá la API key y tocá **Guardar**.
-3. Tocá **Actualizar modelos** y elegí uno en el selector de la parte superior. `openai/gpt-oss-120b` es una buena opción general; `qwen/qwen3.8-27b` entiende imágenes.
+3. Tocá **Actualizar modelos** y elegí uno en el selector de la parte superior. La app siempre abre con `openai/gpt-oss-120b`, una buena opción general; el modelo que elijas vale solo para esa sesión. `qwen/qwen3.8-27b` entiende imágenes.
 4. Volvé al **Editor**, escribí algo y probá **Consultar IA**.
 
 La API key se guarda cifrada para tu usuario de Windows en `%LOCALAPPDATA%\TXT Preview\settings.json`. Nunca se sube al repositorio.

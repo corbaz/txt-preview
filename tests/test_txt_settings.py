@@ -264,6 +264,10 @@ class SettingsContractTests(unittest.TestCase):
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$")
 
+    def test_startup_always_selects_the_default_model(self):
+        self.assertIn('$script:selectedGroqModel = "openai/gpt-oss-120b"', SCRIPT)
+        self.assertNotIn("$script:selectedGroqModel = [string]$settings.Model", SCRIPT)
+
 
 if __name__ == "__main__":
     unittest.main()

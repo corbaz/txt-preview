@@ -1111,9 +1111,7 @@ function Import-AppSettings {
             $script:groqApiKey = Convert-SecureStringToPlainText $secureKey
             $txtApiKey.Text = $script:groqApiKey
         }
-        if ($settings.Model) {
-            $script:selectedGroqModel = [string]$settings.Model
-        }
+        # The saved model is ignored on purpose: every launch starts on openai/gpt-oss-120b.
     } catch {
         Set-StatusText $settingsStatus "No se pudo cargar la configuración: $($_.Exception.Message)" -Level Error
     }
