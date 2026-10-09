@@ -3469,6 +3469,13 @@ function Export-SpeechMp3 {
     }
 }
 
+function Stop-SpeechForAiRequest {
+    # A new AI answer replaces Vista previa: any reading or Repetir (playing or paused)
+    # stops, and the Repetir audio of the old preview is deleted before the request starts.
+    Stop-VoicePlayback
+    Clear-SpeechReplayCache
+}
+
 function Invoke-GroqRequest {
     param(
         [hashtable]$headers,
@@ -4506,6 +4513,7 @@ $Texto
 
     $body = New-GroqRequestJson $prompt
 
+    Stop-SpeechForAiRequest
     Start-Busy "Traduciendo con IA..."
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
@@ -4845,6 +4853,7 @@ $Texto
 
     $body = New-GroqRequestJson $prompt
 
+    Stop-SpeechForAiRequest
     Start-Busy "Corrigiendo gramática y ortografía..."
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
@@ -4989,6 +4998,7 @@ $Texto
 
     $body = New-GroqRequestJson $prompt
 
+    Stop-SpeechForAiRequest
     Start-Busy "Consultando a la IA..."
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
@@ -5030,6 +5040,7 @@ $Texto
 
     $body = New-GroqRequestJson $prompt
 
+    Stop-SpeechForAiRequest
     Start-Busy "Creando resumen profesional..."
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
