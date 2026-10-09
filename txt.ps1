@@ -3469,6 +3469,28 @@ function Export-SpeechMp3 {
     }
 }
 
+# Web-search citation markers such as 【2†L58-L62】 or 【0†source】: fullwidth brackets
+# around a dagger. The spaces around a marker go too when it sat before punctuation.
+$aiCitationPattern = '[ \t]*\u3010[^\u3010\u3011\r\n]*\u2020[^\u3010\u3011\r\n]*\u3011(?:[ \t]+(?=[.,;:!?\u2026)\]]))?'
+
+function Remove-AiCitationMarkers {
+    param([string]$text)
+
+    if ([string]::IsNullOrEmpty($text)) {
+        return $text
+    }
+    return [regex]::Replace($text, $aiCitationPattern, "")
+}
+
+function Get-AiResponseText {
+    param($response)
+
+    # Decodes the model text and drops citation markers, so Vista previa, Play, Repetir,
+    # Llevar al editor and the exports never see them.
+    $text = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($response.choices[0].message.content))
+    return Remove-AiCitationMarkers $text
+}
+
 function Stop-SpeechForAiRequest {
     # A new AI answer replaces Vista previa: any reading or Repetir (playing or paused)
     # stops, and the Repetir audio of the old preview is deleted before the request starts.
@@ -4517,7 +4539,7 @@ $Texto
     Start-Busy "Traduciendo con IA..."
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
-        $traducido = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($response.choices[0].message.content))
+        $traducido = Get-AiResponseText $response
         Clear-AiResult
         Set-EditorText $traducido
         if ($targetLanguage -eq "inglés") {
@@ -4857,7 +4879,7 @@ $Texto
     Start-Busy "Corrigiendo gramática y ortografía..."
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
-        $corregido = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($response.choices[0].message.content))
+        $corregido = Get-AiResponseText $response
         Clear-AiResult
         Set-EditorText $corregido
         $corregido | Set-Clipboard
@@ -5002,7 +5024,7 @@ $Texto
     Start-Busy "Consultando a la IA..."
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
-        $respuesta = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($response.choices[0].message.content))
+        $respuesta = Get-AiResponseText $response
         Show-AiResult $respuesta
         Show-Message "Respuesta lista en Vista previa. Tu consulta sigue en el Editor."
     } catch {
@@ -5044,7 +5066,7 @@ $Texto
     Start-Busy "Creando resumen profesional..."
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
-        $resumen = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($response.choices[0].message.content))
+        $resumen = Get-AiResponseText $response
         Clear-AiResult
         Set-EditorText $resumen
         Open-MarkdownPreview $resumen
