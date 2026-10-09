@@ -3424,7 +3424,7 @@ function ConvertTo-PreviewBodyHtml {
     param([string]$markdown)
 
     if ([string]::IsNullOrWhiteSpace($markdown)) {
-        $bodyHtml = '<p class="preview-empty"><em>No hay contenido para mostrar.</em></p>'
+        $bodyHtml = "<p><em>No hay contenido para mostrar.</em></p>"
     } elseif (Get-Command ConvertFrom-Markdown -ErrorAction SilentlyContinue) {
         $bodyHtml = (ConvertFrom-Markdown -InputObject $markdown).Html
     } else {
@@ -3532,7 +3532,7 @@ function Get-MarkdownPreviewHtml {
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <style>
 html { background: $background; overflow-y: auto; scrollbar-face-color: $scrollbar; scrollbar-track-color: $background; scrollbar-arrow-color: $scrollbarArrow; scrollbar-shadow-color: $scrollbar; scrollbar-highlight-color: $scrollbar; scrollbar-3dlight-color: $background; scrollbar-darkshadow-color: $background; }
-body { background: $background; caret-color: $foreground; color: $foreground; font-family: "Segoe UI Variable Text", "Segoe UI", "Segoe UI Emoji", "Segoe UI Symbol", Arial, sans-serif; font-size: 17px; line-height: 1.75; margin: 0; outline: none; padding: 40px 32px 160px; }
+body { background: $background; color: $foreground; font-family: "Segoe UI Variable Text", "Segoe UI", "Segoe UI Emoji", "Segoe UI Symbol", Arial, sans-serif; font-size: 17px; line-height: 1.75; margin: 0; padding: 40px 32px 160px; }
 body > * { margin-left: auto; margin-right: auto; max-width: 1280px; }
 h1, h2, h3, h4 { color: $heading; font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif; font-weight: 600; letter-spacing: -.01em; line-height: 1.3; margin-top: 1.7em; margin-bottom: .55em; }
 h1 { font-size: 2em; }
@@ -3603,7 +3603,7 @@ function prepareSpeechTracking() {
 }
 
 function getSpeechWords() {
-    ensureSpeechWords();
+    if (!speechWords.length) { prepareSpeechTracking(); }
     var words = [];
     for (var index = 0; index < speechWords.length; index++) {
         words.push(speechWords[index].firstChild ? speechWords[index].firstChild.nodeValue : "");
@@ -3623,8 +3623,7 @@ function keepSpeechWordInView(element) {
 }
 
 function setSpeechProgress(ratio) {
-    if (speechWordsStale) { return; }
-    ensureSpeechWords();
+    if (!speechWords.length) { prepareSpeechTracking(); }
     if (!speechWords.length) { return; }
     var bounded = Math.max(0, Math.min(1, Number(ratio)));
     var wordIndex = Math.min(speechWords.length - 1, Math.floor(bounded * speechWords.length));
@@ -3632,8 +3631,7 @@ function setSpeechProgress(ratio) {
 }
 
 function setSpeechWordIndex(wordIndex) {
-    if (speechWordsStale) { return; }
-    ensureSpeechWords();
+    if (!speechWords.length) { prepareSpeechTracking(); }
     if (!speechWords.length) { return; }
     wordIndex = Math.max(0, Math.min(speechWords.length - 1, Number(wordIndex)));
     if (activeSpeechWord === speechWords[wordIndex]) { return; }
@@ -3670,7 +3668,7 @@ function clearSpeechSelection() {
 }
 
 function getSpeechSelectionStartWord() {
-    ensureSpeechWords();
+    if (!speechWords.length) { prepareSpeechTracking(); }
     if (!window.getSelection) { return -1; }
     var selected = window.getSelection();
     if (!selected || !selected.rangeCount) { return -1; }
@@ -3690,13 +3688,13 @@ function getSpeechSelectionStartWord() {
     return -1;
 }
 
-var speechClickPending = null;
+var speechClickWord = -1;
 var speechClickStart = null;
 // Pixels the pointer may move between press and release and still count as a click.
 var speechClickMoveLimit = 4;
 
 function findSpeechWordAtPoint(x, y) {
-    ensureSpeechWords();
+    if (!speechWords.length) { prepareSpeechTracking(); }
     // First word on the clicked line at or right of the pointer, else the first word below it.
     for (var index = 0; index < speechWords.length; index++) {
         var rect = speechWords[index].getBoundingClientRect();
@@ -3715,24 +3713,24 @@ function recordSpeechClick(event) {
     // A drag that leaves a selection is not a caret click.
     var selected = window.getSelection ? window.getSelection() : null;
     if (selected && selected.rangeCount && !selected.isCollapsed) { return; }
-    // Ctrl+click opens a link instead of placing the caret.
-    if (event.ctrlKey) { return; }
-    // The word is resolved when it is needed, after any edit has rebuilt the word spans.
-    var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-    speechClickPending = { target: event.target || event.srcElement, x: event.clientX, y: event.clientY + scrollTop };
+    var target = event.target || event.srcElement;
+    for (var node = target; node && node !== document.body; node = node.parentNode) {
+        if (node.tagName === "A") { return; }
+    }
+    var index = -1;
+    if (target && String(target.className).indexOf("speech-word") >= 0) {
+        for (var wordIndex = 0; wordIndex < speechWords.length; wordIndex++) {
+            if (speechWords[wordIndex] === target) { index = wordIndex; break; }
+        }
+    }
+    if (index < 0) { index = findSpeechWordAtPoint(event.clientX, event.clientY); }
+    if (index >= 0) { speechClickWord = index; }
 }
 
 function takeSpeechClick() {
-    var pending = speechClickPending;
-    speechClickPending = null;
-    if (!pending) { return -1; }
-    ensureSpeechWords();
-    for (var wordIndex = 0; wordIndex < speechWords.length; wordIndex++) {
-        if (speechWords[wordIndex] === pending.target) { return wordIndex; }
-    }
-    // The clicked span was replaced by a rebuild (or the click hit a gap): use the position.
-    var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-    return findSpeechWordAtPoint(pending.x, pending.y - scrollTop);
+    var index = speechClickWord;
+    speechClickWord = -1;
+    return index;
 }
 
 function speechBlockOf(node) {
@@ -3743,7 +3741,7 @@ function speechBlockOf(node) {
 }
 
 function getSpeechTextFrom(wordIndex) {
-    ensureSpeechWords();
+    if (!speechWords.length) { prepareSpeechTracking(); }
     // Rebuilt from the rendered words so the spoken text aligns one-to-one with the highlight;
     // block changes become line breaks, which the Edge chunker splits on.
     var parts = [];
@@ -3762,341 +3760,11 @@ document.onmousedown = function (event) {
     event = event || window.event;
     speechClickStart = event.button === 2 ? null : { x: event.clientX, y: event.clientY };
 };
-var speechWordsStale = false;
-var previewSignature = null;
-var previewDirty = false;
-var previewLastEditAt = 0;
-// Typing pause after which an edit is synced back to its source.
-var previewEditQuietMs = 700;
-var mdTick = String.fromCharCode(96);
-var mdKeycap = String.fromCharCode(0xFE0F, 0x20E3);
-
-function hasClass(node, name) {
-    return !!node && node.nodeType === 1 && (" " + node.className + " ").indexOf(" " + name + " ") >= 0;
-}
-
-function previewContentSignature() {
-    // The tracking highlight toggles a class; that is not an edit.
-    return document.body ? document.body.innerHTML.replace(/ speech-active/g, "") : "";
-}
-
-function checkPreviewEdit() {
-    var signature = previewContentSignature();
-    if (previewSignature === null) { previewSignature = signature; return; }
-    if (signature === previewSignature) { return; }
-    previewSignature = signature;
-    previewDirty = true;
-    speechWordsStale = true;
-    previewLastEditAt = new Date().getTime();
-}
-
-function getPreviewEditState() {
-    checkPreviewEdit();
-    if (!previewDirty) { return "idle"; }
-    return new Date().getTime() - previewLastEditAt < previewEditQuietMs ? "typing" : "ready";
-}
-
-function unwrapSpeechWords() {
-    var spans = document.body.getElementsByTagName("span");
-    var words = [];
-    for (var index = 0; index < spans.length; index++) {
-        if (hasClass(spans[index], "speech-word")) { words.push(spans[index]); }
-    }
-    for (var wordIndex = 0; wordIndex < words.length; wordIndex++) {
-        var span = words[wordIndex];
-        var parent = span.parentNode;
-        if (!parent) { continue; }
-        while (span.firstChild) { parent.insertBefore(span.firstChild, span); }
-        parent.removeChild(span);
-    }
-    document.body.normalize();
-    speechWords = [];
-    activeSpeechWord = null;
-}
-
-function textOffsetOf(container, offset) {
-    var range = document.createRange();
-    range.selectNodeContents(document.body);
-    range.setEnd(container, offset);
-    return range.toString().length;
-}
-
-function saveCaretOffsets() {
-    var selected = window.getSelection ? window.getSelection() : null;
-    if (!selected || !selected.rangeCount) { return null; }
-    var range = selected.getRangeAt(0);
-    try {
-        return { start: textOffsetOf(range.startContainer, range.startOffset), end: textOffsetOf(range.endContainer, range.endOffset) };
-    } catch (error) {
-        return null;
-    }
-}
-
-function pointAtTextOffset(offset) {
-    var walker = document.createTreeWalker(document.body, 4, null, false);
-    var node;
-    var last = null;
-    while ((node = walker.nextNode())) {
-        if (offset <= node.nodeValue.length) { return { node: node, offset: offset }; }
-        offset -= node.nodeValue.length;
-        last = node;
-    }
-    return last ? { node: last, offset: last.nodeValue.length } : { node: document.body, offset: 0 };
-}
-
-function restoreCaretOffsets(saved) {
-    if (!saved) { return; }
-    var start = pointAtTextOffset(saved.start);
-    var end = pointAtTextOffset(saved.end);
-    var range = document.createRange();
-    range.setStart(start.node, start.offset);
-    range.setEnd(end.node, end.offset);
-    var selected = window.getSelection();
-    selected.removeAllRanges();
-    selected.addRange(range);
-}
-
-function markPreviewLinks() {
-    var links = document.getElementsByTagName("a");
-    for (var index = 0; index < links.length; index++) {
-        links[index].title = "Ctrl+clic para abrir el enlace";
-    }
-}
-
-function ensureSpeechWords() {
-    if (speechWords.length && !speechWordsStale) { return; }
-    checkPreviewEdit();
-    // Edited text sits in stale or missing word spans: unwrap and rewrap them, keeping the caret.
-    var saved = speechWordsStale ? saveCaretOffsets() : null;
-    if (speechWordsStale) { unwrapSpeechWords(); }
-    prepareSpeechTracking();
-    markPreviewLinks();
-    speechWordsStale = false;
-    restoreCaretOffsets(saved);
-    // Rewrapping changes markup, not content.
-    previewSignature = previewContentSignature();
-}
-
-function placePreviewCaretAtStart() {
-    ensureSpeechWords();
-    var walker = document.createTreeWalker(document.body, 4, null, false);
-    var node;
-    var first = null;
-    while ((node = walker.nextNode())) {
-        if (/\S/.test(node.nodeValue)) { first = node; break; }
-    }
-    var range = document.createRange();
-    if (first) { range.setStart(first, 0); } else { range.setStart(document.body, 0); }
-    range.collapse(true);
-    var selected = window.getSelection();
-    selected.removeAllRanges();
-    selected.addRange(range);
-    try { document.body.focus(); } catch (error) { }
-    window.scrollTo(0, 0);
-}
-
-function findPreviewPlaceholder() {
-    var paragraphs = document.body.getElementsByTagName("p");
-    for (var index = 0; index < paragraphs.length; index++) {
-        if (hasClass(paragraphs[index], "preview-empty")) { return paragraphs[index]; }
-    }
-    return null;
-}
-
-function dropPreviewPlaceholder() {
-    // The "no content" hint is replaced by an empty paragraph so typing starts a real text.
-    var holder = findPreviewPlaceholder();
-    if (!holder) { return; }
-    var paragraph = document.createElement("p");
-    holder.parentNode.replaceChild(paragraph, holder);
-    var range = document.createRange();
-    range.setStart(paragraph, 0);
-    range.collapse(true);
-    var selected = window.getSelection();
-    selected.removeAllRanges();
-    selected.addRange(range);
-    speechWords = [];
-    activeSpeechWord = null;
-    speechWordsStale = true;
-}
-
-function openPreviewLinkOnCtrlClick(event) {
-    event = event || window.event;
-    // A plain click edits (and sets the reading start); Ctrl+click follows the link.
-    if (!event.ctrlKey) { return true; }
-    for (var node = event.target || event.srcElement; node && node !== document.body; node = node.parentNode) {
-        if (node.tagName === "A" && node.href) {
-            window.location.href = node.href;
-            if (event.preventDefault) { event.preventDefault(); }
-            return false;
-        }
-    }
-    return true;
-}
-
-function mdTrim(text) {
-    return text.replace(/^\s+|\s+$/g, "");
-}
-
-function mdText(node) {
-    return node.textContent || node.innerText || "";
-}
-
-function mdWrap(text, mark) {
-    var lead = text.match(/^\s*/)[0];
-    var trail = text.match(/\s*$/)[0];
-    var core = text.substring(lead.length, Math.max(lead.length, text.length - trail.length));
-    return core ? lead + mark + core + mark + trail : text;
-}
-
-function mdInline(node) {
-    // Accepts an element (its children are converted) or an array of nodes.
-    var nodes = node.nodeType ? node.childNodes : node;
-    var out = "";
-    for (var index = 0; index < nodes.length; index++) {
-        var child = nodes[index];
-        if (child.nodeType === 3) { out += child.nodeValue.replace(/ /g, " "); continue; }
-        if (child.nodeType !== 1) { continue; }
-        var tag = child.tagName;
-        if (tag === "BR") {
-            out += "\n";
-        } else if (tag === "STRONG" || tag === "B") {
-            out += mdWrap(mdInline(child), "**");
-        } else if (tag === "EM" || tag === "I") {
-            out += mdWrap(mdInline(child), "*");
-        } else if (tag === "DEL" || tag === "S" || tag === "STRIKE") {
-            out += mdWrap(mdInline(child), "~~");
-        } else if (tag === "CODE") {
-            out += mdTick + mdText(child) + mdTick;
-        } else if (tag === "A") {
-            out += "[" + mdInline(child) + "](" + (child.getAttribute("href", 2) || "") + ")";
-        } else if (tag === "IMG") {
-            out += "![" + (child.getAttribute("alt") || "") + "](" + (child.getAttribute("src", 2) || "") + ")";
-        } else if (tag === "INPUT" || tag === "SCRIPT" || tag === "STYLE") {
-            continue;
-        } else if (hasClass(child, "emoji-keycap")) {
-            out += mdText(child) + mdKeycap;
-        } else {
-            // Highlight spans and unknown inline tags keep only their content.
-            out += mdInline(child);
-        }
-    }
-    return out;
-}
-
-function mdList(list, indent) {
-    var lines = [];
-    var number = parseInt(list.getAttribute("start"), 10) || 1;
-    for (var item = list.firstChild; item; item = item.nextSibling) {
-        if (item.nodeType !== 1 || item.tagName !== "LI") { continue; }
-        var marker = list.tagName === "OL" ? (number++) + ". " : "- ";
-        var box = item.getElementsByTagName("input")[0];
-        if (box && box.type === "checkbox" && (box.parentNode === item || box.parentNode.parentNode === item)) {
-            marker += box.checked ? "[x] " : "[ ] ";
-        }
-        var text = "";
-        var nested = [];
-        for (var part = item.firstChild; part; part = part.nextSibling) {
-            if (part.nodeType === 1 && (part.tagName === "UL" || part.tagName === "OL")) {
-                nested.push(mdList(part, indent + new Array(marker.length + 1).join(" ")));
-            } else if (part.nodeType === 1 && (part.tagName === "P" || part.tagName === "DIV")) {
-                text += (text ? " " : "") + mdInline(part);
-            } else {
-                text += mdInline([part]);
-            }
-        }
-        lines.push(indent + marker + mdTrim(text.replace(/\s*\n\s*/g, " ")));
-        lines = lines.concat(nested);
-    }
-    return lines.join("\n");
-}
-
-function mdTable(table) {
-    var lines = [];
-    for (var row = 0; row < table.rows.length; row++) {
-        var cells = [];
-        for (var cell = 0; cell < table.rows[row].cells.length; cell++) {
-            cells.push(mdTrim(mdInline(table.rows[row].cells[cell])).replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " "));
-        }
-        lines.push("| " + cells.join(" | ") + " |");
-        if (row === 0) {
-            var rule = [];
-            for (var column = 0; column < cells.length; column++) { rule.push("---"); }
-            lines.push("| " + rule.join(" | ") + " |");
-        }
-    }
-    return lines.join("\n");
-}
-
-function mdBlocks(container) {
-    var blocks = [];
-    var pending = [];
-    function flush() {
-        var text = mdTrim(mdInline(pending));
-        if (text) { blocks.push(text); }
-        pending = [];
-    }
-    for (var child = container.firstChild; child; child = child.nextSibling) {
-        if (child.nodeType === 1 && hasClass(child, "preview-empty")) { continue; }
-        var tag = child.nodeType === 1 ? child.tagName : "";
-        if (!/^(P|DIV|H[1-6]|UL|OL|PRE|BLOCKQUOTE|HR|TABLE)$/.test(tag)) {
-            pending.push(child);
-            continue;
-        }
-        flush();
-        if (/^H[1-6]$/.test(tag)) {
-            blocks.push(new Array(Number(tag.charAt(1)) + 1).join("#") + " " + mdTrim(mdInline(child)));
-        } else if (tag === "P") {
-            var paragraph = mdTrim(mdInline(child));
-            if (paragraph) { blocks.push(paragraph); }
-        } else if (tag === "DIV") {
-            blocks = blocks.concat(mdBlocks(child));
-        } else if (tag === "UL" || tag === "OL") {
-            blocks.push(mdList(child, ""));
-        } else if (tag === "PRE") {
-            var code = child.getElementsByTagName("code")[0];
-            var language = code ? /language-(\S+)/.exec(code.className) : null;
-            var fence = mdTick + mdTick + mdTick;
-            blocks.push(fence + (language ? language[1] : "") + "\n" + mdText(child).replace(/\n+$/, "") + "\n" + fence);
-        } else if (tag === "BLOCKQUOTE") {
-            blocks.push(mdBlocks(child).join("\n\n").replace(/^/gm, "> "));
-        } else if (tag === "HR") {
-            blocks.push("---");
-        } else if (tag === "TABLE") {
-            blocks.push(mdTable(child));
-        }
-    }
-    flush();
-    return blocks;
-}
-
-function getEditedMarkdown() {
-    return mdBlocks(document.body).join("\n\n");
-}
-
-function takePreviewEdit() {
-    checkPreviewEdit();
-    if (!previewDirty) { return null; }
-    previewDirty = false;
-    return getEditedMarkdown();
-}
-
 document.onmouseup = recordSpeechClick;
-document.onclick = openPreviewLinkOnCtrlClick;
-document.onkeydown = function (event) {
-    event = event || window.event;
-    if (!event.ctrlKey && !event.altKey && ((event.key && event.key.length === 1) || event.keyCode === 13)) {
-        dropPreviewPlaceholder();
-    }
-};
-document.onkeyup = function () { checkPreviewEdit(); };
-document.onpaste = function () { dropPreviewPlaceholder(); window.setTimeout(checkPreviewEdit, 0); };
-document.oncut = function () { window.setTimeout(checkPreviewEdit, 0); };
-document.ondrop = function () { dropPreviewPlaceholder(); window.setTimeout(checkPreviewEdit, 0); };
-window.onload = function () { ensureSpeechWords(); };
+window.onload = prepareSpeechTracking;
 </script>
 </head>
-<body contenteditable="true" spellcheck="false">$bodyHtml</body>
+<body>$bodyHtml</body>
 </html>
 "@
 }
@@ -4104,8 +3772,6 @@ window.onload = function () { ensureSpeechWords(); };
 function Show-MarkdownPreview {
     param([string]$markdown)
 
-    # Remembers what the page shows, so edits made in it go back to the right source.
-    $script:previewShowsAiResult = $null -ne $script:aiResult
     $preview.DocumentText = Get-MarkdownPreviewHtml $markdown
 }
 
@@ -4122,70 +3788,8 @@ function Open-MarkdownPreview {
 # The last AI answer shown in Vista previa; $null means the preview mirrors the editor.
 $script:aiResult = $null
 
-$script:previewShowsAiResult = $false
-
-# Writes edits typed in Vista previa back to their source without re-rendering the page, so
-# the caret stays put. An AI answer is edited in place (what Llevar al editor, Play and the
-# exports use); the user's query in the Editor is never overwritten by it.
-function Sync-PreviewEdits {
-    if ($null -eq $preview.Document) {
-        return $false
-    }
-    try {
-        $edited = $preview.Document.InvokeScript("takePreviewEdit")
-    } catch {
-        return $false
-    }
-    if ($null -eq $edited -or $edited -is [DBNull]) {
-        return $false
-    }
-
-    $markdown = [string]$edited
-    if ($script:previewShowsAiResult) {
-        # A dismissed answer keeps nothing: its edits are dropped with it.
-        if ($null -ne $script:aiResult) {
-            $script:aiResult = $markdown
-        }
-    } elseif ($textBox.Text -ne ($markdown -replace "\r?\n", "`r`n")) {
-        Set-EditorText $markdown
-    }
-    return $true
-}
-
-function Update-PreviewEditSync {
-    if ($tabs.SelectedTab -ne $tabPreview -or $null -eq $preview.Document) {
-        return
-    }
-    try {
-        $editState = [string]$preview.Document.InvokeScript("getPreviewEditState")
-    } catch {
-        return
-    }
-    if ($editState -ne "typing" -and $editState -ne "ready") {
-        return
-    }
-    if ($speechState.Provider -in @("Edge", "Windows") -and $speechState.Mode -ne "Idle") {
-        # The spoken text no longer matches the page; stopping beats highlighting stale words.
-        Stop-VoicePlayback -ControlState "Stop"
-        Show-Message "Lectura detenida porque editaste la Vista previa. Play lee el texto nuevo." -Level Warning
-    }
-    if ($editState -eq "ready") {
-        [void](Sync-PreviewEdits)
-    }
-}
-
-# Edits are synced after a typing pause, and before any toolbar action reads the content.
-$previewSyncTimer = New-Object Windows.Forms.Timer
-$previewSyncTimer.Interval = 400
-$previewSyncTimer.Add_Tick({ Update-PreviewEditSync })
-$previewSyncTimer.Start()
-foreach ($button in $actionButtons) {
-    $button.Add_MouseDown({ [void](Sync-PreviewEdits) })
-}
-
 # What Vista previa shows. Copy, PDF, MP3 and Play act on it.
 function Get-PreviewContent {
-    [void](Sync-PreviewEdits)
     if ($null -ne $script:aiResult) {
         return $script:aiResult
     }
@@ -4946,9 +4550,6 @@ $tabs.Add_SelectedIndexChanged({
     Update-NavigationState
     if ($tabs.SelectedTab -eq $tabPreview) {
         Show-MarkdownPreview (Get-PreviewContent)
-    } else {
-        # Leaving Vista previa writes its edits back before the Editor is shown.
-        [void](Sync-PreviewEdits)
     }
 })
 
@@ -5233,18 +4834,6 @@ $btnBrowserExternal.Add_Click({
 })
 
 # Links clicked in Vista previa leave the preview and open in the Navegador tab.
-$preview.Add_DocumentCompleted({
-    # New content starts with the caret at the beginning, ready to type.
-    if ($tabs.SelectedTab -eq $tabPreview -and $null -ne $preview.Document) {
-        try {
-            [void]$preview.Focus()
-            [void]$preview.Document.InvokeScript("placePreviewCaretAtStart")
-        } catch {
-            # The page may be replaced again before it finishes loading.
-        }
-    }
-})
-
 $preview.Add_Navigating({
     $target = $_.Url
     if ($null -ne $target -and $target.Scheme -in @("http", "https")) {
