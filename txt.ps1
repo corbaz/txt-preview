@@ -1379,6 +1379,7 @@ $speechState = @{
     AlignCursor              = -1
     AlignMisses              = 0
     PendingSpokenWords       = [Collections.Generic.List[string]]::new()
+    SelectionOnly            = $false
     ControlState             = "Idle"
     SessionId                = 0
 }
@@ -1619,6 +1620,25 @@ function Clear-PreviewSpeechProgress {
     }
 }
 
+function Get-PreviewSpeechSelection {
+    # Returns the text selected in Vista previa and the index of its first rendered word.
+    $empty = [pscustomobject]@{ Text = ""; StartWord = -1 }
+    if ($tabs.SelectedTab -ne $tabPreview -or $null -eq $preview.Document) {
+        return $empty
+    }
+    try {
+        $selectedText = [string]$preview.Document.InvokeScript("getSpeechSelection")
+        if ([string]::IsNullOrWhiteSpace($selectedText)) {
+            return $empty
+        }
+        $startWord = -1
+        [void][int]::TryParse([string]$preview.Document.InvokeScript("getSpeechSelectionStartWord"), [ref]$startWord)
+        return [pscustomobject]@{ Text = $selectedText.Trim(); StartWord = $startWord }
+    } catch {
+        return $empty
+    }
+}
+
 function Select-VoiceLanguage {
     param([ValidateSet("es", "en")][string]$language)
 
@@ -1694,6 +1714,7 @@ function Stop-VoicePlayback {
         $speechState.HighlightTotalWords = 0
         $speechState.HighlightBaseWordIndex = 0
         $speechState.HighlightTokenStarts = [int[]]@()
+        $speechState.SelectionOnly = $false
         Reset-SpeechAlignment
         Clear-PreviewSpeechProgress
     }
@@ -2019,7 +2040,10 @@ function Start-WindowsSpeechSession {
 function Start-SelectedVoicePlayback {
     param(
         [string]$text,
-        [switch]$ContinueHighlight
+        [switch]$ContinueHighlight,
+        # Index of the first preview word when only the selection is read; -1 reads it all.
+        [switch]$SelectionOnly,
+        [int]$SelectionStartWord = -1
     )
 
     if (-not $ContinueHighlight) {
@@ -2028,7 +2052,12 @@ function Start-SelectedVoicePlayback {
         $speechState.HighlightTotalWords = ([regex]::Matches($text, '\S+')).Count
         $speechState.HighlightBaseWordIndex = 0
         $speechState.HighlightTokenStarts = [int[]]@([regex]::Matches($text, '\S+') | ForEach-Object { $_.Index })
-        Reset-SpeechAlignment
+        $speechState.SelectionOnly = [bool]$SelectionOnly
+        if ($SelectionOnly -and $SelectionStartWord -lt 0) {
+            # Unknown selection position: no highlight is better than marking the wrong words.
+            $speechState.HighlightTotalLength = 0
+        }
+        Reset-SpeechAlignment ($SelectionStartWord - 1)
         Clear-PreviewSpeechProgress
     }
 
@@ -2110,8 +2139,11 @@ function Get-SpeechAlignmentKey {
 }
 
 function Reset-SpeechAlignment {
+    # The cursor sits just before the first preview word expected to be spoken.
+    param([int]$startCursor = -1)
+
     $speechState.AlignWords = [string[]]@()
-    $speechState.AlignCursor = -1
+    $speechState.AlignCursor = [Math]::Max(-1, $startCursor)
     $speechState.AlignMisses = 0
     $speechState.PendingSpokenWords.Clear()
 }
@@ -2313,6 +2345,10 @@ function Update-SpeechHighlight {
         if ($speechState.AlignCursor -ge 0) {
             Set-PreviewSpeechWordIndex $speechState.AlignCursor
         }
+        return
+    }
+    if ($speechState.SelectionOnly) {
+        # Ratios below span the whole document, which would not match a partial reading.
         return
     }
 
@@ -3196,6 +3232,38 @@ function clearSpeechProgress() {
     activeSpeechWord = null;
 }
 
+function getSpeechSelection() {
+    if (window.getSelection) {
+        var selected = window.getSelection();
+        return selected && selected.rangeCount ? String(selected.toString()) : "";
+    }
+    if (document.selection && document.selection.type !== "None") {
+        return String(document.selection.createRange().text || "");
+    }
+    return "";
+}
+
+function getSpeechSelectionStartWord() {
+    if (!speechWords.length) { prepareSpeechTracking(); }
+    if (!window.getSelection) { return -1; }
+    var selected = window.getSelection();
+    if (!selected || !selected.rangeCount) { return -1; }
+    var range = selected.getRangeAt(0);
+    var startNode = range.startContainer;
+    if (startNode.nodeType === 1 && range.startOffset < startNode.childNodes.length) {
+        startNode = startNode.childNodes[range.startOffset];
+    }
+    // IE's contains() ignores text nodes, so a start inside a word is matched by its span.
+    var startElement = startNode.nodeType === 3 ? startNode.parentNode : startNode;
+    // The first word span that contains or follows the selection start is the first word read.
+    for (var index = 0; index < speechWords.length; index++) {
+        var span = speechWords[index];
+        if (span === startElement) { return index; }
+        if (startNode.compareDocumentPosition(span) & 4) { return index; }
+    }
+    return -1;
+}
+
 window.onload = prepareSpeechTracking;
 </script>
 </head>
@@ -4077,7 +4145,10 @@ $btnCopyTxt.Add_Click({
 
 $btnLeer.Add_Click({
     $previewContent = Get-PreviewContent
-    $textoParaLeer = Convert-MarkdownToText $previewContent
+    # A selection in Vista previa narrows the reading to it; read it before re-rendering.
+    $selection = Get-PreviewSpeechSelection
+    $readSelection = -not [string]::IsNullOrWhiteSpace($selection.Text)
+    $textoParaLeer = if ($readSelection) { $selection.Text } else { Convert-MarkdownToText $previewContent }
     if ([string]::IsNullOrWhiteSpace($textoParaLeer)) {
         Show-Message "No hay contenido en Vista previa para leer." -Level Warning
         return
@@ -4089,9 +4160,15 @@ $btnLeer.Add_Click({
     }
 
     try {
-        Open-MarkdownPreview $previewContent
-        Stop-VoicePlayback
-        Start-SelectedVoicePlayback $textoParaLeer
+        if ($readSelection) {
+            Show-SpeechPreview
+            Stop-VoicePlayback
+            Start-SelectedVoicePlayback $textoParaLeer -SelectionOnly -SelectionStartWord $selection.StartWord
+        } else {
+            Open-MarkdownPreview $previewContent
+            Stop-VoicePlayback
+            Start-SelectedVoicePlayback $textoParaLeer
+        }
     } catch {
         Stop-VoicePlayback
         Show-Message "No se pudo iniciar la lectura en voz alta: $($_.Exception.Message)" -Level Error
