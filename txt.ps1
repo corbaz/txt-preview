@@ -1401,6 +1401,7 @@ $speechState = @{
     HighlightTokenStarts     = [int[]]@()
     AlignWords               = [string[]]@()
     AlignCursor              = -1
+    AlignFloor               = -1
     AlignMisses              = 0
     PendingSpokenWords       = [Collections.Generic.List[string]]::new()
     SelectionOnly            = $false
@@ -1671,6 +1672,33 @@ function Get-PreviewSpeechSelection {
         return [pscustomobject]@{ Text = $selectedText.Trim(); StartWord = $startWord }
     } catch {
         return $empty
+    }
+}
+
+function Get-PreviewSpeechClick {
+    # Index of the preview word under the last plain click (consumed once read), or -1.
+    if ($tabs.SelectedTab -ne $tabPreview -or $null -eq $preview.Document) {
+        return -1
+    }
+    try {
+        $wordIndex = -1
+        [void][int]::TryParse([string]$preview.Document.InvokeScript("takeSpeechClick"), [ref]$wordIndex)
+        return $wordIndex
+    } catch {
+        return -1
+    }
+}
+
+function Get-PreviewSpeechTextFrom {
+    param([int]$wordIndex)
+
+    if ($null -eq $preview.Document) {
+        return ""
+    }
+    try {
+        return [string]$preview.Document.InvokeScript("getSpeechTextFrom", [object[]]@($wordIndex))
+    } catch {
+        return ""
     }
 }
 
@@ -2201,6 +2229,8 @@ function Reset-SpeechAlignment {
 
     $speechState.AlignWords = [string[]]@()
     $speechState.AlignCursor = [Math]::Max(-1, $startCursor)
+    # Words at or before the floor were not spoken in this reading and are never highlighted.
+    $speechState.AlignFloor = $speechState.AlignCursor
     $speechState.AlignMisses = 0
     $speechState.PendingSpokenWords.Clear()
 }
@@ -2399,7 +2429,7 @@ function Update-SpeechHighlight {
 
     if (Initialize-SpeechAlignment) {
         Sync-SpeechAlignment
-        if ($speechState.AlignCursor -ge 0) {
+        if ($speechState.AlignCursor -gt $speechState.AlignFloor) {
             Set-PreviewSpeechWordIndex $speechState.AlignCursor
         }
         return
@@ -2453,6 +2483,37 @@ function Restart-ActiveSpeechPlayback {
     } catch {
         Stop-VoicePlayback
         Show-Message "No se pudo actualizar la lectura: $($_.Exception.Message)" -Level Error
+    }
+}
+
+function Move-SpeechToWord {
+    param([int]$wordIndex)
+
+    # A click while reading restarts voice and highlight from the clicked word. The jumped
+    # reading is partial, so like voice or speed restarts it never replaces the Repetir cache.
+    if ($speechState.Mode -eq "Idle" -or $speechState.Provider -eq "Replay" -or $wordIndex -lt 0) {
+        return
+    }
+    $text = Get-PreviewSpeechTextFrom $wordIndex
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return
+    }
+
+    $wasPaused = $speechState.Mode -eq "Paused"
+    Stop-VoicePlayback -KeepHighlight
+    try {
+        $speechState.SelectionOnly = $true
+        $speechState.HighlightBaseOffset = 0
+        $speechState.HighlightTotalLength = $text.Length
+        Reset-SpeechAlignment ($wordIndex - 1)
+        Set-PreviewSpeechWordIndex $wordIndex
+        Start-SelectedVoicePlayback $text -ContinueHighlight
+        if ($wasPaused) {
+            Suspend-VoicePlayback
+        }
+    } catch {
+        Stop-VoicePlayback
+        Show-Message "No se pudo saltar a la palabra elegida: $($_.Exception.Message)" -Level Error
     }
 }
 
@@ -2833,6 +2894,13 @@ $replaySlider.Add_KeyUp({
 $replaySlider.Add_ValueChanged({ Update-ReplayTimeLabel })
 
 $edgeVoiceTimer.Add_Tick({
+    if ($speechState.Provider -in @("Edge", "Windows") -and $speechState.Mode -ne "Idle") {
+        $clickedWord = Get-PreviewSpeechClick
+        if ($clickedWord -ge 0) {
+            Move-SpeechToWord $clickedWord
+            return
+        }
+    }
     if ($speechState.Provider -eq "Edge") {
         Update-EdgeVoicePlayback
     } elseif ($speechState.Provider -eq "Replay") {
@@ -3620,6 +3688,79 @@ function getSpeechSelectionStartWord() {
     return -1;
 }
 
+var speechClickWord = -1;
+var speechClickStart = null;
+// Pixels the pointer may move between press and release and still count as a click.
+var speechClickMoveLimit = 4;
+
+function findSpeechWordAtPoint(x, y) {
+    if (!speechWords.length) { prepareSpeechTracking(); }
+    // First word on the clicked line at or right of the pointer, else the first word below it.
+    for (var index = 0; index < speechWords.length; index++) {
+        var rect = speechWords[index].getBoundingClientRect();
+        if (rect.bottom < y) { continue; }
+        if (rect.top > y || rect.right >= x) { return index; }
+    }
+    return -1;
+}
+
+function recordSpeechClick(event) {
+    event = event || window.event;
+    var start = speechClickStart;
+    speechClickStart = null;
+    if (!start) { return; }
+    if (Math.abs(event.clientX - start.x) > speechClickMoveLimit || Math.abs(event.clientY - start.y) > speechClickMoveLimit) { return; }
+    // A drag that leaves a selection is not a caret click.
+    var selected = window.getSelection ? window.getSelection() : null;
+    if (selected && selected.rangeCount && !selected.isCollapsed) { return; }
+    var target = event.target || event.srcElement;
+    for (var node = target; node && node !== document.body; node = node.parentNode) {
+        if (node.tagName === "A") { return; }
+    }
+    var index = -1;
+    if (target && String(target.className).indexOf("speech-word") >= 0) {
+        for (var wordIndex = 0; wordIndex < speechWords.length; wordIndex++) {
+            if (speechWords[wordIndex] === target) { index = wordIndex; break; }
+        }
+    }
+    if (index < 0) { index = findSpeechWordAtPoint(event.clientX, event.clientY); }
+    if (index >= 0) { speechClickWord = index; }
+}
+
+function takeSpeechClick() {
+    var index = speechClickWord;
+    speechClickWord = -1;
+    return index;
+}
+
+function speechBlockOf(node) {
+    for (; node; node = node.parentNode) {
+        if (node.tagName && /^(P|LI|H[1-6]|TD|TH|PRE|BLOCKQUOTE|DIV|DT|DD|BODY)$/.test(node.tagName)) { return node; }
+    }
+    return null;
+}
+
+function getSpeechTextFrom(wordIndex) {
+    if (!speechWords.length) { prepareSpeechTracking(); }
+    // Rebuilt from the rendered words so the spoken text aligns one-to-one with the highlight;
+    // block changes become line breaks, which the Edge chunker splits on.
+    var parts = [];
+    var previousBlock = null;
+    for (var index = Math.max(0, Number(wordIndex)); index < speechWords.length; index++) {
+        var span = speechWords[index];
+        var currentBlock = speechBlockOf(span.parentNode);
+        if (parts.length) { parts.push(currentBlock === previousBlock ? " " : "\n"); }
+        parts.push(span.firstChild ? span.firstChild.nodeValue : "");
+        previousBlock = currentBlock;
+    }
+    return parts.join("");
+}
+
+document.onmousedown = function (event) {
+    event = event || window.event;
+    speechClickStart = event.button === 2 ? null : { x: event.clientX, y: event.clientY };
+};
+document.onmouseup = recordSpeechClick;
 window.onload = prepareSpeechTracking;
 </script>
 </head>
@@ -4504,7 +4645,20 @@ $btnLeer.Add_Click({
     # A selection in Vista previa narrows the reading to it; read it before re-rendering.
     $selection = Get-PreviewSpeechSelection
     $readSelection = -not [string]::IsNullOrWhiteSpace($selection.Text)
-    $textoParaLeer = if ($readSelection) { $selection.Text } else { Convert-MarkdownToText $previewContent }
+    # Without a selection, a plain click in Vista previa sets the word the reading starts from.
+    # It is always consumed here so an old click never leaks into a later reading.
+    $clickedWord = Get-PreviewSpeechClick
+    $readFromClick = -not $readSelection -and $clickedWord -ge 0
+    $startWord = -1
+    if ($readSelection) {
+        $textoParaLeer = $selection.Text
+        $startWord = $selection.StartWord
+    } elseif ($readFromClick) {
+        $textoParaLeer = Get-PreviewSpeechTextFrom $clickedWord
+        $startWord = $clickedWord
+    } else {
+        $textoParaLeer = Convert-MarkdownToText $previewContent
+    }
     if ([string]::IsNullOrWhiteSpace($textoParaLeer)) {
         Show-Message "No hay contenido en Vista previa para leer." -Level Warning
         return
@@ -4516,10 +4670,11 @@ $btnLeer.Add_Click({
     }
 
     try {
-        if ($readSelection) {
+        if ($readSelection -or $readFromClick) {
+            # Partial readings keep the rendered page so word indices stay valid.
             Show-SpeechPreview
             Stop-VoicePlayback
-            Start-SelectedVoicePlayback $textoParaLeer -SelectionOnly -SelectionStartWord $selection.StartWord
+            Start-SelectedVoicePlayback $textoParaLeer -SelectionOnly -SelectionStartWord $startWord
         } else {
             Open-MarkdownPreview $previewContent
             Stop-VoicePlayback

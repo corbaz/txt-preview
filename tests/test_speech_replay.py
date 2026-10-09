@@ -123,5 +123,37 @@ class TrackingHighlightTests(unittest.TestCase):
         self.assertIn("viewHeight * 0.5", scroll)
 
 
+class ClickPositionTests(unittest.TestCase):
+    def test_preview_records_plain_clicks_not_drags(self) -> None:
+        self.assertIn("function findSpeechWordAtPoint(x, y)", SCRIPT)
+        self.assertIn("function takeSpeechClick()", SCRIPT)
+        self.assertIn("function getSpeechTextFrom(wordIndex)", SCRIPT)
+        handler = block(r"function recordSpeechClick\(event\) \{(?P<body>.*?)\n\}")
+        # A drag that leaves a selection is not a caret click.
+        self.assertIn("isCollapsed", handler)
+        self.assertIn("speechClickMoveLimit", handler)
+
+    def test_play_starts_from_the_clicked_word(self) -> None:
+        handler = block(r"\$btnLeer\.Add_Click\(\{(?P<body>.*?)\n\}\)")
+        self.assertIn("Get-PreviewSpeechClick", handler)
+        self.assertIn("Get-PreviewSpeechTextFrom", handler)
+        self.assertLess(handler.index("Get-PreviewSpeechClick"), handler.index("Open-MarkdownPreview"))
+
+    def test_clicks_while_reading_jump_voice_and_highlight(self) -> None:
+        tick = block(r"\$edgeVoiceTimer\.Add_Tick\(\{(?P<body>.*?)\n\}\)")
+        self.assertIn("Get-PreviewSpeechClick", tick)
+        self.assertIn("Move-SpeechToWord", tick)
+        body = function_body("Move-SpeechToWord")
+        self.assertIn("Stop-VoicePlayback -KeepHighlight", body)
+        self.assertIn("Reset-SpeechAlignment ($wordIndex - 1)", body)
+        self.assertIn("Start-SelectedVoicePlayback $text -ContinueHighlight", body)
+        # Replays have no word marks, so clicks do not move them.
+        self.assertIn('$speechState.Provider -eq "Replay"', body)
+
+    def test_jumped_readings_never_replace_the_cache(self) -> None:
+        body = function_body("Start-SelectedVoicePlayback")
+        self.assertIn("$speechState.CacheEligible = -not $ContinueHighlight", body)
+
+
 if __name__ == "__main__":
     unittest.main()

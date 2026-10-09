@@ -16,7 +16,7 @@ Text-to-speech improvements in Vista previa:
 - [x] T1 — Play reads only the preview selection when one exists (route: delegated, writer trigger: large file needing preparation reading)
 - [x] T2 — Cached audio + Replay button + seek slider (route: delegated)
 - [x] T3 — Bubblegum pink tracking highlight visible over a selection in both themes; tracked word kept near the top (route: delegated)
-- [ ] T4 — Caret click sets the reading start; clicks while reading jump voice and highlight (route: delegated)
+- [x] T4 — Caret click sets the reading start; clicks while reading jump voice and highlight (route: delegated)
 
 ## Checks
 
@@ -29,6 +29,8 @@ Text-to-speech improvements in Vista previa:
 - Playback/seek: ffplay restarted with `-ss <offset>` on the cached file (the same player Edge already uses). Pause/Continuar reuse the existing NtSuspendProcess path, so no new player (WMP COM) dependency. Position = offset + elapsed clock, shown by the 40 ms speech timer.
 - One cached file per generation: Edge chunks are bare MP3 frames, so they are byte-concatenated into one MP3; Windows voices render the same text to a WAV with a second SpeechSynthesizer in the background (SetOutputToWaveFile), since live System.Speech output cannot be replayed or seeked.
 - The cache is replaced only when a new reading started with Play has been fully generated (Edge: every chunk ready; Windows: WAV render complete); voice/speed restarts do not cache. Deleted on close.
+- Clicks: the preview JS records a plain click (pointer moved at most 4 px, selection collapsed, not on a link) as a word index; Play consumes it to read from that word, and the 40 ms speech timer polls it while an Edge or Windows reading is active to jump there. Polling via `InvokeScript` was chosen over HtmlDocument events because the document is rebuilt on every render.
+- Jumps restart synthesis from the clicked word for both providers (text rebuilt from the rendered words, block changes as line breaks), keep the paused state, and never replace the Repetir cache (partial, like voice/speed restarts). A reading started by Play from a click is a new generation and is cached, like a selection reading. Clicks during Repetir are ignored (no word marks).
 - Replay has no word highlighting (cached audio carries no word marks); voice/speed changes during Repetir only warn.
 
 ## Progress
@@ -41,3 +43,5 @@ Text-to-speech improvements in Vista previa:
 - Not exercised: live audible playback through the full app window (DocumentText does not load in the hidden test-mode form).
 - T3: tracking highlight `#FF69B4` with `#2B0016` text (about 7.9:1 contrast) in both palettes, plus `.speech-active::selection`; the native selection is cleared (`clearSpeechSelection`) right after its text and start word are captured, since it painted over the highlight. Auto-scroll keeps the word between 10% and 50% of the viewport, re-anchoring it at 20%. Tests RED 3 -> GREEN; parser 0 errors.
 - T3 smoke (standalone WebBrowser, real preview HTML, light and dark): selection read then cleared to empty; computed active-word style `rgb(255, 105, 180) / rgb(43, 0, 22)` in both themes; jumping to word 300 scrolled it to 20% of the viewport.
+- T4: `findSpeechWordAtPoint`, `recordSpeechClick`, `takeSpeechClick`, `getSpeechTextFrom` in the preview; `Get-PreviewSpeechClick`, `Get-PreviewSpeechTextFrom`, `Move-SpeechToWord`; alignment floor so the word before a partial start is never highlighted. Tests RED 3 -> GREEN 57 OK; parser 0 errors.
+- T4 smoke (standalone WebBrowser, synthetic mouse events): click on word 5 -> 5 (consumed once); click right of a line end -> next block's first word (10); drag 2->6 -> -1; click over a selection -> -1; click on a link -> -1; text from word 7 keeps block breaks. Jump with a Windows voice (output muted): restarted at word 12, alignment floor 11, cache eligibility false.
