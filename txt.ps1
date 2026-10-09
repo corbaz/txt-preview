@@ -663,6 +663,30 @@ $lblSpeedValue.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
 $lblSpeedValue.SetBounds(430, 138, 65, 34)
 $panel.Controls.Add($lblSpeedValue)
 
+# Repetir plays the last generated audio again; the slider seeks inside it.
+$btnReplay = New-Object Windows.Forms.Button
+$btnReplay.Text = "Repetir"
+$btnReplay.SetBounds(505, 138, 100, 34)
+$panel.Controls.Add($btnReplay)
+
+$replaySlider = New-Object Windows.Forms.TrackBar
+$replaySlider.Minimum = 0
+$replaySlider.Maximum = 1
+$replaySlider.Value = 0
+# Units are tenths of a second: arrows move 1 s, PageUp/PageDown 5 s.
+$replaySlider.SmallChange = 10
+$replaySlider.LargeChange = 50
+$replaySlider.TickStyle = [Windows.Forms.TickStyle]::None
+$replaySlider.AutoSize = $false
+$replaySlider.SetBounds(613, 139, 250, 32)
+$panel.Controls.Add($replaySlider)
+
+$lblReplayTime = New-Object Windows.Forms.Label
+$lblReplayTime.Text = "0:00 / 0:00"
+$lblReplayTime.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+$lblReplayTime.SetBounds(871, 138, 110, 34)
+$panel.Controls.Add($lblReplayTime)
+
 $versionLabel = New-Object Windows.Forms.Label
 $versionLabel.Text = $appVersion
 $versionLabel.TextAlign = [Drawing.ContentAlignment]::MiddleRight
@@ -1380,6 +1404,15 @@ $speechState = @{
     AlignMisses              = 0
     PendingSpokenWords       = [Collections.Generic.List[string]]::new()
     SelectionOnly            = $false
+    # Replay cache: audio of the last complete generation, kept until a new one replaces it.
+    CacheEligible            = $false
+    ReplayFile               = $null
+    ReplayDuration           = 0.0
+    ReplayVoice              = $null
+    ReplayOffset             = 0.0
+    WindowsRenderSynth       = $null
+    WindowsRenderPrompt      = $null
+    WindowsRenderFile        = $null
     ControlState             = "Idle"
     SessionId                = 0
 }
@@ -1397,7 +1430,7 @@ $actionButtons = @(
     $btnLeer, $btnPegar, $btnCopyMd, $btnCopyTxt, $btnMic, $btnPdf, $btnMp3, $btnLimpiar,
     $btnTheme, $btnCerrar, $btnPauseVoice, $btnStopVoice, $btnSaveSettings, $btnRefreshModels,
     $btnCheckUpdate, $btnInstallUpdate, $btnAttachFiles, $btnClearAttachments,
-    $btnUseResult, $btnDismissResult
+    $btnUseResult, $btnDismissResult, $btnReplay
 )
 
 $aiButtons = @($btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn)
@@ -1695,6 +1728,9 @@ function Stop-VoicePlayback {
         $chunk.Process = $null
     }
 
+    Save-SpeechReplayCache
+    Remove-WindowsSpeechRender
+    $speechState.CacheEligible = $false
     Remove-SpeechChunkFiles
     $speechState.Mode = "Idle"
     $speechState.Provider = $null
@@ -1846,6 +1882,7 @@ function Start-CurrentEdgeChunk {
 
     if ($speechState.CurrentIndex -ge $speechState.Chunks.Count) {
         $edgeVoiceTimer.Stop()
+        Save-SpeechReplayCache
         Remove-SpeechChunkFiles
         $speechState.Chunks = @()
         $speechState.Mode = "Idle"
@@ -1936,8 +1973,8 @@ function Update-EdgeVoicePlayback {
         if ($speechState.AlignWords.Count -gt 0) {
             Sync-EdgeChunkAlignment $completedChunk (@($completedChunk.WordMarks).Count - 1)
         }
+        # The file stays until the session ends so the full generation can be cached for Repetir.
         $completedChunk.Status = "Played"
-        Remove-Item -LiteralPath $completedChunk.MediaFile -Force -ErrorAction SilentlyContinue
 
         if ($playerExitCode -ne 0) {
             $detail = if ($playerError) { ($playerError -split "`r?`n")[-1] } else { "El reproductor terminó con código $playerExitCode." }
@@ -2034,6 +2071,22 @@ function Start-WindowsSpeechSession {
     $speechSynth.Rate = [int][Math]::Min(10, [Math]::Max(-10, $rate))
     $speechSynth.Volume = 100
     [void]$speechSynth.SpeakAsync($text)
+    if ($speechState.CacheEligible -and $ffplayCommand) {
+        # System.Speech cannot replay or seek live speech, so a second synthesizer renders the
+        # same text to a WAV file (much faster than real time) for Repetir.
+        try {
+            $renderFile = Join-Path ([IO.Path]::GetTempPath()) "txt-preview-render-$PID-$([guid]::NewGuid().ToString('N')).wav"
+            $renderSynth = [System.Speech.Synthesis.SpeechSynthesizer]::new()
+            $speechState.WindowsRenderSynth = $renderSynth
+            $speechState.WindowsRenderFile = $renderFile
+            $renderSynth.SelectVoice($voiceName)
+            $renderSynth.Rate = $speechSynth.Rate
+            $renderSynth.SetOutputToWaveFile($renderFile)
+            $speechState.WindowsRenderPrompt = $renderSynth.SpeakAsync($text)
+        } catch {
+            Remove-WindowsSpeechRender
+        }
+    }
     Show-Message "Reproduciendo con $voiceDisplay."
 }
 
@@ -2060,6 +2113,8 @@ function Start-SelectedVoicePlayback {
         Reset-SpeechAlignment ($SelectionStartWord - 1)
         Clear-PreviewSpeechProgress
     }
+    # Only a reading started by Play is a new generation; voice or speed restarts are partial.
+    $speechState.CacheEligible = -not $ContinueHighlight
 
     $selectedDisplay = [string]$voiceCombo.SelectedItem
     $selectedVoiceName = $voiceNameByDisplay[$selectedDisplay]
@@ -2368,6 +2423,11 @@ function Update-SpeechHighlight {
 function Restart-ActiveSpeechPlayback {
     param([string]$successMessage)
 
+    if ($speechState.Provider -eq "Replay") {
+        Show-Message "Repetir usa el audio ya generado; el cambio se aplica en la próxima lectura con Play." -Level Warning
+        return
+    }
+
     $wasPaused = $speechState.Mode -eq "Paused"
     $resumeHighlightOffset = Get-CurrentSpeechCharacterOffset
     $highlightTotalLength = $speechState.HighlightTotalLength
@@ -2496,9 +2556,285 @@ function Resume-VoicePlayback {
     }
 }
 
+function Format-ReplayTime {
+    param([double]$seconds)
+
+    $span = [TimeSpan]::FromSeconds([Math]::Max(0.0, [Math]::Floor($seconds)))
+    return "{0}:{1:00}" -f [int][Math]::Floor($span.TotalMinutes), $span.Seconds
+}
+
+function Update-ReplayTimeLabel {
+    $lblReplayTime.Text = "$(Format-ReplayTime ($replaySlider.Value / 10.0)) / $(Format-ReplayTime $speechState.ReplayDuration)"
+}
+
+function Set-ReplaySliderPosition {
+    param([double]$seconds)
+
+    # While the user drags, the slider shows the drag target, not the playback clock.
+    if (-not $script:replaySeeking) {
+        $replaySlider.Value = [Math]::Min($replaySlider.Maximum, [Math]::Max(0, [int][Math]::Round($seconds * 10)))
+    }
+    Update-ReplayTimeLabel
+}
+
+function Update-ReplayControls {
+    $hasAudio = -not [string]::IsNullOrEmpty($speechState.ReplayFile) -and [bool]$ffplayCommand
+    $btnReplay.Enabled = $hasAudio
+    $replaySlider.Enabled = $hasAudio
+    $replaySlider.Value = 0
+    $replaySlider.Maximum = [Math]::Max(1, [int][Math]::Ceiling($speechState.ReplayDuration * 10))
+    Set-ReplaySliderPosition 0
+}
+
+function Clear-SpeechReplayCache {
+    if ($speechState.ReplayFile) {
+        Remove-Item -LiteralPath $speechState.ReplayFile -Force -ErrorAction SilentlyContinue
+    }
+    $speechState.ReplayFile = $null
+    $speechState.ReplayDuration = 0.0
+    $speechState.ReplayVoice = $null
+    Update-ReplayControls
+}
+
+function Get-WaveDurationSeconds {
+    param([string]$waveFile)
+
+    # Walks the RIFF chunks: duration = data bytes / average bytes per second.
+    $stream = [IO.File]::OpenRead($waveFile)
+    try {
+        $reader = [IO.BinaryReader]::new($stream)
+        $stream.Position = 12
+        $byteRate = 0
+        while ($stream.Position + 8 -le $stream.Length) {
+            $chunkId = [Text.Encoding]::ASCII.GetString($reader.ReadBytes(4))
+            $chunkSize = [long]$reader.ReadUInt32()
+            $chunkStart = $stream.Position
+            if ($chunkId -eq "fmt ") {
+                $stream.Position = $chunkStart + 8
+                $byteRate = $reader.ReadInt32()
+            } elseif ($chunkId -eq "data" -and $byteRate -gt 0) {
+                $dataSize = [Math]::Min([double]$chunkSize, [double]($stream.Length - $chunkStart))
+                return $dataSize / $byteRate
+            }
+            $stream.Position = $chunkStart + $chunkSize + ($chunkSize % 2)
+        }
+        return 0.0
+    } finally {
+        $stream.Dispose()
+    }
+}
+
+function Complete-WindowsSpeechRender {
+    # Returns the rendered WAV when the background render finished; otherwise discards it.
+    $renderSynth = $speechState.WindowsRenderSynth
+    $renderPrompt = $speechState.WindowsRenderPrompt
+    $renderFile = $speechState.WindowsRenderFile
+    $speechState.WindowsRenderSynth = $null
+    $speechState.WindowsRenderPrompt = $null
+    $speechState.WindowsRenderFile = $null
+    if ($null -eq $renderSynth) {
+        return $null
+    }
+
+    $completed = $null -ne $renderPrompt -and $renderPrompt.IsCompleted
+    try {
+        if (-not $completed) {
+            $renderSynth.SpeakAsyncCancelAll()
+        }
+    } catch {
+        # Cancelling a render that just finished is harmless.
+    } finally {
+        # Disposing closes the WAV writer and finalizes its header.
+        $renderSynth.Dispose()
+    }
+    if ($completed -and $renderFile -and (Test-Path -LiteralPath $renderFile)) {
+        return $renderFile
+    }
+    if ($renderFile) {
+        Remove-Item -LiteralPath $renderFile -Force -ErrorAction SilentlyContinue
+    }
+    return $null
+}
+
+function Remove-WindowsSpeechRender {
+    $leftover = Complete-WindowsSpeechRender
+    if ($leftover) {
+        Remove-Item -LiteralPath $leftover -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Save-SpeechReplayCache {
+    # Keeps the audio of a complete generation so Repetir can play it without re-synthesizing.
+    if (-not $speechState.CacheEligible -or -not $ffplayCommand) {
+        return
+    }
+    $speechState.CacheEligible = $false
+
+    $targetFile = $null
+    try {
+        if ($speechState.Provider -eq "Edge") {
+            $chunks = @($speechState.Chunks)
+            if ($chunks.Count -eq 0) {
+                return
+            }
+            foreach ($chunk in $chunks) {
+                if ($chunk.Status -notin @("Ready", "Playing", "Played") -or -not (Test-Path -LiteralPath $chunk.MediaFile)) {
+                    return
+                }
+            }
+            # edge-tts writes bare MP3 frames, so concatenating the chunks yields one playable file.
+            $targetFile = Join-Path ([IO.Path]::GetTempPath()) "txt-preview-replay-$PID-$([guid]::NewGuid().ToString('N')).mp3"
+            $output = [IO.File]::Create($targetFile)
+            try {
+                foreach ($chunk in $chunks) {
+                    $bytes = [IO.File]::ReadAllBytes($chunk.MediaFile)
+                    $output.Write($bytes, 0, $bytes.Length)
+                }
+            } finally {
+                $output.Dispose()
+            }
+            $duration = ($chunks | Measure-Object -Property DurationSeconds -Sum).Sum
+            if ($ffprobeCommand) {
+                $duration = Get-AudioDurationSeconds $targetFile (($chunks | ForEach-Object { $_.Text }) -join " ")
+            }
+        } elseif ($speechState.Provider -eq "Windows") {
+            $targetFile = Complete-WindowsSpeechRender
+            if (-not $targetFile) {
+                return
+            }
+            $duration = Get-WaveDurationSeconds $targetFile
+        } else {
+            return
+        }
+
+        if ($duration -le 0) {
+            throw "El audio generado está vacío."
+        }
+        $voice = $speechState.VoiceDisplay
+        Clear-SpeechReplayCache
+        $speechState.ReplayFile = $targetFile
+        $speechState.ReplayDuration = [double]$duration
+        $speechState.ReplayVoice = $voice
+        Update-ReplayControls
+    } catch {
+        # Caching is best effort: the reading itself already worked.
+        if ($targetFile -and $targetFile -ne $speechState.ReplayFile) {
+            Remove-Item -LiteralPath $targetFile -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Get-ReplayPositionSeconds {
+    $elapsed = Get-EdgeChunkElapsedSeconds
+    if ($null -eq $elapsed) {
+        return $speechState.ReplayOffset
+    }
+    return [Math]::Min($speechState.ReplayDuration, $speechState.ReplayOffset + $elapsed)
+}
+
+function Start-ReplayPlayback {
+    param([double]$offsetSeconds = 0.0)
+
+    if (-not $ffplayCommand) {
+        Show-Message "No se encontró ffplay para repetir el audio." -Level Error
+        return
+    }
+    $wasPausedReplay = $speechState.Provider -eq "Replay" -and $speechState.Mode -eq "Paused"
+    # Stopping first also caches a session that already finished generating, so Repetir uses it.
+    Stop-VoicePlayback
+    if (-not $speechState.ReplayFile -or -not (Test-Path -LiteralPath $speechState.ReplayFile)) {
+        Clear-SpeechReplayCache
+        Show-Message "No hay audio generado para repetir. Usá Play primero." -Level Warning
+        return
+    }
+
+    $offset = [Math]::Min([Math]::Max(0.0, $offsetSeconds), [Math]::Max(0.0, $speechState.ReplayDuration - 0.2))
+    try {
+        $replayStartInfo = [Diagnostics.ProcessStartInfo]::new()
+        $replayStartInfo.FileName = $ffplayCommand
+        $replayStartInfo.UseShellExecute = $false
+        $replayStartInfo.CreateNoWindow = $true
+        $replayStartInfo.RedirectStandardError = $true
+        $offsetText = $offset.ToString("0.###", [Globalization.CultureInfo]::InvariantCulture)
+        # Seeking restarts ffplay at the new offset; -ss before the input seeks without decoding the skipped audio.
+        foreach ($argument in @("-nodisp", "-autoexit", "-loglevel", "error", "-ss", $offsetText, $speechState.ReplayFile)) {
+            [void]$replayStartInfo.ArgumentList.Add($argument)
+        }
+
+        $speechState.PlayerProcess = [Diagnostics.Process]::Start($replayStartInfo)
+        $speechState.PlayerStartedAt = [DateTime]::UtcNow
+        $speechState.PauseStartedAt = $null
+        $speechState.ReplayOffset = $offset
+        $speechState.Provider = "Replay"
+        $speechState.VoiceDisplay = $speechState.ReplayVoice
+        $speechState.Mode = "Playing"
+        $btnPauseVoice.Text = "Pausar"
+        Set-AudioControlState "Play"
+        Set-ReplaySliderPosition $offset
+        $edgeVoiceTimer.Start()
+        if ($wasPausedReplay) {
+            # Seeking while paused moves the position and stays paused.
+            Suspend-VoicePlayback
+        } else {
+            Show-Message "Repitiendo el último audio desde $(Format-ReplayTime $offset) · $($speechState.ReplayVoice)"
+        }
+    } catch {
+        Stop-VoicePlayback
+        Show-Message "No se pudo repetir el audio: $($_.Exception.Message)" -Level Error
+    }
+}
+
+function Update-ReplayPlayback {
+    $player = $speechState.PlayerProcess
+    if ($null -eq $player) {
+        return
+    }
+    if (-not $player.HasExited) {
+        Set-ReplaySliderPosition (Get-ReplayPositionSeconds)
+        return
+    }
+
+    $exitCode = $player.ExitCode
+    $playerError = $player.StandardError.ReadToEnd().Trim()
+    Stop-VoicePlayback
+    Set-ReplaySliderPosition 0
+    if ($exitCode -eq 0) {
+        Show-Message "Repetición finalizada."
+    } else {
+        $detail = if ($playerError) { ($playerError -split "`r?`n")[-1] } else { "El reproductor terminó con código $exitCode." }
+        Show-Message "No se pudo repetir el audio: $detail" -Level Error
+    }
+}
+
+function Invoke-ReplaySeek {
+    $script:replaySeeking = $false
+    if (-not $replaySlider.Enabled) {
+        return
+    }
+    Start-ReplayPlayback ($replaySlider.Value / 10.0)
+}
+
+$script:replaySeeking = $false
+Update-ReplayControls
+$btnReplay.Add_Click({
+    Show-SpeechPreview
+    Start-ReplayPlayback 0.0
+})
+$replaySlider.Add_MouseDown({ $script:replaySeeking = $true })
+$replaySlider.Add_MouseUp({ Invoke-ReplaySeek })
+$replaySlider.Add_KeyUp({
+    # Only navigation keys move the slider; Tab or other keys must not start playback.
+    if ($_.KeyCode -in @("Left", "Right", "Up", "Down", "PageUp", "PageDown", "Home", "End")) {
+        Invoke-ReplaySeek
+    }
+})
+$replaySlider.Add_ValueChanged({ Update-ReplayTimeLabel })
+
 $edgeVoiceTimer.Add_Tick({
     if ($speechState.Provider -eq "Edge") {
         Update-EdgeVoicePlayback
+    } elseif ($speechState.Provider -eq "Replay") {
+        Update-ReplayPlayback
     } elseif (
         $speechState.Provider -eq "Windows" -and
         $speechState.Mode -ne "Paused" -and
@@ -2506,6 +2842,9 @@ $edgeVoiceTimer.Add_Tick({
     ) {
         $speechState.WindowsCharacterPosition = $speechState.WindowsText.Length
         Update-SpeechHighlight
+        Save-SpeechReplayCache
+        Remove-WindowsSpeechRender
+        $speechState.CacheEligible = $false
         $speechState.Mode = "Idle"
         $speechState.Provider = $null
         $edgeVoiceTimer.Stop()
@@ -2921,13 +3260,15 @@ function Set-Theme {
     $lblVoice.BackColor = Get-ThemeColor "Surface"
     $lblVoice.ForeColor = Get-ThemeColor "Muted"
     $lblVoice.Font = New-Object Drawing.Font($uiStrongFontName, 9)
-    foreach ($label in @($lblSpeed, $lblSpeedValue)) {
+    foreach ($label in @($lblSpeed, $lblSpeedValue, $lblReplayTime)) {
         $label.BackColor = Get-ThemeColor "Surface"
         $label.ForeColor = Get-ThemeColor "Muted"
         $label.Font = New-Object Drawing.Font($uiStrongFontName, 9)
     }
-    $speedSlider.BackColor = Get-ThemeColor "Surface"
-    $speedSlider.ForeColor = Get-ThemeColor "Accent"
+    foreach ($slider in @($speedSlider, $replaySlider)) {
+        $slider.BackColor = Get-ThemeColor "Surface"
+        $slider.ForeColor = Get-ThemeColor "Accent"
+    }
     $versionLabel.BackColor = Get-ThemeColor "Surface"
     foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus)) {
         $label.BackColor = Get-ThemeColor "Window"
@@ -4355,6 +4696,7 @@ $btnMic.Add_Click({
 $form.Add_FormClosed({
     $spinnerTimer.Stop()
     Stop-VoicePlayback
+    Clear-SpeechReplayCache
     $speechSynth.Dispose()
     if (-not $busyForm.IsDisposed) {
         $busyForm.Dispose()

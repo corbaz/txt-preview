@@ -10,6 +10,7 @@ Aplicación de escritorio para Windows que reúne en una sola ventana un editor 
 - En la barra **Contexto IA**, arriba del Editor: búsqueda web (activada por defecto en los modelos que navegan) y **Adjuntar archivos**: texto, PDF, Word (.docx, .doc) y PowerPoint (.pptx, .ppt), e imágenes en los modelos con visión. Groq solo recibe texto, así que la app extrae el texto de cada documento antes de enviarlo. Los .doc y .ppt antiguos necesitan Microsoft Office; para PDF, la primera vez se descarga la librería PdfPig (verificada por huella SHA-256). Los íconos verdes muestran qué puede hacer el modelo actual.
 - Abrir los links de las respuestas en la pestaña **Navegador**, con barra de direcciones, atrás y adelante, o en tu navegador predeterminado. La primera vez la app descarga el componente WebView2 de Microsoft (~10 MB, verificado por firma digital).
 - Escuchar el resultado con voces de Windows o voces neuronales de Edge, con pausa, velocidad y resaltado de la palabra que se lee.
+- Si seleccionás un fragmento en la Vista previa, **Play** lee solo esa selección. **Repetir** vuelve a reproducir el último audio generado sin sintetizarlo de nuevo, y la barra de al lado te deja adelantar o retroceder; el audio se conserva hasta la próxima lectura completa con Play.
 - Exportar a **PDF** (A4 con márgenes de imprenta, numeración de páginas y saltos prolijos, siempre en fondo blanco) y **MP3**, copiar como Markdown o texto plano. Estas acciones y **Play** usan lo que muestra la Vista previa: la respuesta de la IA si hay una, o el texto del Editor.
 - Elegir tema claro u oscuro.
 
@@ -50,7 +51,7 @@ La API key se guarda cifrada para tu usuario de Windows en `%LOCALAPPDATA%\TXT P
 |------|-----------|-----------------|
 | Voces de Windows | Nada extra | — |
 | Voces neuronales de Edge | Python y `edge-tts` | `winget install Python.Python.3.12` y volver a ejecutar `install.ps1` |
-| Reproducir voces de Edge y exportar MP3 | FFmpeg (`ffplay`, `ffprobe`, `ffmpeg`) | `winget install Gyan.FFmpeg` |
+| Reproducir voces de Edge, **Repetir** y exportar MP3 | FFmpeg (`ffplay`, `ffprobe`, `ffmpeg`) | `winget install Gyan.FFmpeg` |
 
 Después de instalar Python o FFmpeg, cerrá y volvé a abrir la app.
 

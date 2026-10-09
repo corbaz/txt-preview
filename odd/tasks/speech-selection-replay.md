@@ -14,7 +14,7 @@ Text-to-speech improvements in Vista previa:
 ## Tasks
 
 - [x] T1 — Play reads only the preview selection when one exists (route: delegated, writer trigger: large file needing preparation reading)
-- [ ] T2 — Cached audio + Replay button + seek slider (route: delegated)
+- [x] T2 — Cached audio + Replay button + seek slider (route: delegated)
 
 ## Checks
 
@@ -22,8 +22,18 @@ Text-to-speech improvements in Vista previa:
 - PowerShell parser: 0 errors on `txt.ps1`
 - Test-mode smoke with `TXT_PREVIEW_TEST_MODE=1` where possible
 
+## Decisions
+
+- Playback/seek: ffplay restarted with `-ss <offset>` on the cached file (the same player Edge already uses). Pause/Continuar reuse the existing NtSuspendProcess path, so no new player (WMP COM) dependency. Position = offset + elapsed clock, shown by the 40 ms speech timer.
+- One cached file per generation: Edge chunks are bare MP3 frames, so they are byte-concatenated into one MP3; Windows voices render the same text to a WAV with a second SpeechSynthesizer in the background (SetOutputToWaveFile), since live System.Speech output cannot be replayed or seeked.
+- The cache is replaced only when a new reading started with Play has been fully generated (Edge: every chunk ready; Windows: WAV render complete); voice/speed restarts do not cache. Deleted on close.
+- Replay has no word highlighting (cached audio carries no word marks); voice/speed changes during Repetir only warn.
+
 ## Progress
 
 - Branch: `feat/speech-selection-replay`
 - T1: `getSpeechSelection` / `getSpeechSelectionStartWord` in the preview JS; Play reads the selection before re-rendering (the selection branch only switches tab, so the selection survives) and starts DOM alignment at the selected word. Without a known start word, highlighting is disabled rather than wrong. Tests RED 4 -> GREEN; parser 0 errors.
 - T1 smoke: real preview HTML in a WebBrowser (IE11 mode) — selection inside a word returns start word 3 (fixed an IE quirk: `contains()` ignores text nodes), a selection starting on whitespace returns the next word, no selection returns empty; selection survives focus moving to a button.
+- T2: Repetir button, replay TrackBar (tenths of a second) and `m:ss / m:ss` label in the speed row; disabled without cache or without ffplay. Tests RED 8 -> GREEN 50 OK; parser 0 errors.
+- T2 smoke (test mode, silent WAV): cache enables controls, WAV header duration 3.33 s vs ffprobe 3.328 s, replay from 1.0 s reported 2.0 s after 1 s, pause freezes the clock, seeking while paused stays paused at 2.5 s, natural end returns to Idle and keeps the cache, close removes it. Edge concat: 2.184 s + 3.600 s chunks -> 5.784 s, decodes without errors.
+- Not exercised: live audible playback through the full app window (DocumentText does not load in the hidden test-mode form).
