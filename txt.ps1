@@ -1738,6 +1738,18 @@ function Get-PreviewSpeechClick {
     }
 }
 
+function Clear-PreviewSpeechClick {
+    # Drops a pending preview click so it can never become the start of a later Play.
+    if ($null -eq $preview.Document) {
+        return
+    }
+    try {
+        [void]$preview.Document.InvokeScript("takeSpeechClick")
+    } catch {
+        # The page may be reloading; its new document starts without a pending click.
+    }
+}
+
 function Get-PreviewSpeechTextFrom {
     param([int]$wordIndex)
 
@@ -1795,6 +1807,7 @@ function Stop-VoicePlayback {
         [switch]$KeepHighlight
     )
 
+    $wasReplay = $speechState.Provider -eq "Replay"
     $edgeVoiceTimer.Stop()
     if ($speechSynth.State -eq [System.Speech.Synthesis.SynthesizerState]::Paused) {
         $speechSynth.Resume()
@@ -1832,6 +1845,9 @@ function Stop-VoicePlayback {
         $speechState.SelectionOnly = $false
         Reset-SpeechAlignment
         Clear-PreviewSpeechProgress
+    }
+    if ($wasReplay) {
+        Clear-PreviewSpeechClick
     }
     Set-AudioControlState $ControlState
 }
@@ -2916,12 +2932,15 @@ function Save-SpeechReplayCache {
         $speechState.ReplayFile = $targetFile
         $speechState.ReplayDuration = [double]$duration
         $speechState.ReplayVoice = $voice
+        # The preview text the audio belongs to; another text deletes the cache.
+        $speechState.ReplayWordsKey = $wordsKey
         if ($null -ne $timings -and $timings.Seconds.Count -gt 0) {
             $speechState.ReplayMarkSeconds = [double[]]$timings.Seconds
             $speechState.ReplayMarkWords = [int[]]$timings.Words
-            $speechState.ReplayWordsKey = $wordsKey
         }
         Update-ReplayControls
+        # Play re-renders new text before the old reading is cached, so check it right away.
+        Update-ReplayCacheForPreview
     } catch {
         # Caching is best effort: the reading itself already worked.
         if ($targetFile -and $targetFile -ne $speechState.ReplayFile) {
@@ -2936,6 +2955,45 @@ function Get-ReplayPositionSeconds {
         return $speechState.ReplayOffset
     }
     return [Math]::Min($speechState.ReplayDuration, $speechState.ReplayOffset + $elapsed)
+}
+
+function Get-ReplayCacheDecision {
+    param(
+        [string]$cachedKey,
+        [string]$previewWords
+    )
+
+    # Keep: the preview shows the text the audio was made from. Delete: other text, or a
+    # cache that never learned its text. Unknown: the page is still loading.
+    if ([string]::IsNullOrEmpty($previewWords)) {
+        return "Unknown"
+    }
+    if ([string]::IsNullOrEmpty($cachedKey)) {
+        return "Delete"
+    }
+    if ((Get-SpeechWordsKey $previewWords) -eq $cachedKey) {
+        return "Keep"
+    }
+    return "Delete"
+}
+
+function Update-ReplayCacheForPreview {
+    if (-not $speechState.ReplayFile -or $null -eq $preview.Document) {
+        return
+    }
+    try {
+        $rawWords = [string]$preview.Document.InvokeScript("getSpeechWords")
+    } catch {
+        return
+    }
+    if ((Get-ReplayCacheDecision $speechState.ReplayWordsKey $rawWords) -ne "Delete") {
+        return
+    }
+    if ($speechState.Provider -eq "Replay") {
+        Stop-VoicePlayback -ControlState "Stop"
+    }
+    Clear-SpeechReplayCache
+    Show-Message "Se descartó el audio de Repetir porque la Vista previa muestra otro texto."
 }
 
 function Update-ReplayHighlight {
@@ -2997,6 +3055,8 @@ function Start-ReplayPlayback {
     $wasPausedReplay = $speechState.Provider -eq "Replay" -and $speechState.Mode -eq "Paused"
     # Stopping first also caches a session that already finished generating, so Repetir uses it.
     Stop-VoicePlayback
+    # Repetir never moves by clicks, and a click made before it must not start a later Play.
+    Clear-PreviewSpeechClick
     if (-not $speechState.ReplayFile -or -not (Test-Path -LiteralPath $speechState.ReplayFile)) {
         Clear-SpeechReplayCache
         Show-Message "No hay audio generado para repetir. Usá Play primero." -Level Warning
@@ -3096,6 +3156,9 @@ $replaySlider.Add_ValueChanged({
 })
 
 $edgeVoiceTimer.Add_Tick({
+    if ($speechState.Provider -eq "Replay") {
+        Clear-PreviewSpeechClick
+    }
     if ($speechState.Provider -in @("Edge", "Windows") -and $speechState.Mode -ne "Idle") {
         $clickedWord = Get-PreviewSpeechClick
         if ($clickedWord -ge 0) {
@@ -4847,6 +4910,10 @@ $btnLeer.Add_Click({
     # A selection in Vista previa narrows the reading to it; read it before re-rendering.
     $selection = Get-PreviewSpeechSelection
     $readSelection = -not [string]::IsNullOrWhiteSpace($selection.Text)
+    if ($speechState.Provider -eq "Replay") {
+        # A click made during Repetir is not a reading start.
+        Clear-PreviewSpeechClick
+    }
     # Without a selection, a plain click in Vista previa sets the word the reading starts from.
     # It is always consumed here so an old click never leaks into a later reading.
     $clickedWord = Get-PreviewSpeechClick
@@ -5037,8 +5104,10 @@ $btnBrowserExternal.Add_Click({
 
 # Links clicked in Vista previa leave the preview and open in the Navegador tab.
 $preview.Add_DocumentCompleted({
-    # A re-rendered preview may show other text: Repetir re-checks it before highlighting.
+    # A re-rendered preview may show other text: the Repetir audio belongs to the text it
+    # was made from, so it is deleted for new text and kept for the same text (theme change).
     $speechState.ReplayHighlightChecked = $false
+    Update-ReplayCacheForPreview
 })
 
 $preview.Add_Navigating({

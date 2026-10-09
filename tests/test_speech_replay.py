@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -198,6 +201,66 @@ class ReplayHighlightTests(unittest.TestCase):
 
     def test_clicks_still_do_not_move_a_replay(self) -> None:
         self.assertIn('$speechState.Provider -eq "Replay"', function_body("Move-SpeechToWord"))
+
+
+class ReplayClickLeakTests(unittest.TestCase):
+    def test_clicks_during_repetir_are_discarded(self) -> None:
+        self.assertIn('InvokeScript("takeSpeechClick")', function_body("Clear-PreviewSpeechClick"))
+        tick = block(r"\$edgeVoiceTimer\.Add_Tick\(\{(?P<body>.*?)\n\}\)")
+        self.assertIn('if ($speechState.Provider -eq "Replay") {\n        Clear-PreviewSpeechClick', tick)
+
+    def test_replay_start_and_stop_drop_pending_clicks(self) -> None:
+        start = function_body("Start-ReplayPlayback")
+        self.assertLess(start.index("Stop-VoicePlayback"), start.index("Clear-PreviewSpeechClick"))
+        stop = function_body("Stop-VoicePlayback")
+        self.assertIn('$wasReplay = $speechState.Provider -eq "Replay"', stop)
+        self.assertIn("if ($wasReplay) {\n        Clear-PreviewSpeechClick", stop)
+
+    def test_play_ignores_a_click_made_during_repetir(self) -> None:
+        handler = block(r"\$btnLeer\.Add_Click\(\{(?P<body>.*?)\n\}\)")
+        self.assertLess(handler.index("Clear-PreviewSpeechClick"), handler.index("Get-PreviewSpeechClick"))
+
+
+class ReplayCacheOwnershipTests(unittest.TestCase):
+    def test_a_different_preview_deletes_the_cache(self) -> None:
+        body = function_body("Update-ReplayCacheForPreview")
+        self.assertIn("Get-ReplayCacheDecision", body)
+        # A replay of the old text is stopped before its file is removed.
+        self.assertLess(body.index("Stop-VoicePlayback"), body.index("Clear-SpeechReplayCache"))
+        completed = block(r"\$preview\.Add_DocumentCompleted\(\{(?P<body>.*?)\n\}\)")
+        self.assertIn("Update-ReplayCacheForPreview", completed)
+        # A cache saved after the preview already changed is checked right away too.
+        self.assertIn("Update-ReplayCacheForPreview", function_body("Save-SpeechReplayCache"))
+
+    def test_every_cache_records_its_preview(self) -> None:
+        save = function_body("Save-SpeechReplayCache")
+        self.assertIn("$speechState.ReplayWordsKey = $wordsKey", save)
+        # The key is stored for every cache, not only for caches that carry word timings.
+        self.assertNotIn("$speechState.ReplayWordsKey = $wordsKey\n        }", save)
+
+
+@unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
+class ReplayCacheDecisionBehaviorTests(unittest.TestCase):
+    def test_decision_for_same_changed_unknown_and_unkeyed_previews(self) -> None:
+        command = (
+            "$env:TXT_PREVIEW_TEST_MODE = '1'; "
+            f". '{ROOT / 'txt.ps1'}'; "
+            "$key = Get-SpeechWordsKey \"Hola`nmundo\"; "
+            "@("
+            "(Get-ReplayCacheDecision $key \"Hola`nmundo\"), "
+            "(Get-ReplayCacheDecision $key \"Otro`ntexto\"), "
+            "(Get-ReplayCacheDecision $key ''), "
+            "(Get-ReplayCacheDecision $null \"Hola`nmundo\")"
+            ") -join ','"
+        )
+        result = subprocess.run(
+            ["pwsh", "-NoProfile", "-STA", "-Command", command],
+            capture_output=True, timeout=120, encoding="utf-8", errors="replace",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # Same text keeps; other text deletes; a page still loading decides nothing;
+        # a cache that never learned its preview cannot be trusted.
+        self.assertEqual(result.stdout.strip().splitlines()[-1], "Keep,Delete,Unknown,Delete")
 
 
 if __name__ == "__main__":
