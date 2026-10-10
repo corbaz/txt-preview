@@ -26,16 +26,19 @@ winget install --id Git.Git -e --source winget
 Después abrí **PowerShell** (no hace falta como administrador) y pegá este comando:
 
 ```powershell
-git clone https://github.com/corbaz/txt-preview.git "$env:LOCALAPPDATA\txt-preview"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\txt-preview\install.ps1"
+$d = "$env:LOCALAPPDATA\txt-preview"; if (Test-Path "$d\.git") { git -C $d pull --ff-only } else { git clone https://github.com/corbaz/txt-preview.git $d }; powershell -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1"
 ```
+
+El mismo comando sirve para reinstalar o reparar una instalación existente.
 
 El instalador:
 
-1. Descarga la app en `%LOCALAPPDATA%\txt-preview`.
-2. Crea el acceso directo **TXT Preview** en el escritorio.
-3. Si no tenés PowerShell 7, lo instala (la app lo necesita para mostrar bien los acentos).
-4. Si tenés Python, instala `edge-tts` para las voces en línea.
-5. Abre la aplicación.
+1. Descarga la app en `%LOCALAPPDATA%\txt-preview` (o la actualiza si ya estaba).
+2. Instala lo que falte: PowerShell 7 (si winget no está, descarga la versión portable), Python con `edge-tts` y FFmpeg.
+3. Crea el acceso directo **TXT Preview** en el escritorio.
+4. Abre la aplicación.
+
+Si algo opcional no se puede instalar, avisa en amarillo y sigue: las voces de Windows funcionan igual.
 
 ## Primeros pasos
 
@@ -51,8 +54,8 @@ La API key se guarda cifrada para tu usuario de Windows en `%LOCALAPPDATA%\TXT P
 | Para | Necesitás | Cómo instalarlo |
 |------|-----------|-----------------|
 | Voces de Windows | Nada extra | — |
-| Voces neuronales de Edge | Python y `edge-tts` | `winget install Python.Python.3.12` y volver a ejecutar `install.ps1` |
-| Reproducir voces de Edge, **Repetir** y exportar MP3 | FFmpeg (`ffplay`, `ffprobe`, `ffmpeg`) | `winget install Gyan.FFmpeg` |
+| Voces neuronales de Edge | Python y `edge-tts` | Los instala `install.ps1`; a mano: `winget install Python.Python.3.12` |
+| Reproducir voces de Edge, **Repetir** y exportar MP3 | FFmpeg (`ffplay`, `ffprobe`, `ffmpeg`) | Lo instala `install.ps1`; a mano: `winget install Gyan.FFmpeg` |
 
 Después de instalar Python o FFmpeg, cerrá y volvé a abrir la app.
 
@@ -65,7 +68,8 @@ Al abrir la app, si hay una versión nueva aparece un aviso que pregunta si quer
 | Mensaje o síntoma | Solución |
 |-------------------|----------|
 | `git` no se reconoce | Instalá Git con el comando de arriba y abrí una ventana nueva de PowerShell. |
-| `destination path ... already exists` | La app ya está instalada. Ejecutá solo `powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\txt-preview\install.ps1"`. |
+| `destination path ... already exists` | Usaste el comando viejo. Pegá el comando de instalación de arriba: actualiza y reinstala sin borrar nada. |
+| Acentos rotos o "No se encuentra el tipo [Net.Http.HttpClient]" | La app se abrió con Windows PowerShell 5.1. Volvé a ejecutar el instalador y abrila desde el acceso directo. |
 | Mensaje rojo "Error al conectar con la API" | Revisá la API key en **Configuración** y tu conexión a internet. |
 | No suenan las voces de Edge | Instalá Python y FFmpeg (ver tabla de voces). |
 | "El PDF no tiene texto seleccionable" | Es un PDF escaneado (imágenes). Pasalo por un OCR o adjuntá las páginas como imágenes en un modelo con visión. |

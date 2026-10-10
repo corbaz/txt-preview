@@ -1,3 +1,19 @@
+﻿# The app needs PowerShell 7; relaunch there when opened with Windows PowerShell 5.1.
+if ($PSVersionTable.PSEdition -ne "Core") {
+    $pwshPath = @(
+        (Get-Command pwsh.exe -ErrorAction SilentlyContinue).Source,
+        (Join-Path $env:ProgramFiles "PowerShell\7\pwsh.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\PowerShell\7\pwsh.exe")
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+    if ($pwshPath) {
+        Start-Process -FilePath $pwshPath -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`"" -WorkingDirectory $PSScriptRoot
+    } else {
+        Add-Type -AssemblyName System.Windows.Forms
+        [void][System.Windows.Forms.MessageBox]::Show("TXT Preview necesita PowerShell 7. Volvé a ejecutar install.ps1 para instalarlo.", "TXT Preview")
+    }
+    exit
+}
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Speech
@@ -1294,7 +1310,28 @@ function Get-GroqModelsFromApi {
 }
 
 $speechSynth = [System.Speech.Synthesis.SpeechSynthesizer]::new()
-$pythonCommand = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
+# Same rules as Find-Python in install.ps1: skips the Microsoft Store stub in WindowsApps,
+# which opens the Store instead of running Python, and keeps only interpreters that run.
+function Find-PythonCommand {
+    $candidates = @(Get-Command python.exe -All -ErrorAction SilentlyContinue |
+        Where-Object { $_.Source -notlike "*\WindowsApps\*" } |
+        ForEach-Object { $_.Source })
+    $candidates += @(Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA "Programs\Python\Python3*\python.exe") -ErrorAction SilentlyContinue |
+        Sort-Object FullName -Descending |
+        ForEach-Object { $_.FullName })
+    foreach ($candidate in $candidates) {
+        try {
+            & $candidate --version *> $null
+            if ($LASTEXITCODE -eq 0) {
+                return $candidate
+            }
+        } catch {
+        }
+    }
+    return $null
+}
+
+$pythonCommand = Find-PythonCommand
 $edgeTtsWordsScript = Join-Path $PSScriptRoot "edge_tts_words.py"
 $ffplayCommand = (Get-Command ffplay.exe -ErrorAction SilentlyContinue).Source
 $ffprobeCommand = (Get-Command ffprobe.exe -ErrorAction SilentlyContinue).Source
