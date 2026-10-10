@@ -59,7 +59,7 @@ class SelectionSpeechTests(unittest.TestCase):
 class SpeechReplayTests(unittest.TestCase):
     def test_replay_controls_exist_in_the_speed_row(self) -> None:
         self.assertIn('$btnReplay.Text = "Repetir"', SCRIPT)
-        self.assertIn("$replaySlider = New-Object Windows.Forms.TrackBar", SCRIPT)
+        self.assertIn("$replaySlider = New-Object ModernSlider", SCRIPT)
         self.assertIn("$panel.Controls.Add($btnReplay)", SCRIPT)
         self.assertIn("$panel.Controls.Add($replaySlider)", SCRIPT)
         self.assertIn("$panel.Controls.Add($lblReplayTime)", SCRIPT)

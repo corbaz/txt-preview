@@ -253,6 +253,513 @@ public class OverlayScrollBar : Control {
 "@
 }
 
+if (-not ("ModernSlider" -as [type])) {
+    # TrackBar and the ListView header are drawn by Win32 with the classic look and ignore
+    # the theme, so the speed/replay sliders and the models table draw themselves.
+    # On PowerShell 7, TextRenderer and Font pull in WinForms' private support assemblies.
+    $winFormsDirectory = Split-Path ([Windows.Forms.Control].Assembly.Location)
+    $modernReferences = @(
+        $overlayReferences
+        Get-ChildItem -Path $winFormsDirectory -Filter "System.Private.Windows.*.dll" -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.FullName }
+    ) | Select-Object -Unique
+    Add-Type -ReferencedAssemblies $modernReferences -TypeDefinition @"
+using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+public class ModernSlider : Control {
+    private int minimum = 0;
+    private int maximum = 10;
+    private int value = 0;
+    private bool hovering;
+    private bool dragging;
+
+    public int SmallChange = 1;
+    public int LargeChange = 5;
+    public Color TrackColor = Color.FromArgb(42, 49, 66);
+    public Color FillColor = Color.FromArgb(139, 147, 255);
+    public Color ThumbColor = Color.White;
+    public Color DisabledColor = Color.FromArgb(70, 76, 92);
+
+    public event EventHandler ValueChanged;
+
+    public ModernSlider() {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+            ControlStyles.ResizeRedraw | ControlStyles.UserPaint | ControlStyles.Selectable, true);
+        TabStop = true;
+        Cursor = Cursors.Hand;
+    }
+
+    public int Minimum {
+        get { return minimum; }
+        set { minimum = value; if (maximum < minimum) { maximum = minimum; } Value = this.value; Invalidate(); }
+    }
+
+    public int Maximum {
+        get { return maximum; }
+        set { maximum = Math.Max(minimum, value); Value = this.value; Invalidate(); }
+    }
+
+    public int Value {
+        get { return value; }
+        set {
+            int clamped = Math.Min(maximum, Math.Max(minimum, value));
+            if (clamped == this.value) { return; }
+            this.value = clamped;
+            Invalidate();
+            if (ValueChanged != null) { ValueChanged(this, EventArgs.Empty); }
+        }
+    }
+
+    private const int Inset = 10;
+
+    private float Ratio {
+        get { return maximum == minimum ? 0f : (value - minimum) / (float)(maximum - minimum); }
+    }
+
+    private void SetValueFromX(int x) {
+        int width = Math.Max(1, Width - 2 * Inset);
+        float ratio = Math.Min(1f, Math.Max(0f, (x - Inset) / (float)width));
+        Value = minimum + (int)Math.Round(ratio * (maximum - minimum));
+    }
+
+    protected override void OnPaint(PaintEventArgs e) {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.Clear(BackColor);
+        float centerY = Height / 2f;
+        float trackWidth = Math.Max(1, Width - 2 * Inset);
+        float thumbX = Inset + trackWidth * Ratio;
+        Color fill = Enabled ? FillColor : DisabledColor;
+        using (Brush track = new SolidBrush(TrackColor)) {
+            FillPill(g, track, Inset, centerY - 2, trackWidth, 4);
+        }
+        using (Brush active = new SolidBrush(fill)) {
+            FillPill(g, active, Inset, centerY - 2, Math.Max(4, thumbX - Inset), 4);
+        }
+        float radius = (hovering || dragging || Focused) && Enabled ? 8f : 6.5f;
+        if ((hovering || dragging) && Enabled) {
+            using (Brush halo = new SolidBrush(Color.FromArgb(50, fill))) {
+                g.FillEllipse(halo, thumbX - radius - 5, centerY - radius - 5, 2 * (radius + 5), 2 * (radius + 5));
+            }
+        }
+        using (Brush thumb = new SolidBrush(Enabled ? ThumbColor : DisabledColor))
+        using (Pen ring = new Pen(fill, 2f)) {
+            g.FillEllipse(thumb, thumbX - radius, centerY - radius, 2 * radius, 2 * radius);
+            g.DrawEllipse(ring, thumbX - radius, centerY - radius, 2 * radius, 2 * radius);
+        }
+    }
+
+    private static void FillPill(Graphics g, Brush brush, float x, float y, float width, float height) {
+        using (GraphicsPath path = new GraphicsPath()) {
+            float d = height;
+            path.AddArc(x, y, d, d, 90, 180);
+            path.AddArc(x + width - d, y, d, d, 270, 180);
+            path.CloseFigure();
+            g.FillPath(brush, path);
+        }
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e) {
+        if (Enabled && e.Button == MouseButtons.Left) {
+            Focus();
+            dragging = true;
+            Capture = true;
+            SetValueFromX(e.X);
+        }
+        base.OnMouseDown(e);
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e) {
+        if (dragging) { SetValueFromX(e.X); }
+        base.OnMouseMove(e);
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e) {
+        if (dragging) {
+            dragging = false;
+            Capture = false;
+            Invalidate();
+        }
+        base.OnMouseUp(e);
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { hovering = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hovering = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+    protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
+
+    protected override void OnMouseWheel(MouseEventArgs e) {
+        if (Enabled) { Value += e.Delta > 0 ? SmallChange : -SmallChange; }
+        base.OnMouseWheel(e);
+    }
+
+    protected override bool IsInputKey(Keys keyData) {
+        switch (keyData) {
+            case Keys.Left: case Keys.Right: case Keys.Up: case Keys.Down: return true;
+        }
+        return base.IsInputKey(keyData);
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e) {
+        if (Enabled) {
+            switch (e.KeyCode) {
+                case Keys.Left: case Keys.Down: Value -= SmallChange; e.Handled = true; break;
+                case Keys.Right: case Keys.Up: Value += SmallChange; e.Handled = true; break;
+                case Keys.PageDown: Value -= LargeChange; e.Handled = true; break;
+                case Keys.PageUp: Value += LargeChange; e.Handled = true; break;
+                case Keys.Home: Value = minimum; e.Handled = true; break;
+                case Keys.End: Value = maximum; e.Handled = true; break;
+            }
+        }
+        base.OnKeyDown(e);
+    }
+}
+
+public class ModernListView : ListView {
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+    private static extern int SetWindowTheme(IntPtr hwnd, string appName, string idList);
+
+    private int hoverIndex = -1;
+    private bool darkScrollbars = true;
+
+    public Color HeaderBackColor = Color.FromArgb(17, 21, 30);
+    public Color HeaderForeColor = Color.FromArgb(142, 151, 173);
+    public Color BorderColor = Color.FromArgb(42, 49, 66);
+    public Color HoverBackColor = Color.FromArgb(36, 42, 57);
+    public Color SelectedBackColor = Color.FromArgb(46, 53, 71);
+    public Color AccentColor = Color.FromArgb(139, 147, 255);
+    public Color MutedForeColor = Color.FromArgb(142, 151, 173);
+
+    public ModernListView() {
+        OwnerDraw = true;
+        View = View.Details;
+        FullRowSelect = true;
+        BorderStyle = BorderStyle.None;
+        HeaderStyle = ColumnHeaderStyle.Nonclickable;
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        // A one-pixel-wide image list is the standard way to make WinForms rows taller.
+        SmallImageList = new ImageList();
+        SmallImageList.ImageSize = new Size(1, 32);
+    }
+
+    public bool DarkScrollbars {
+        get { return darkScrollbars; }
+        set { darkScrollbars = value; ApplyScrollbarTheme(); }
+    }
+
+    private void ApplyScrollbarTheme() {
+        if (IsHandleCreated) {
+            try { SetWindowTheme(Handle, darkScrollbars ? "DarkMode_Explorer" : "Explorer", null); } catch { }
+        }
+    }
+
+    protected override void OnHandleCreated(EventArgs e) {
+        base.OnHandleCreated(e);
+        ApplyScrollbarTheme();
+        FillLastColumn();
+    }
+
+    // The header paints the area right of the last column in the system color, so the last
+    // column always stretches to the edge.
+    public void FillLastColumn() {
+        if (Columns.Count == 0 || !IsHandleCreated) { return; }
+        int used = 0;
+        for (int i = 0; i < Columns.Count - 1; i++) { used += Columns[i].Width; }
+        int width = Math.Max(120, ClientSize.Width - used);
+        if (Columns[Columns.Count - 1].Width != width) { Columns[Columns.Count - 1].Width = width; }
+    }
+
+    protected override void OnResize(EventArgs e) { base.OnResize(e); FillLastColumn(); }
+    protected override void OnColumnWidthChanged(ColumnWidthChangedEventArgs e) {
+        base.OnColumnWidthChanged(e);
+        if (e.ColumnIndex < Columns.Count - 1) { FillLastColumn(); }
+    }
+
+    protected override void OnDrawColumnHeader(DrawListViewColumnHeaderEventArgs e) {
+        Rectangle bounds = e.Bounds;
+        if (e.ColumnIndex == Columns.Count - 1) {
+            bounds.Width = Math.Max(bounds.Width, Width - bounds.Left);
+        }
+        using (Brush back = new SolidBrush(HeaderBackColor)) { e.Graphics.FillRectangle(back, bounds); }
+        using (Pen border = new Pen(BorderColor)) {
+            e.Graphics.DrawLine(border, bounds.Left, bounds.Bottom - 1, bounds.Right, bounds.Bottom - 1);
+        }
+        Rectangle textBounds = new Rectangle(bounds.Left + 12, bounds.Top, bounds.Width - 16, bounds.Height);
+        using (Font font = new Font(Font.FontFamily, Font.Size - 0.5f, FontStyle.Bold)) {
+            TextRenderer.DrawText(e.Graphics, e.Header.Text.ToUpperInvariant(), font, textBounds, HeaderForeColor,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        }
+    }
+
+    protected override void OnDrawItem(DrawListViewItemEventArgs e) {
+        Rectangle row = new Rectangle(0, e.Bounds.Top, Math.Max(ClientSize.Width, e.Bounds.Right), e.Bounds.Height);
+        Color back = e.Item.Selected ? SelectedBackColor : (e.ItemIndex == hoverIndex ? HoverBackColor : BackColor);
+        using (Brush brush = new SolidBrush(back)) { e.Graphics.FillRectangle(brush, row); }
+        if (e.Item.Selected) {
+            using (Brush accent = new SolidBrush(AccentColor)) { e.Graphics.FillRectangle(accent, 0, row.Top + 6, 3, row.Height - 12); }
+        }
+        using (Pen border = new Pen(Color.FromArgb(90, BorderColor))) {
+            e.Graphics.DrawLine(border, 0, row.Bottom - 1, row.Right, row.Bottom - 1);
+        }
+    }
+
+    protected override void OnDrawSubItem(DrawListViewSubItemEventArgs e) {
+        Rectangle bounds = new Rectangle(e.Bounds.Left + 12, e.Bounds.Top, e.Bounds.Width - 16, e.Bounds.Height);
+        Color fore = e.ColumnIndex == 0 ? ForeColor : MutedForeColor;
+        Font font = e.ColumnIndex == 0 && e.Item.Selected ? new Font(Font, FontStyle.Bold) : Font;
+        try {
+            TextRenderer.DrawText(e.Graphics, e.SubItem.Text, font, bounds, fore,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        } finally {
+            if (!object.ReferenceEquals(font, Font)) { font.Dispose(); }
+        }
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e) {
+        ListViewItem item = GetItemAt(e.X, e.Y);
+        int index = item == null ? -1 : item.Index;
+        if (index != hoverIndex) {
+            int previous = hoverIndex;
+            hoverIndex = index;
+            if (previous >= 0 && previous < Items.Count) { Invalidate(GetItemRect(previous)); }
+            if (index >= 0) { Invalidate(GetItemRect(index)); }
+        }
+        base.OnMouseMove(e);
+    }
+
+    protected override void OnMouseLeave(EventArgs e) {
+        if (hoverIndex >= 0 && hoverIndex < Items.Count) { Invalidate(GetItemRect(hoverIndex)); }
+        hoverIndex = -1;
+        base.OnMouseLeave(e);
+    }
+}
+
+// The closed ComboBox keeps a white system border and a classic arrow even when flat, so
+// the box is repainted as a rounded field with a chevron and the drop-down rows are themed.
+public class ModernComboBox : ComboBox {
+    private bool hovering;
+
+    public Color BorderColor = Color.FromArgb(42, 49, 66);
+    public Color AccentColor = Color.FromArgb(139, 147, 255);
+    public Color HoverBackColor = Color.FromArgb(36, 42, 57);
+    public Color MutedForeColor = Color.FromArgb(142, 151, 173);
+    public Color OutsideColor = Color.Empty;
+
+    public ModernComboBox() {
+        DrawMode = DrawMode.OwnerDrawFixed;
+        DropDownStyle = ComboBoxStyle.DropDownList;
+        FlatStyle = FlatStyle.Flat;
+        ItemHeight = 24;
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { hovering = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hovering = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+    protected override void OnSelectedIndexChanged(EventArgs e) { Invalidate(); base.OnSelectedIndexChanged(e); }
+
+    protected override void WndProc(ref Message m) {
+        base.WndProc(ref m);
+        if (m.Msg == 0x000F && IsHandleCreated) {
+            using (Graphics g = Graphics.FromHwnd(Handle)) { PaintField(g); }
+        } else if ((m.Msg == 0x0317 || m.Msg == 0x0318) && m.WParam != IntPtr.Zero) {
+            // WM_PRINT / WM_PRINTCLIENT: DrawToBitmap and redirected painting.
+            using (Graphics g = Graphics.FromHdc(m.WParam)) { PaintField(g); }
+        }
+    }
+
+    private void PaintField(Graphics g) {
+        Color outside = !OutsideColor.IsEmpty ? OutsideColor : (Parent != null ? Parent.BackColor : BackColor);
+        Color border = Focused || DroppedDown || hovering ? AccentColor : BorderColor;
+        Color fill = hovering && Enabled ? HoverBackColor : BackColor;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        using (Brush clear = new SolidBrush(outside)) { g.FillRectangle(clear, ClientRectangle); }
+        RectangleF bounds = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+        using (GraphicsPath path = Rounded(bounds, 7f))
+        using (Brush brush = new SolidBrush(fill))
+        using (Pen pen = new Pen(border, 1f)) {
+            g.FillPath(brush, path);
+            g.DrawPath(pen, path);
+        }
+        Rectangle textBounds = new Rectangle(10, 0, Width - 36, Height);
+        TextRenderer.DrawText(g, Text, Font, textBounds, Enabled ? ForeColor : MutedForeColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        float cx = Width - 16f, cy = Height / 2f;
+        using (Pen chevron = new Pen(DroppedDown ? AccentColor : MutedForeColor, 1.6f)) {
+            chevron.StartCap = LineCap.Round;
+            chevron.EndCap = LineCap.Round;
+            g.DrawLines(chevron, new PointF[] { new PointF(cx - 4, cy - 2), new PointF(cx, cy + 2), new PointF(cx + 4, cy - 2) });
+        }
+    }
+
+    protected override void OnDrawItem(DrawItemEventArgs e) {
+        if (e.Index < 0) { return; }
+        bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+        using (Brush back = new SolidBrush(selected ? HoverBackColor : BackColor)) { e.Graphics.FillRectangle(back, e.Bounds); }
+        if (selected) {
+            using (Brush accent = new SolidBrush(AccentColor)) { e.Graphics.FillRectangle(accent, e.Bounds.Left, e.Bounds.Top + 5, 3, e.Bounds.Height - 10); }
+        }
+        Rectangle textBounds = new Rectangle(e.Bounds.Left + 10, e.Bounds.Top, e.Bounds.Width - 12, e.Bounds.Height);
+        TextRenderer.DrawText(e.Graphics, GetItemText(Items[e.Index]), Font, textBounds, ForeColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+    }
+
+    internal static GraphicsPath Rounded(RectangleF r, float radius) {
+        GraphicsPath path = new GraphicsPath();
+        float d = Math.Min(radius * 2f, Math.Min(r.Width, r.Height));
+        path.AddArc(r.Left, r.Top, d, d, 180, 90);
+        path.AddArc(r.Right - d, r.Top, d, d, 270, 90);
+        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        path.AddArc(r.Left, r.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+}
+
+// A rounded box with an accent fill and a drawn check mark instead of the classic square.
+public class ModernCheckBox : CheckBox {
+    private bool hovering;
+
+    public Color BorderColor = Color.FromArgb(70, 78, 98);
+    public Color AccentColor = Color.FromArgb(139, 147, 255);
+    public Color OnAccentColor = Color.FromArgb(11, 14, 20);
+    public Color MutedForeColor = Color.FromArgb(142, 151, 173);
+
+    public ModernCheckBox() {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        Cursor = Cursors.Hand;
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { hovering = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hovering = false; Invalidate(); base.OnMouseLeave(e); }
+
+    protected override void OnPaint(PaintEventArgs e) {
+        Graphics g = e.Graphics;
+        g.Clear(BackColor);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        const float size = 16f;
+        float top = (Height - size) / 2f;
+        RectangleF box = new RectangleF(1.5f, top, size, size);
+        Color accent = Enabled ? AccentColor : MutedForeColor;
+        using (GraphicsPath path = ModernComboBox.Rounded(box, 4f)) {
+            if (Checked) {
+                using (Brush fill = new SolidBrush(accent)) { g.FillPath(fill, path); }
+            } else {
+                using (Pen pen = new Pen(hovering && Enabled ? AccentColor : BorderColor, 1.5f)) { g.DrawPath(pen, path); }
+            }
+        }
+        if (Checked) {
+            using (Pen check = new Pen(OnAccentColor, 2f)) {
+                check.StartCap = LineCap.Round;
+                check.EndCap = LineCap.Round;
+                check.LineJoin = LineJoin.Round;
+                g.DrawLines(check, new PointF[] {
+                    new PointF(box.Left + 4f, box.Top + 8.5f),
+                    new PointF(box.Left + 7f, box.Top + 11.5f),
+                    new PointF(box.Left + 12f, box.Top + 5f)
+                });
+            }
+        }
+        Rectangle textBounds = new Rectangle((int)(box.Right + 8), 0, Width - (int)(box.Right + 8), Height);
+        TextRenderer.DrawText(g, Text, Font, textBounds, Enabled ? ForeColor : MutedForeColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        if (Focused && ShowFocusCues) {
+            using (Pen focus = new Pen(Color.FromArgb(120, AccentColor), 1f)) {
+                g.DrawRectangle(focus, 0, (int)top - 2, (int)size + 4, (int)size + 4);
+            }
+        }
+    }
+}
+
+// Flat WinForms buttons are hard rectangles. This paints them as anti-aliased pills while
+// keeping the colors the script already sets: BackColor, FlatAppearance hover/pressed/border.
+public static class RoundedButtons {
+    private static ButtonBase[] attached = new ButtonBase[0];
+
+    private class State { public bool Hover; public bool Down; }
+
+    public static int Radius = 8;
+
+    public static void Attach(ButtonBase button) {
+        if (button == null || Array.IndexOf(attached, button) >= 0) { return; }
+        Array.Resize(ref attached, attached.Length + 1);
+        attached[attached.Length - 1] = button;
+        State state = new State();
+        button.MouseEnter += delegate { state.Hover = true; button.Invalidate(); };
+        button.MouseLeave += delegate { state.Hover = false; state.Down = false; button.Invalidate(); };
+        button.MouseDown += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) { state.Down = true; button.Invalidate(); } };
+        button.MouseUp += delegate { state.Down = false; button.Invalidate(); };
+        button.EnabledChanged += delegate { button.Invalidate(); };
+        button.Paint += delegate(object s, PaintEventArgs e) { Draw(button, state, e.Graphics); };
+        button.Disposed += delegate {
+            int index = Array.IndexOf(attached, button);
+            if (index >= 0) {
+                attached[index] = attached[attached.Length - 1];
+                Array.Resize(ref attached, attached.Length - 1);
+            }
+        };
+        button.Invalidate();
+    }
+
+    private static void Draw(ButtonBase button, State state, Graphics g) {
+        Color outside = button.Parent != null ? button.Parent.BackColor : button.BackColor;
+        Color fill = button.BackColor;
+        if (button.Enabled && state.Down && !button.FlatAppearance.MouseDownBackColor.IsEmpty) {
+            fill = button.FlatAppearance.MouseDownBackColor;
+        } else if (button.Enabled && state.Hover && !button.FlatAppearance.MouseOverBackColor.IsEmpty) {
+            fill = button.FlatAppearance.MouseOverBackColor;
+        }
+        Color border = button.FlatAppearance.BorderSize > 0 && !button.FlatAppearance.BorderColor.IsEmpty
+            ? button.FlatAppearance.BorderColor : fill;
+        Color text = button.ForeColor;
+        if (!button.Enabled) {
+            fill = Blend(fill, outside, 0.5f);
+            border = Blend(border, outside, 0.5f);
+            text = Blend(text, outside, 0.55f);
+        }
+
+        g.Clear(outside);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        RectangleF bounds = new RectangleF(0.5f, 0.5f, button.Width - 1.5f, button.Height - 1.5f);
+        float radius = Math.Min(Radius, Math.Min(bounds.Width, bounds.Height) / 2f);
+        using (GraphicsPath path = RoundedRect(bounds, radius))
+        using (Brush brush = new SolidBrush(fill))
+        using (Pen pen = new Pen(border, 1f)) {
+            g.FillPath(brush, path);
+            g.DrawPath(pen, path);
+        }
+        TextRenderer.DrawText(g, button.Text, button.Font, button.ClientRectangle, text,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
+            TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+    }
+
+    private static GraphicsPath RoundedRect(RectangleF r, float radius) {
+        GraphicsPath path = new GraphicsPath();
+        float d = radius * 2f;
+        if (d <= 0) { path.AddRectangle(r); return path; }
+        path.AddArc(r.Left, r.Top, d, d, 180, 90);
+        path.AddArc(r.Right - d, r.Top, d, d, 270, 90);
+        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        path.AddArc(r.Left, r.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    private static Color Blend(Color a, Color b, float amount) {
+        return Color.FromArgb(
+            (int)(a.R + (b.R - a.R) * amount),
+            (int)(a.G + (b.G - a.G) * amount),
+            (int)(a.B + (b.B - a.B) * amount));
+    }
+}
+"@
+}
+
 if (-not ("WindowChrome" -as [type])) {
     Add-Type @"
 using System;
@@ -648,7 +1155,7 @@ $lblVoice.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
 $lblVoice.SetBounds(336, 96, 40, 34)
 $panel.Controls.Add($lblVoice)
 
-$voiceCombo = New-Object Windows.Forms.ComboBox
+$voiceCombo = New-Object ModernComboBox
 $voiceCombo.DropDownStyle = [Windows.Forms.ComboBoxStyle]::DropDownList
 $voiceCombo.FlatStyle = [Windows.Forms.FlatStyle]::Flat
 $voiceCombo.DropDownWidth = 430
@@ -701,13 +1208,12 @@ $lblSpeed.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
 $lblSpeed.SetBounds(14, 138, 150, 34)
 $panel.Controls.Add($lblSpeed)
 
-$speedSlider = New-Object Windows.Forms.TrackBar
+$speedSlider = New-Object ModernSlider
 $speedSlider.Minimum = 50
 $speedSlider.Maximum = 200
 $speedSlider.Value = 100
 $speedSlider.SmallChange = 5
 $speedSlider.LargeChange = 25
-$speedSlider.TickFrequency = 25
 $speedSlider.AutoSize = $false
 $speedSlider.SetBounds(172, 139, 250, 32)
 $panel.Controls.Add($speedSlider)
@@ -724,14 +1230,13 @@ $btnReplay.Text = "Repetir"
 $btnReplay.SetBounds(505, 138, 100, 34)
 $panel.Controls.Add($btnReplay)
 
-$replaySlider = New-Object Windows.Forms.TrackBar
+$replaySlider = New-Object ModernSlider
 $replaySlider.Minimum = 0
 $replaySlider.Maximum = 1
 $replaySlider.Value = 0
 # Units are tenths of a second: arrows move 1 s, PageUp/PageDown 5 s.
 $replaySlider.SmallChange = 10
 $replaySlider.LargeChange = 50
-$replaySlider.TickStyle = [Windows.Forms.TickStyle]::None
 $replaySlider.AutoSize = $false
 $replaySlider.SetBounds(613, 139, 250, 32)
 $panel.Controls.Add($replaySlider)
@@ -804,13 +1309,13 @@ $btnRefreshModels.Text = "Actualizar modelos"
 $btnRefreshModels.SetBounds(742, 104, 165, 32)
 $tabSettings.Controls.Add($btnRefreshModels)
 
-$modelCombo = New-Object Windows.Forms.ComboBox
+$modelCombo = New-Object ModernComboBox
 $modelCombo.DropDownStyle = [Windows.Forms.ComboBoxStyle]::DropDownList
 $modelCombo.FlatStyle = [Windows.Forms.FlatStyle]::Flat
 $modelCombo.SetBounds(220, 3, 330, 26)
 $settingsNavHost.Controls.Add($modelCombo)
 
-$checkWebSearch = New-Object Windows.Forms.CheckBox
+$checkWebSearch = New-Object ModernCheckBox
 $checkWebSearch.Text = "Usar web en la próxima consulta"
 $checkWebSearch.SetBounds(120, 8, 245, 28)
 $contextPanel.Controls.Add($checkWebSearch)
@@ -851,7 +1356,7 @@ $contextPanel.Controls.Add($lblAttachments)
 $contextToolTip = New-Object Windows.Forms.ToolTip
 $contextToolTip.AutoPopDelay = 12000
 
-$modelsList = New-Object Windows.Forms.ListView
+$modelsList = New-Object ModernListView
 $modelsList.View = [Windows.Forms.View]::Details
 $modelsList.FullRowSelect = $true
 $modelsList.HideSelection = $false
@@ -1519,6 +2024,8 @@ $actionButtons = @(
 )
 
 $aiButtons = @($btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn)
+# The AI action used last keeps an accent outline so it is clear what produced the result.
+$script:lastAiButton = $null
 
 function Show-Message {
     param(
@@ -1631,6 +2138,55 @@ function Set-ButtonTone {
     $button.FlatAppearance.MouseDownBackColor = Get-ThemeColor "Pressed"
     $button.FlatAppearance.BorderColor = Get-ThemeColor $border
 }
+
+# Consultar IA keeps the accent fill as the primary action; the last used one is outlined.
+function Update-AiButtonTones {
+    foreach ($button in $aiButtons) {
+        Set-ButtonTone $button "Elevated" "Text" "Hover" "Border"
+    }
+    Set-ButtonTone $btnPreguntar "Accent" "OnAccent" "AccentHover" "Accent"
+    if ($script:lastAiButton -and $script:lastAiButton -ne $btnPreguntar) {
+        Set-ButtonTone $script:lastAiButton "Hover" "Accent" "Pressed" "Accent"
+    }
+    foreach ($button in $aiButtons) {
+        $button.Invalidate()
+    }
+}
+
+function Set-LastAiButton {
+    param([Windows.Forms.Button]$button)
+
+    $script:lastAiButton = $button
+    Update-AiButtonTones
+}
+
+foreach ($aiButton in $aiButtons) {
+    $aiButton.Add_Click({ Set-LastAiButton $this })
+}
+
+function Invoke-PrimaryAiAction {
+    if ($btnPreguntar.Enabled) {
+        $btnPreguntar.PerformClick()
+    }
+}
+
+# Ctrl+Enter sends the editor to Consultar IA; Enter and Shift+Enter keep inserting new lines.
+function Invoke-EditorShortcut {
+    param([Windows.Forms.Keys]$keyData)
+
+    if ($keyData -eq ([Windows.Forms.Keys]::Control -bor [Windows.Forms.Keys]::Return)) {
+        Invoke-PrimaryAiAction
+        return $true
+    }
+    return $false
+}
+
+$textBox.Add_KeyDown({
+    if (Invoke-EditorShortcut $_.KeyData) {
+        $_.Handled = $true
+        $_.SuppressKeyPress = $true
+    }
+})
 
 function Set-ToggleTones {
     foreach ($toggle in $voiceToggles) {
@@ -3667,6 +4223,11 @@ function Set-Theme {
     foreach ($slider in @($speedSlider, $replaySlider)) {
         $slider.BackColor = Get-ThemeColor "Surface"
         $slider.ForeColor = Get-ThemeColor "Accent"
+        $slider.TrackColor = Get-ThemeColor "Border"
+        $slider.FillColor = Get-ThemeColor "Accent"
+        $slider.ThumbColor = Get-ThemeColor "Surface"
+        $slider.DisabledColor = Get-ThemeColor "Pressed"
+        $slider.Invalidate()
     }
     $versionLabel.BackColor = Get-ThemeColor "Surface"
     foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus)) {
@@ -3693,12 +4254,33 @@ function Set-Theme {
     Update-CapabilityBadges
     $checkWebSearch.BackColor = Get-ThemeColor "Elevated"
     $checkWebSearch.ForeColor = Get-ThemeColor "Text"
+    $checkWebSearch.BorderColor = Get-ThemeColor "ScrollbarArrow"
+    $checkWebSearch.AccentColor = Get-ThemeColor "Accent"
+    $checkWebSearch.OnAccentColor = Get-ThemeColor "OnAccent"
+    $checkWebSearch.MutedForeColor = Get-ThemeColor "Muted"
+    $checkWebSearch.Invalidate()
+    foreach ($combo in @($modelCombo, $voiceCombo)) {
+        $combo.BorderColor = Get-ThemeColor "Border"
+        $combo.AccentColor = Get-ThemeColor "Accent"
+        $combo.HoverBackColor = Get-ThemeColor "Hover"
+        $combo.MutedForeColor = Get-ThemeColor "Muted"
+        $combo.Invalidate()
+    }
     $lblHeaderModel.BackColor = Get-ThemeColor "Elevated"
     $lblHeaderModel.ForeColor = Get-ThemeColor "Muted"
     $lblHeaderModel.Font = New-Object Drawing.Font($uiStrongFontName, 9)
     $modelsList.BackColor = Get-ThemeColor "Editor"
     $modelsList.ForeColor = Get-ThemeColor "Text"
     $modelsList.Font = New-Object Drawing.Font($uiFontName, 9.5)
+    $modelsList.HeaderBackColor = Get-ThemeColor "Surface"
+    $modelsList.HeaderForeColor = Get-ThemeColor "Muted"
+    $modelsList.BorderColor = Get-ThemeColor "Border"
+    $modelsList.HoverBackColor = Get-ThemeColor "Hover"
+    $modelsList.SelectedBackColor = Get-ThemeColor "Pressed"
+    $modelsList.AccentColor = Get-ThemeColor "Accent"
+    $modelsList.MutedForeColor = Get-ThemeColor "Muted"
+    $modelsList.DarkScrollbars = $enabled
+    $modelsList.Invalidate()
     $voiceCombo.BackColor = Get-ThemeColor "Elevated"
     $voiceCombo.ForeColor = Get-ThemeColor "Text"
     $voiceCombo.Font = New-Object Drawing.Font($uiFontName, 9.75)
@@ -3715,8 +4297,8 @@ function Set-Theme {
         $button.Cursor = [Windows.Forms.Cursors]::Hand
         Set-ButtonTone $button "Elevated" "Text" "Hover" "Border"
     }
-    # The primary action gets the accent fill; everything else stays tonal.
-    Set-ButtonTone $btnPreguntar "Accent" "OnAccent" "AccentHover" "Accent"
+    # The primary action gets the accent fill; the last used AI action is outlined.
+    Update-AiButtonTones
     $browserIconFont = New-Object Drawing.Font($capabilityIconFontName, 11)
     $btnBrowserBack.Font = $browserIconFont
     $btnBrowserBack.Text = [string][char]0xE72B
@@ -3746,6 +4328,25 @@ function Set-Theme {
     $editorScrollBar.Invalidate()
     Update-NavigationState
     Set-AudioControlState $speechState.ControlState
+    Set-RoundedButtons $form
+}
+
+# Every flat push button, and every radio/check shown as a button, gets rounded corners.
+function Set-RoundedButtons {
+    param([Windows.Forms.Control]$root)
+
+    foreach ($control in $root.Controls) {
+        $isPushButton = $control -is [Windows.Forms.Button]
+        $isToggleButton = ($control -is [Windows.Forms.CheckBox] -or $control -is [Windows.Forms.RadioButton]) -and
+            $control.Appearance -eq [Windows.Forms.Appearance]::Button
+        if (($isPushButton -or $isToggleButton) -and $control.FlatStyle -eq [Windows.Forms.FlatStyle]::Flat) {
+            [RoundedButtons]::Attach($control)
+        }
+        $control.Invalidate()
+        if ($control.HasChildren) {
+            Set-RoundedButtons $control
+        }
+    }
 }
 
 # Markdown to the HTML body shared by Vista previa and the PDF export.
