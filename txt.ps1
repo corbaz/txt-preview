@@ -2120,6 +2120,11 @@ $speechState = @{
     ReplayDuration           = 0.0
     ReplayVoice              = $null
     ReplayOffset             = 0.0
+    # Speed slider value the generation ran at, the one the cached audio was rendered at,
+    # and the tempo Repetir plays it with so it sounds at the current slider speed.
+    GenerationSpeed          = 100
+    ReplaySpeed              = 100
+    ReplayTempo              = 1.0
     WindowsRenderSynth       = $null
     WindowsRenderPrompt      = $null
     WindowsRenderFile        = $null
@@ -2939,6 +2944,7 @@ function Start-SelectedVoicePlayback {
     }
     # Only a reading started by Play is a new generation; voice or speed restarts are partial.
     $speechState.CacheEligible = -not $ContinueHighlight
+    $speechState.GenerationSpeed = $speedSlider.Value
 
     $selectedDisplay = [string]$voiceCombo.SelectedItem
     $selectedVoiceName = $voiceNameByDisplay[$selectedDisplay]
@@ -3391,6 +3397,12 @@ function Set-SpeechSpeed {
         return
     }
 
+    if ($speechState.Provider -eq "Replay") {
+        # Same audio at a new tempo: continue from the current position (paused stays paused).
+        Start-ReplayPlayback (Get-ReplayPositionSeconds)
+        Show-Message "Velocidad cambiada a $speedText."
+        return
+    }
     Restart-ActiveSpeechPlayback "Velocidad cambiada a $speedText."
 }
 
@@ -3496,6 +3508,8 @@ function Clear-SpeechReplayCache {
     $speechState.ReplayFile = $null
     $speechState.ReplayDuration = 0.0
     $speechState.ReplayVoice = $null
+    $speechState.ReplaySpeed = 100
+    $speechState.ReplayTempo = 1.0
     $speechState.ReplayMarkSeconds = [double[]]@()
     $speechState.ReplayMarkWords = [int[]]@()
     $speechState.ReplayWordsKey = $null
@@ -3653,6 +3667,7 @@ function Save-SpeechReplayCache {
         $speechState.ReplayFile = $targetFile
         $speechState.ReplayDuration = [double]$duration
         $speechState.ReplayVoice = $voice
+        $speechState.ReplaySpeed = $speechState.GenerationSpeed
         # The preview text the audio belongs to; another text deletes the cache.
         $speechState.ReplayWordsKey = $wordsKey
         if ($null -ne $timings -and $timings.Seconds.Count -gt 0) {
@@ -3675,7 +3690,39 @@ function Get-ReplayPositionSeconds {
     if ($null -eq $elapsed) {
         return $speechState.ReplayOffset
     }
-    return [Math]::Min($speechState.ReplayDuration, $speechState.ReplayOffset + $elapsed)
+    # The audio advances ReplayTempo seconds per second of playback.
+    return [Math]::Min($speechState.ReplayDuration, $speechState.ReplayOffset + $elapsed * $speechState.ReplayTempo)
+}
+
+# The cached audio carries the speed it was rendered at; Repetir plays it faster or slower so
+# it sounds at the speed the slider shows now.
+function Get-ReplayTempo {
+    $renderedSpeed = [Math]::Max(1, [int]$speechState.ReplaySpeed)
+    return [double]$speedSlider.Value / $renderedSpeed
+}
+
+# ffmpeg's atempo filter accepts 0.5 to 2.0 per stage, so larger changes chain stages.
+function Get-AtempoFilter {
+    param([double]$tempo)
+
+    if ([Math]::Abs($tempo - 1.0) -lt 0.001) {
+        return ""
+    }
+    $culture = [Globalization.CultureInfo]::InvariantCulture
+    $stages = [Collections.Generic.List[string]]::new()
+    $remaining = $tempo
+    while ($remaining -gt 2.0) {
+        $stages.Add("atempo=2")
+        $remaining /= 2.0
+    }
+    while ($remaining -lt 0.5) {
+        $stages.Add("atempo=0.5")
+        $remaining /= 0.5
+    }
+    if ([Math]::Abs($remaining - 1.0) -ge 0.001) {
+        $stages.Add("atempo=" + [Math]::Round($remaining, 4).ToString("0.####", $culture))
+    }
+    return $stages -join ","
 }
 
 function Get-ReplayCacheDecision {
@@ -3793,7 +3840,18 @@ function Start-ReplayPlayback {
         $replayStartInfo.RedirectStandardError = $true
         $offsetText = $offset.ToString("0.###", [Globalization.CultureInfo]::InvariantCulture)
         # Seeking restarts ffplay at the new offset; -ss before the input seeks without decoding the skipped audio.
-        foreach ($argument in @("-nodisp", "-autoexit", "-loglevel", "error", "-ss", $offsetText, $speechState.ReplayFile)) {
+        $tempo = Get-ReplayTempo
+        $arguments = [Collections.Generic.List[string]]::new()
+        foreach ($argument in @("-nodisp", "-autoexit", "-loglevel", "error", "-ss", $offsetText)) {
+            $arguments.Add($argument)
+        }
+        $tempoFilter = Get-AtempoFilter $tempo
+        if ($tempoFilter) {
+            $arguments.Add("-af")
+            $arguments.Add($tempoFilter)
+        }
+        $arguments.Add($speechState.ReplayFile)
+        foreach ($argument in $arguments) {
             [void]$replayStartInfo.ArgumentList.Add($argument)
         }
 
@@ -3801,6 +3859,7 @@ function Start-ReplayPlayback {
         $speechState.PlayerStartedAt = [DateTime]::UtcNow
         $speechState.PauseStartedAt = $null
         $speechState.ReplayOffset = $offset
+        $speechState.ReplayTempo = $tempo
         $speechState.Provider = "Replay"
         $speechState.VoiceDisplay = $speechState.ReplayVoice
         $speechState.Mode = "Playing"

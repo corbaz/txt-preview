@@ -263,5 +263,55 @@ class ReplayCacheDecisionBehaviorTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip().splitlines()[-1], "Keep,Delete,Unknown,Delete")
 
 
+@unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
+class ReplaySpeedBehaviorTests(unittest.TestCase):
+    """Repetir plays audio rendered at one speed; the slider must still set how fast it sounds."""
+
+    def run_snippet(self, snippet: str) -> str:
+        command = f"$env:TXT_PREVIEW_TEST_MODE = '1'; . '{ROOT / 'txt.ps1'}'; {snippet}"
+        result = subprocess.run(
+            ["pwsh", "-NoProfile", "-STA", "-Command", command],
+            capture_output=True, timeout=120, encoding="utf-8", errors="replace",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result.stdout.strip().splitlines()[-1]
+
+    def test_tempo_is_the_current_speed_over_the_rendered_speed(self) -> None:
+        output = self.run_snippet(
+            "$speechState.ReplaySpeed = 100; $speedSlider.Value = 150; $a = Get-ReplayTempo; "
+            "$speechState.ReplaySpeed = 150; $speedSlider.Value = 75; $b = Get-ReplayTempo; "
+            "'' + $a + ',' + $b"
+        )
+        self.assertEqual(output, "1.5,0.5")
+
+    def test_atempo_chain_stays_inside_the_filter_range(self) -> None:
+        output = self.run_snippet(
+            "@((Get-AtempoFilter 1.0), (Get-AtempoFilter 1.5), (Get-AtempoFilter 3.0), (Get-AtempoFilter 0.25)) -join '|'"
+        )
+        # 1.0 needs no filter; each atempo stage must stay between 0.5 and 2.
+        self.assertEqual(output, "|atempo=1.5|atempo=2,atempo=1.5|atempo=0.5,atempo=0.5")
+
+    def test_position_advances_at_the_replay_tempo(self) -> None:
+        output = self.run_snippet(
+            "$speechState.ReplayDuration = 60; $speechState.ReplayOffset = 10; $speechState.ReplayTempo = 2.0; "
+            "$speechState.PlayerProcess = [Diagnostics.Process]::GetCurrentProcess(); "
+            "$now = [DateTime]::UtcNow; $speechState.PlayerStartedAt = $now.AddSeconds(-3); $speechState.PauseStartedAt = $now; "
+            "[Math]::Round((Get-ReplayPositionSeconds), 2)"
+        )
+        self.assertEqual(output, "16")
+
+    def test_changing_speed_during_repetir_continues_from_the_same_point(self) -> None:
+        output = self.run_snippet(
+            "$script:restartedAt = $null; function Start-ReplayPlayback { param($offsetSeconds) $script:restartedAt = $offsetSeconds }; "
+            "function Get-ReplayPositionSeconds { 12.5 }; "
+            "$speechState.Provider = 'Replay'; $speechState.Mode = 'Playing'; "
+            "$speedSlider.Value = 150; Set-SpeechSpeed; $afterSpeed = $script:restartedAt; "
+            "$script:restartedAt = $null; Restart-ActiveSpeechPlayback 'Voz cambiada'; "
+            "'' + $afterSpeed + ',' + ($null -eq $script:restartedAt)"
+        )
+        # A new voice cannot apply to audio that already exists, so only speed restarts Repetir.
+        self.assertEqual(output, "12.5,True")
+
+
 if __name__ == "__main__":
     unittest.main()
