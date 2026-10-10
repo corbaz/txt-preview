@@ -72,6 +72,14 @@ class ModernControlsTests(unittest.TestCase):
         )
         self.assertEqual(results[-1], "200,50,80,4,True,True,True")
 
+    def test_drop_downs_keep_the_height_of_their_row(self) -> None:
+        results = run_app_snippet(
+            "$modelCombo.CreateControl(); $voiceCombo.CreateControl(); "
+            "'RESULT=' + $modelCombo.Height + ',' + $btnNavSettings.Height + ',' + $voiceCombo.Height + ',' + $modelCombo.ListItemHeight"
+        )
+        # The model selector lines up with the 26 px header buttons; list rows stay roomy.
+        self.assertEqual(results[-1], "26,26,34,26")
+
 
 if __name__ == "__main__":
     unittest.main()

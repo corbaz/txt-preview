@@ -596,11 +596,28 @@ public class ModernComboBox : ComboBox {
     public Color MutedForeColor = Color.FromArgb(142, 151, 173);
     public Color OutsideColor = Color.Empty;
 
+    // Rows of the open list; the closed field follows the height given to SetBounds.
+    public int ListItemHeight = 26;
+
     public ModernComboBox() {
-        DrawMode = DrawMode.OwnerDrawFixed;
+        // Variable mode lets the closed field and the list rows have different heights.
+        DrawMode = DrawMode.OwnerDrawVariable;
         DropDownStyle = ComboBoxStyle.DropDownList;
         FlatStyle = FlatStyle.Flat;
-        ItemHeight = 24;
+    }
+
+    protected override void OnMeasureItem(MeasureItemEventArgs e) {
+        e.ItemHeight = ListItemHeight;
+        base.OnMeasureItem(e);
+    }
+
+    // Windows makes a DropDownList combo ItemHeight + 6 pixels tall, so the requested
+    // height becomes the field height instead of the default, taller one.
+    protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified) {
+        if ((specified & BoundsSpecified.Height) != 0 && height > 12) {
+            ItemHeight = height - 6;
+        }
+        base.SetBoundsCore(x, y, width, height, specified);
     }
 
     protected override void OnMouseEnter(EventArgs e) { hovering = true; Invalidate(); base.OnMouseEnter(e); }
