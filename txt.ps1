@@ -542,7 +542,53 @@ public class ModernListView : ListView {
 // The closed ComboBox keeps a white system border and a classic arrow even when flat, so
 // the box is repainted as a rounded field with a chevron and the drop-down rows are themed.
 public class ModernComboBox : ComboBox {
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindowDC(IntPtr hwnd);
+    [DllImport("user32.dll")]
+    private static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);
+    [DllImport("user32.dll")]
+    private static extern bool GetComboBoxInfo(IntPtr hwnd, ref ComboBoxInfo info);
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+    private static extern int SetWindowTheme(IntPtr hwnd, string appName, string idList);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ComboBoxInfo {
+        public int Size;
+        public Rect Item;
+        public Rect Button;
+        public int ButtonState;
+        public IntPtr Combo;
+        public IntPtr Edit;
+        public IntPtr List;
+    }
+
+    // Repaints the drop-down list's one-pixel frame in the theme border color.
+    private class ListFrame : NativeWindow {
+        public Color Border;
+        protected override void WndProc(ref Message m) {
+            base.WndProc(ref m);
+            if (m.Msg == 0x0085 || m.Msg == 0x000F) {
+                IntPtr dc = GetWindowDC(Handle);
+                if (dc == IntPtr.Zero) { return; }
+                try {
+                    using (Graphics g = Graphics.FromHdc(dc))
+                    using (Pen pen = new Pen(Border)) {
+                        Rectangle r = Rectangle.Truncate(g.VisibleClipBounds);
+                        g.DrawRectangle(pen, 0, 0, r.Width - 1, r.Height - 1);
+                    }
+                } finally {
+                    ReleaseDC(Handle, dc);
+                }
+            }
+        }
+    }
+
+    private readonly ListFrame listFrame = new ListFrame();
     private bool hovering;
+    public bool DarkScrollbars = true;
 
     public Color BorderColor = Color.FromArgb(42, 49, 66);
     public Color AccentColor = Color.FromArgb(139, 147, 255);
@@ -563,13 +609,75 @@ public class ModernComboBox : ComboBox {
     protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
     protected override void OnSelectedIndexChanged(EventArgs e) { Invalidate(); base.OnSelectedIndexChanged(e); }
 
+    protected override void OnDropDown(EventArgs e) {
+        base.OnDropDown(e);
+        ComboBoxInfo info = new ComboBoxInfo();
+        info.Size = Marshal.SizeOf(typeof(ComboBoxInfo));
+        if (!GetComboBoxInfo(Handle, ref info) || info.List == IntPtr.Zero) { return; }
+        try { SetWindowTheme(info.List, DarkScrollbars ? "DarkMode_Explorer" : "Explorer", null); } catch { }
+        listFrame.Border = BorderColor;
+        if (listFrame.Handle != info.List) {
+            if (listFrame.Handle != IntPtr.Zero) { listFrame.ReleaseHandle(); }
+            listFrame.AssignHandle(info.List);
+        }
+        Invalidate();
+    }
+
+    protected override void OnDropDownClosed(EventArgs e) { Invalidate(); base.OnDropDownClosed(e); }
+
+    // Windows draws its own square frame for these styles outside the messages we repaint.
+    protected override CreateParams CreateParams {
+        get {
+            CreateParams cp = base.CreateParams;
+            cp.Style &= ~0x00800000;
+            cp.ExStyle &= ~(0x00000200 | 0x00020000 | 0x00000100);
+            return cp;
+        }
+    }
+
+    // Without a visual style Windows has no hover/focus fade animations, which paint the
+    // field directly and would draw a square frame over the rounded one.
+    protected override void OnHandleCreated(EventArgs e) {
+        base.OnHandleCreated(e);
+        try { SetWindowTheme(Handle, "", ""); } catch { }
+        UpdateClipRegion();
+    }
+
+    protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e); UpdateClipRegion(); }
+
+    // Windows still paints a one-pixel square frame on the outermost ring after our paint;
+    // the window region hides that ring and the rounded field is drawn just inside it.
+    private void UpdateClipRegion() {
+        if (Width <= 2 || Height <= 2) { return; }
+        Region previous = Region;
+        Region = new Region(new Rectangle(1, 1, Width - 2, Height - 2));
+        if (previous != null) { previous.Dispose(); }
+    }
+
+    protected override void OnHandleDestroyed(EventArgs e) {
+        if (listFrame.Handle != IntPtr.Zero) { listFrame.ReleaseHandle(); }
+        base.OnHandleDestroyed(e);
+    }
+
     protected override void WndProc(ref Message m) {
         base.WndProc(ref m);
-        if (m.Msg == 0x000F && IsHandleCreated) {
-            using (Graphics g = Graphics.FromHwnd(Handle)) { PaintField(g); }
+        if ((m.Msg == 0x000F || m.Msg == 0x0085) && IsHandleCreated) {
+            PaintWindow();
         } else if ((m.Msg == 0x0317 || m.Msg == 0x0318) && m.WParam != IntPtr.Zero) {
             // WM_PRINT / WM_PRINTCLIENT: DrawToBitmap and redirected painting.
             using (Graphics g = Graphics.FromHdc(m.WParam)) { PaintField(g); }
+        }
+    }
+
+    // The window DC also covers the frame Windows draws around a flat combo.
+    private void PaintWindow() {
+        if (!IsHandleCreated) { return; }
+        IntPtr dc = GetWindowDC(Handle);
+        if (dc == IntPtr.Zero) { return; }
+        try {
+            using (Graphics g = Graphics.FromHdc(dc)) { PaintField(g); }
+        } finally {
+            ReleaseDC(Handle, dc);
         }
     }
 
@@ -578,8 +686,8 @@ public class ModernComboBox : ComboBox {
         Color border = Focused || DroppedDown || hovering ? AccentColor : BorderColor;
         Color fill = hovering && Enabled ? HoverBackColor : BackColor;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        using (Brush clear = new SolidBrush(outside)) { g.FillRectangle(clear, ClientRectangle); }
-        RectangleF bounds = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+        using (Brush clear = new SolidBrush(outside)) { g.FillRectangle(clear, 0, 0, Width, Height); }
+        RectangleF bounds = new RectangleF(1.5f, 1.5f, Width - 3.5f, Height - 3.5f);
         using (GraphicsPath path = Rounded(bounds, 7f))
         using (Brush brush = new SolidBrush(fill))
         using (Pen pen = new Pen(border, 1f)) {
@@ -598,6 +706,11 @@ public class ModernComboBox : ComboBox {
     }
 
     protected override void OnDrawItem(DrawItemEventArgs e) {
+        if ((e.State & DrawItemState.ComboBoxEdit) == DrawItemState.ComboBoxEdit) {
+            // The closed field: Windows also asks for it outside WM_PAINT (focus, selection).
+            PaintWindow();
+            return;
+        }
         if (e.Index < 0) { return; }
         bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
         using (Brush back = new SolidBrush(selected ? HoverBackColor : BackColor)) { e.Graphics.FillRectangle(back, e.Bounds); }
@@ -4264,6 +4377,7 @@ function Set-Theme {
         $combo.AccentColor = Get-ThemeColor "Accent"
         $combo.HoverBackColor = Get-ThemeColor "Hover"
         $combo.MutedForeColor = Get-ThemeColor "Muted"
+        $combo.DarkScrollbars = [bool]$enabled
         $combo.Invalidate()
     }
     $lblHeaderModel.BackColor = Get-ThemeColor "Elevated"
