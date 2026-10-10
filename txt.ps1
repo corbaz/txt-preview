@@ -1131,22 +1131,22 @@ $statusPanel.Controls.Add($spinnerLabel)
 
 $navHost = New-Object Windows.Forms.Panel
 $navHost.Dock = "Left"
-$navHost.Width = 352
+$navHost.Width = 346
 $statusPanel.Controls.Add($navHost)
 
 $btnNavEditor = New-Object Windows.Forms.Button
 $btnNavEditor.Text = "Editor"
-$btnNavEditor.SetBounds(3, 3, 113, 26)
+$btnNavEditor.SetBounds(0, 3, 110, 26)
 $navHost.Controls.Add($btnNavEditor)
 
 $btnNavPreview = New-Object Windows.Forms.Button
 $btnNavPreview.Text = "Vista previa"
-$btnNavPreview.SetBounds(120, 3, 113, 26)
+$btnNavPreview.SetBounds(118, 3, 110, 26)
 $navHost.Controls.Add($btnNavPreview)
 
 $btnNavBrowser = New-Object Windows.Forms.Button
 $btnNavBrowser.Text = "Navegador"
-$btnNavBrowser.SetBounds(237, 3, 113, 26)
+$btnNavBrowser.SetBounds(236, 3, 110, 26)
 $navHost.Controls.Add($btnNavBrowser)
 
 $settingsNavHost = New-Object Windows.Forms.Panel
@@ -1156,7 +1156,7 @@ $statusPanel.Controls.Add($settingsNavHost)
 
 $btnNavSettings = New-Object Windows.Forms.Button
 $btnNavSettings.Text = "Configuración"
-$btnNavSettings.SetBounds(5, 3, 145, 26)
+$btnNavSettings.SetBounds(0, 3, 145, 26)
 $settingsNavHost.Controls.Add($btnNavSettings)
 
 $lblHeaderModel = New-Object Windows.Forms.Label
@@ -2345,7 +2345,7 @@ function Set-ToggleTones {
 
 function Update-NavigationState {
     foreach ($button in @($btnNavEditor, $btnNavPreview, $btnNavBrowser, $btnNavSettings)) {
-        Set-ButtonTone $button "Elevated" "Muted" "Hover" "Elevated"
+        Set-ButtonTone $button "Elevated" "Muted" "Hover" "Border"
     }
     $activeNavigationButton = if ($tabs.SelectedTab -eq $tabPreview) {
         $btnNavPreview
@@ -4389,8 +4389,9 @@ function Set-Theme {
     $form.BackColor = Get-ThemeColor "Window"
     $panel.BackColor = Get-ThemeColor "Surface"
     $statusPanel.BackColor = Get-ThemeColor "Surface"
-    $navHost.BackColor = Get-ThemeColor "Elevated"
-    $settingsNavHost.BackColor = Get-ThemeColor "Elevated"
+    # The header buttons sit straight on the header; no group bars behind them.
+    $navHost.BackColor = Get-ThemeColor "Surface"
+    $settingsNavHost.BackColor = Get-ThemeColor "Surface"
     $msgHost.BackColor = Get-ThemeColor "Surface"
     $tabs.BackColor = Get-ThemeColor "Window"
     $tabEditor.BackColor = Get-ThemeColor "Editor"
@@ -4456,7 +4457,7 @@ function Set-Theme {
         $combo.DarkScrollbars = [bool]$enabled
         $combo.Invalidate()
     }
-    $lblHeaderModel.BackColor = Get-ThemeColor "Elevated"
+    $lblHeaderModel.BackColor = Get-ThemeColor "Surface"
     $lblHeaderModel.ForeColor = Get-ThemeColor "Muted"
     $lblHeaderModel.Font = New-Object Drawing.Font($uiStrongFontName, 9)
     $modelsList.BackColor = Get-ThemeColor "Editor"
