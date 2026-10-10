@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -311,6 +312,22 @@ class ReplaySpeedBehaviorTests(unittest.TestCase):
         )
         # A new voice cannot apply to audio that already exists, so only speed restarts Repetir.
         self.assertEqual(output, "12.5,True")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffplay"), "needs FFmpeg")
+    def test_speed_change_while_paused_stays_paused_and_passes_atempo_to_ffplay(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            audio = Path(temp) / "replay.mp3"
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=duration=8",
+                            "-ac", "1", str(audio)], check=True, timeout=60)
+            output = self.run_snippet(
+                f"$speechState.ReplayFile = '{audio}'; $speechState.ReplayDuration = 8; $speechState.ReplaySpeed = 100; "
+                "Start-ReplayPlayback 2; Suspend-VoicePlayback; "
+                "$speedSlider.Value = 150; Set-SpeechSpeed; "
+                "$arguments = @($speechState.PlayerProcess.StartInfo.ArgumentList) -join ' '; "
+                "$state = $speechState.Mode + ',' + $speechState.ReplayTempo + ',' + ($arguments -match 'atempo=1.5'); "
+                "Stop-VoicePlayback; $state"
+            )
+        self.assertEqual(output, "Paused,1.5,True")
 
 
 if __name__ == "__main__":
