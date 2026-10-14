@@ -166,6 +166,45 @@ class LocalBridgeTests(unittest.TestCase):
             "True,True,False,True", "True,True,False,True", "True,False,False,True", "True,False,False,True",
         ])
 
+    def test_configuration_tab_shows_the_status_next_to_each_bridge(self) -> None:
+        results = self.snippet(
+            "foreach ($key in 'claude', 'codex', 'gemini') { "
+            "'RESULT=' + $tabSettings.Controls.Contains($bridgeStatusLabels[$key]) + ',' + $bridgeStatusLabels[$key].Text + ',' + "
+            "$bridgePasswordBoxes[$key].UseSystemPasswordChar }"
+        )
+        self.assertEqual(results, ["True,Conectado (1 modelo),True", "True,Apagado,True", "True,Apagado,True"])
+
+    def test_bridge_passwords_are_saved_encrypted_without_a_groq_key(self) -> None:
+        settings = Path(self.data_dir, "settings.json")
+        results = self.snippet(
+            f"$settingsDirectory = '{self.data_dir}'; $settingsPath = '{settings}'; "
+            "$txtApiKey.Text = ''; $bridgePasswordBoxes['codex'].Text = 'clave-codex'; "
+            "Save-AppSettings; $script:bridgePasswords = @{}; $bridgePasswordBoxes['codex'].Text = ''; "
+            "Import-AppSettings; "
+            "'RESULT=' + $script:bridgePasswords['codex'] + ',' + $bridgePasswordBoxes['codex'].Text"
+        )
+        self.assertEqual(results[-1], "clave-codex,clave-codex")
+        saved = settings.read_text(encoding="utf-8")
+        self.assertNotIn("clave-codex", saved)
+        self.assertIn("codex", json.loads(saved)["EncryptedBridgePasswords"])
+
+    def test_saving_with_nothing_configured_still_asks_for_a_key(self) -> None:
+        settings = Path(self.data_dir, "settings.json")
+        results = self.snippet(
+            f"$settingsDirectory = '{self.data_dir}'; $settingsPath = '{settings}'; $txtApiKey.Text = ''; "
+            "try { Save-AppSettings; 'RESULT=saved' } catch { 'RESULT=' + $_.Exception.Message }"
+        )
+        self.assertEqual(results[-1], "Ingresá una API key de Groq o la contraseña de un bridge.")
+        self.assertFalse(settings.exists())
+
+    def test_attachment_notice_names_the_selected_provider(self) -> None:
+        results = self.snippet(
+            "$script:attachedFiles.Add([pscustomobject]@{ Name = 'a.txt'; Kind = 'Text'; Content = 'x' }); "
+            "$script:selectedGroqModel = 'claude:sonnet'; Update-AttachmentSummary; 'RESULT=' + $lblAttachments.Text; "
+            "$script:selectedGroqModel = 'openai/gpt-oss-120b'; Update-AttachmentSummary; 'RESULT=' + $lblAttachments.Text"
+        )
+        self.assertEqual(results, ["Se enviarán a Claude (1): a.txt", "Se enviarán a Groq (1): a.txt"])
+
     def test_groq_requests_keep_the_openai_format(self) -> None:
         results = self.snippet(
             "$script:selectedGroqModel = 'openai/gpt-oss-120b'; $script:groqApiKey = 'gsk_test'; "

@@ -41,7 +41,7 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn("$contextPanel.Controls.Add($checkWebSearch)", SCRIPT)
         self.assertIn("$contextPanel.Controls.Add($lblAttachments)", SCRIPT)
         self.assertIn("$contextPanel.Controls.Add($btnClearAttachments)", SCRIPT)
-        self.assertIn('"Se enviarán a Groq ($($names.Count)): "', SCRIPT)
+        self.assertIn('"Se enviarán a $(Get-SelectedProviderLabel) ($($names.Count)): "', SCRIPT)
 
     def test_attachment_can_be_the_only_input(self) -> None:
         self.assertIn("$script:attachedFiles.Count -gt 0", SCRIPT)

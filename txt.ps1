@@ -1542,6 +1542,52 @@ $script:bridgePasswords = @{}
 # Model ids in the same order as the items of the model selector.
 $script:modelComboIds = [Collections.Generic.List[string]]::new()
 
+# Configuración: one row with each bridge, its optional password and its live status.
+$bridgeNameLabels = @{}
+$bridgePasswordBoxes = @{}
+$bridgeStatusLabels = @{}
+$bridgeIndex = 0
+foreach ($bridge in $script:localBridges) {
+    $left = 30 + $bridgeIndex * 375
+    $nameLabel = New-Object Windows.Forms.Label
+    $nameLabel.Text = $bridge.Label
+    $nameLabel.SetBounds($left, 150, 62, 26)
+    $tabSettings.Controls.Add($nameLabel)
+
+    $passwordBox = New-Object Windows.Forms.TextBox
+    $passwordBox.UseSystemPasswordChar = $true
+    $passwordBox.PlaceholderText = "Contraseña (opcional)"
+    $passwordBox.SetBounds($left + 62, 146, 140, 30)
+    $tabSettings.Controls.Add($passwordBox)
+
+    $statusLabel = New-Object Windows.Forms.Label
+    $statusLabel.Text = "Sin comprobar"
+    $statusLabel.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+    $statusLabel.AutoEllipsis = $true
+    $statusLabel.SetBounds($left + 208, 148, 160, 28)
+    $tabSettings.Controls.Add($statusLabel)
+
+    $bridgeNameLabels[$bridge.Key] = $nameLabel
+    $bridgePasswordBoxes[$bridge.Key] = $passwordBox
+    $bridgeStatusLabels[$bridge.Key] = $statusLabel
+    $bridgeIndex++
+}
+$modelsList.SetBounds(30, 190, 1120, 364)
+
+function Sync-BridgePasswordsFromBoxes {
+    foreach ($bridge in $script:localBridges) {
+        $script:bridgePasswords[$bridge.Key] = $bridgePasswordBoxes[$bridge.Key].Text.Trim()
+    }
+}
+
+function Get-SelectedProviderLabel {
+    $bridge = Get-LocalBridge $script:selectedGroqModel
+    if ($null -ne $bridge) {
+        return $bridge.Label
+    }
+    return "Groq"
+}
+
 function Get-LocalBridge {
     param([string]$modelId)
 
@@ -1658,6 +1704,9 @@ function Update-BridgeModels {
             }
         }
         $script:bridgeStatus[$bridge.Key] = $status
+        $statusLevel = if ($status -like "Conectado*" -or $status -eq "Apagado") { "Info" } else { "Warning" }
+        Set-StatusText $bridgeStatusLabels[$bridge.Key] $status -Level $statusLevel
+        $contextToolTip.SetToolTip($bridgeStatusLabels[$bridge.Key], "$($bridge.Label) · 127.0.0.1:$($bridge.Port) · $status")
     }
     Show-GroqModels $script:availableGroqModels
 }
@@ -1744,7 +1793,7 @@ function Update-AttachmentSummary {
         $btnClearAttachments.Visible = $false
     } else {
         $names = @($script:attachedFiles | ForEach-Object { $_.Name })
-        $attachmentText = "Se enviarán a Groq ($($names.Count)): " + ($names -join ", ")
+        $attachmentText = "Se enviarán a $(Get-SelectedProviderLabel) ($($names.Count)): " + ($names -join ", ")
         $lblAttachments.Text = $attachmentText
         $contextToolTip.SetToolTip($lblAttachments, $attachmentText)
         $btnClearAttachments.Visible = $true
@@ -1926,6 +1975,16 @@ function Import-AppSettings {
             $script:groqApiKey = Convert-SecureStringToPlainText $secureKey
             $txtApiKey.Text = $script:groqApiKey
         }
+        if ($settings.EncryptedBridgePasswords) {
+            foreach ($bridge in $script:localBridges) {
+                $encrypted = $settings.EncryptedBridgePasswords.($bridge.Key)
+                if ($encrypted) {
+                    $password = Convert-SecureStringToPlainText (ConvertTo-SecureString ([string]$encrypted))
+                    $script:bridgePasswords[$bridge.Key] = $password
+                    $bridgePasswordBoxes[$bridge.Key].Text = $password
+                }
+            }
+        }
         # The saved model is ignored on purpose: every launch starts on openai/gpt-oss-120b.
     } catch {
         Set-StatusText $settingsStatus "No se pudo cargar la configuración: $($_.Exception.Message)" -Level Error
@@ -1935,15 +1994,30 @@ function Import-AppSettings {
 
 function Save-AppSettings {
     $apiKey = $txtApiKey.Text.Trim()
-    if ([string]::IsNullOrWhiteSpace($apiKey)) {
-        throw "Ingresá una API key de Groq."
+    Sync-BridgePasswordsFromBoxes
+    $bridgeSecrets = [ordered]@{}
+    foreach ($bridge in $script:localBridges) {
+        $password = $script:bridgePasswords[$bridge.Key]
+        if (-not [string]::IsNullOrWhiteSpace($password)) {
+            $bridgeSecrets[$bridge.Key] = ConvertFrom-SecureString (ConvertTo-SecureString $password -AsPlainText -Force)
+        }
+    }
+    # A subscription bridge alone is a valid setup, so the Groq key is only required
+    # when no bridge password is configured either.
+    if ([string]::IsNullOrWhiteSpace($apiKey) -and $bridgeSecrets.Count -eq 0) {
+        throw "Ingresá una API key de Groq o la contraseña de un bridge."
     }
 
     [void][IO.Directory]::CreateDirectory($settingsDirectory)
-    $secureKey = ConvertTo-SecureString $apiKey -AsPlainText -Force
+    $encryptedApiKey = $null
+    if (-not [string]::IsNullOrWhiteSpace($apiKey)) {
+        $secureKey = ConvertTo-SecureString $apiKey -AsPlainText -Force
+        $encryptedApiKey = ConvertFrom-SecureString $secureKey
+    }
     $settings = [ordered]@{
-        EncryptedApiKey = ConvertFrom-SecureString $secureKey
-        Model          = $script:selectedGroqModel
+        EncryptedApiKey          = $encryptedApiKey
+        Model                    = $script:selectedGroqModel
+        EncryptedBridgePasswords = $bridgeSecrets
     }
     [IO.File]::WriteAllText(
         $settingsPath,
@@ -4636,12 +4710,16 @@ function Set-Theme {
         $slider.Invalidate()
     }
     $versionLabel.BackColor = Get-ThemeColor "Surface"
-    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus)) {
+    $bridgeLabels = @($bridgeNameLabels.Values) + @($bridgeStatusLabels.Values)
+    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus) + $bridgeLabels) {
         $label.BackColor = Get-ThemeColor "Window"
     }
     $settingsTitle.ForeColor = Get-ThemeColor "Heading"
     $lblApiKey.ForeColor = Get-ThemeColor "Muted"
-    foreach ($inputControl in @($txtApiKey, $modelCombo)) {
+    foreach ($nameLabel in $bridgeNameLabels.Values) {
+        $nameLabel.ForeColor = Get-ThemeColor "Muted"
+    }
+    foreach ($inputControl in @($txtApiKey, $modelCombo) + @($bridgePasswordBoxes.Values)) {
         $inputControl.BackColor = Get-ThemeColor "Elevated"
         $inputControl.ForeColor = Get-ThemeColor "Text"
         $inputControl.Font = New-Object Drawing.Font($uiFontName, 10)
@@ -4653,7 +4731,7 @@ function Set-Theme {
     $lblAttachments.BackColor = Get-ThemeColor "Elevated"
     $previewResultBar.BackColor = Get-ThemeColor "Elevated"
     $lblPreviewResult.BackColor = Get-ThemeColor "Elevated"
-    $infoControls = @($msgBox, $settingsHint, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblAttachments, $versionLabel, $lblPreviewResult)
+    $infoControls = @($msgBox, $settingsHint, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblAttachments, $versionLabel, $lblPreviewResult) + @($bridgeStatusLabels.Values)
     foreach ($control in $infoControls) {
         Set-InfoStyle $control
     }
@@ -5680,6 +5758,7 @@ $btnRefreshModels.Add_Click({
         # Bridges are probed even without a Groq key: a subscription alone is enough.
         Set-StatusText $settingsStatus "Buscando bridges locales..."
         [Windows.Forms.Application]::DoEvents()
+        Sync-BridgePasswordsFromBoxes
         Update-BridgeModels
         $btnRefreshModels.Enabled = $true
     }
@@ -5789,7 +5868,7 @@ function Add-ImageAttachment {
     }
     $currentImages = @($script:attachedFiles | Where-Object { $_.Kind -eq "Image" })
     if ($currentImages.Count -ge 3) {
-        throw "Qwen admite como máximo tres imágenes por solicitud."
+        throw "Se admiten como máximo tres imágenes por solicitud."
     }
     $imageBytes = ($currentImages | Measure-Object -Property Size -Sum).Sum + $fileInfo.Length
     if ($imageBytes -gt 14MB) {
