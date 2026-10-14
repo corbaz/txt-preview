@@ -54,6 +54,13 @@ class FakeBridge(BaseHTTPRequestHandler):
             self._send(401, {"error": "No autorizado."})
             return
         FakeBridge.received.append(json.loads(body))
+        if isinstance(self.reply, str):
+            data = self.reply.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         self._send(200, self.reply)
 
 
@@ -152,6 +159,17 @@ class LocalBridgeTests(unittest.TestCase):
             "catch { 'RESULT=' + $_.Exception.Message }"
         )
         self.assertEqual(results, ["Claude: límite de uso alcanzado"])
+
+    def test_stopped_bridge_and_invalid_answer_are_reported_by_name(self) -> None:
+        FakeBridge.reply = "<html>no es json</html>"
+        results = self.snippet(
+            "$script:selectedGroqModel = 'gemini:pro'; "
+            "try { Invoke-GroqRequest -Headers @{} -Body '{}' } catch { 'RESULT=' + $_.Exception.Message }; "
+            "$script:selectedGroqModel = 'claude:sonnet'; "
+            "try { Get-AiResponseText (Invoke-GroqRequest -Headers @{} -Body '{}') } catch { 'RESULT=' + $_.Exception.Message }",
+        )
+        self.assertRegex(results[0], r"^Gemini: el bridge no responde en 127\.0\.0\.1:\d+\.$")
+        self.assertEqual(results[1], "Claude: el bridge devolvió una respuesta que no es JSON.")
 
     def test_bridge_capabilities_follow_the_provider(self) -> None:
         FakeBridge.models = [{"id": "sonnet", "name": "Claude Sonnet"}]

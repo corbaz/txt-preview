@@ -4515,7 +4515,7 @@ function Get-AiResponseText {
 
     # Decodes the model text and drops citation markers, so Vista previa, Play, Repetir,
     # Llevar al editor and the exports never see them.
-    $text =[System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($response.choices[0].message.content))
+    $text = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($response.choices[0].message.content))
     return Remove-AiCitationMarkers $text
 }
 
@@ -4535,12 +4535,19 @@ function Invoke-GroqRequest {
     $bridge = Get-LocalBridge $script:selectedGroqModel
     if ($null -ne $bridge) {
         # A subscription answer can take minutes; the bridges time out on their own side.
-        $result = Invoke-BridgeHttp $bridge "POST" "/chat" $body 600
+        try {
+            $result = Invoke-BridgeHttp $bridge "POST" "/chat" $body 600
+        } catch {
+            throw "$($bridge.Label): el bridge no responde en 127.0.0.1:$($bridge.Port)."
+        }
         $data = $null
         try { $data = $result.Text | ConvertFrom-Json } catch { }
         if ($result.Status -ne 200) {
             $detail = if ($null -ne $data -and $data.error) { $data.error } else { "HTTP $($result.Status)" }
             throw "$($bridge.Label): $detail"
+        }
+        if ($null -eq $data) {
+            throw "$($bridge.Label): el bridge devolvió una respuesta que no es JSON."
         }
         return $data
     }
@@ -4643,7 +4650,7 @@ function New-GroqRequestJson {
         return $bridgeBody | ConvertTo-Json -Depth 5
     }
     if ($images.Count -gt 0) {
-        $content =[Collections.Generic.List[object]]::new()
+        $content = [Collections.Generic.List[object]]::new()
         $content.Add([ordered]@{ type = "text"; text = $combinedText })
         foreach ($imageAttachment in $images) {
             $base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($imageAttachment.Path))
