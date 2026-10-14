@@ -12,11 +12,13 @@ Delivery: ask-on-risk (forecast ~450 authored lines). Test runner: `python -m un
 - S7 Only local: "al estar los brige solo lopuede unsar los locales o el port queda expuesto para cualqiera" — answered: bridges bind `127.0.0.1` (verified in source and netstat); the app only talks to `127.0.0.1`.
 
 ## Tasks
-- [ ] T1 S1 S2 S4 S5 S6 S7 — bridge core: probing, password resolution, model listing, capabilities, request/response dispatch. Route: inline (no writer trigger). Commit: -
-- [ ] T2 S2 S3 S4 — UI: grouped selector, models list provider column, Configuración bridge status and optional password fields, attachment label names the provider. Route: inline. Commit: -
-- [ ] T3 S1-S7 — README and in-app hints. Route: inline. Commit: -
+- [x] T1 S1 S2 S4 S5 S6 S7 — bridge core: probing, password resolution, model listing, capabilities, request/response dispatch. Route: inline (no writer trigger). Commit: 108aae2, 1e39033 (RED 7/8 observed, GREEN 97/97)
+- [x] T2 S2 S3 S4 — UI: grouped selector, models list provider column, Configuración bridge status and optional password fields, attachment label names the provider. Route: inline. Commit: 15ae8f7 (RED 4/4 observed, GREEN 101/101)
+- [x] T3 S1-S7 — README and in-app hints. Route: inline. Commit: e65bad2
 
 ## Log
 - L1 (2026-10-14) User: "estos funciones las tengo en profiles C:\Users\Sancho\OneDrive - NTT DATA EMEAL\Documents-ScriptLabs\PowerShell\Microsoft.PowerShell_profile.ps1 no te puse las pass pero yo los tengo corriendo y andan no se como lo configurariamos en los provedorees y modelos" (profile defines `gemini-server` 4092, `codex-server` 4094, `zen-server` 4096, `claude-server` 4098).
 - L2 Evidence: the three bridges answer 401 with their `password.txt`; the profile sets the passwords inside each server function only, so `txt` (run in-process by the profile function) sees them only if they move to the profile top level.
 - L3 User approved the design ("ok"): single grouped selector, passwords from environment with Configuración as option.
+- L4 Verification: native assess on main..HEAD = medium, review_due false (under_budget); raised to high by item 2 (credentials) -> independent verifier: all S1-S7 pass, no blockers, Groq requests byte-identical to baseline 375c547. Advisories 1-2 (non-JSON 200 silently empty; stopped bridge unlabelled) and 6 (whitespace) fixed in 1e39033; suite 102/102 OK.
+- L5 Open: the four AI action handlers still show the generic "Error al conectar con la API." and Get-GroqHeaders throws outside their try, so bridge messages (missing password, bridge down) are not shown to the user. Pending user decision. OpenCode (4096) = second stage.
