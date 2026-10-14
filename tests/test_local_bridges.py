@@ -257,6 +257,44 @@ class LocalBridgeTests(unittest.TestCase):
         )
         self.assertEqual(results, ["Se enviarán a Claude (1): a.txt", "Se enviarán a Groq (1): a.txt"])
 
+    def test_models_list_fits_the_settings_tab_so_it_scrolls(self) -> None:
+        results = self.snippet(
+            "foreach ($size in @([Drawing.Size]::new(1880, 730), [Drawing.Size]::new(1200, 500))) { "
+            "$tabSettings.Size = $size; $page = $tabSettings.ClientSize.Height; "
+            "'RESULT=' + ($modelsList.Bottom -le $settingsStatus.Top) + ',' + ($settingsStatus.Bottom -le $page) + ',' + "
+            "($modelsList.Height -gt 100) + ',' + ($modelsList.Right -le $tabSettings.ClientSize.Width) }"
+        )
+        self.assertEqual(results, ["True,True,True,True", "True,True,True,True"])
+
+    def test_models_list_shows_each_capability_in_its_own_column(self) -> None:
+        results = self.snippet(
+            "'RESULT=' + (@($modelsList.Columns | ForEach-Object { $_.Text }) -join '|'); "
+            "foreach ($id in 'claude:sonnet', 'openai/gpt-oss-120b', 'whisper-large-v3') { "
+            "$row = @($modelsList.Items | Where-Object { $_.Tag -eq $id })[0]; "
+            "'RESULT=' + (@($row.SubItems | Select-Object -First 7 | ForEach-Object { $_.Text }) -join '|') }"
+        )
+        self.assertEqual(results, [
+            "Modelo|Proveedor|Contexto|Chat|Visión|Web|Adjuntos|Funciones",
+            "Claude Sonnet|Claude (suscripción)|-|✓|✓|—|✓",
+            "openai/gpt-oss-120b|OpenAI|131.072|✓|—|✓|✓",
+            "whisper-large-v3|OpenAI|448|—|—|—|—",
+        ])
+
+    def test_busy_message_names_the_provider_and_model(self) -> None:
+        results = self.snippet(
+            "$script:selectedGroqModel = 'claude:sonnet'; 'RESULT=' + (Get-SelectedModelDisplay); "
+            "$script:selectedGroqModel = 'openai/gpt-oss-120b'; 'RESULT=' + (Get-SelectedModelDisplay)"
+        )
+        self.assertEqual(results, ["Claude · Claude Sonnet", "Groq · openai/gpt-oss-120b"])
+        script = Path(__file__).parents[1].joinpath("txt.ps1").read_text(encoding="utf-8-sig")
+        for message in ("Traduciendo con IA", "Corrigiendo gramática y ortografía", "Consultando a la IA", "Creando resumen profesional"):
+            self.assertIn(f'Start-Busy "{message} · $(Get-SelectedModelDisplay)..."', script)
+
+    def test_test_mode_startup_never_probes_the_real_bridges(self) -> None:
+        # The snippet helper probes the fake bridge on purpose, so this one runs bare.
+        results = run_app_snippet("'RESULT=' + $script:bridgeStatus.Count + ',' + $script:bridgeModels.Count")
+        self.assertEqual(results, ["0,0"])
+
     def test_groq_requests_keep_the_openai_format(self) -> None:
         results = self.snippet(
             "$script:selectedGroqModel = 'openai/gpt-oss-120b'; $script:groqApiKey = 'gsk_test'; "

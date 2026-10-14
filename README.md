@@ -61,7 +61,7 @@ Además de Groq, la app puede usar tus suscripciones de Claude, OpenAI (Codex) y
 
 1. Arrancá los bridges que quieras usar.
 2. Abrí la app. Al iniciar, y cada vez que tocás **Actualizar modelos**, busca los bridges. En **Configuración**, al lado de cada uno, ves si está **Apagado**, si le **Falta la contraseña**, si tiene una **Contraseña incorrecta** o si está **Conectado** y con cuántos modelos. Al tocar **Guardar** o al salir del campo después de cambiar una contraseña, la app vuelve a probar los bridges y sus modelos aparecen en el selector. No hace falta una API key de Groq para usarlos.
-3. Sus modelos aparecen en el mismo selector, agrupados por proveedor (`Claude · Claude Sonnet`, `Groq · openai/gpt-oss-120b`, etc.). Todas las acciones de IA funcionan igual.
+3. Sus modelos aparecen en el mismo selector, agrupados por proveedor (`Claude · Claude Sonnet`, `Groq · openai/gpt-oss-120b`, etc.). Todas las acciones de IA funcionan igual, y el aviso de espera indica qué proveedor y modelo está respondiendo. En la lista de Configuración, cada modelo muestra en columnas si sirve para chat y si admite visión, búsqueda web y adjuntos.
 
 La app busca la contraseña de cada bridge en este orden:
 

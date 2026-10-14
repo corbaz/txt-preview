@@ -1491,17 +1491,18 @@ $modelsList.View = [Windows.Forms.View]::Details
 $modelsList.FullRowSelect = $true
 $modelsList.HideSelection = $false
 $modelsList.MultiSelect = $false
-$modelsList.Anchor = [Windows.Forms.AnchorStyles]::Top -bor [Windows.Forms.AnchorStyles]::Bottom -bor [Windows.Forms.AnchorStyles]::Left -bor [Windows.Forms.AnchorStyles]::Right
-$modelsList.SetBounds(30, 154, 1120, 400)
-[void]$modelsList.Columns.Add("Modelo", 330)
-[void]$modelsList.Columns.Add("Proveedor", 140)
-[void]$modelsList.Columns.Add("Contexto", 100)
-[void]$modelsList.Columns.Add("Funciones", 500)
+[void]$modelsList.Columns.Add("Modelo", 280)
+[void]$modelsList.Columns.Add("Proveedor", 175)
+[void]$modelsList.Columns.Add("Contexto", 90)
+[void]$modelsList.Columns.Add("Chat", 60)
+[void]$modelsList.Columns.Add("Visión", 70)
+[void]$modelsList.Columns.Add("Web", 60)
+[void]$modelsList.Columns.Add("Adjuntos", 90)
+[void]$modelsList.Columns.Add("Funciones", 400)
 $tabSettings.Controls.Add($modelsList)
 
 $settingsStatus = New-Object Windows.Forms.Label
 $settingsStatus.Text = "Configurá una API key para actualizar la lista."
-$settingsStatus.Anchor = [Windows.Forms.AnchorStyles]::Bottom -bor [Windows.Forms.AnchorStyles]::Left -bor [Windows.Forms.AnchorStyles]::Right
 $settingsStatus.SetBounds(30, 564, 1120, 28)
 $tabSettings.Controls.Add($settingsStatus)
 
@@ -1573,21 +1574,41 @@ foreach ($bridge in $script:localBridges) {
     # Leaving the box after changing the password checks that bridge again right away.
     $passwordBox.Tag = $bridge.Key
     $passwordBox.Add_Leave({
-        param($sender)
-        $key = [string]$sender.Tag
-        if ([string]$script:bridgePasswords[$key] -ne $sender.Text.Trim()) {
+        param($passwordControl)
+        $key = [string]$passwordControl.Tag
+        if ([string]$script:bridgePasswords[$key] -ne $passwordControl.Text.Trim()) {
             Sync-BridgePasswordsFromBoxes
             Update-BridgeModels
         }
     })
     $bridgeIndex++
 }
-$modelsList.SetBounds(30, 190, 1120, 364)
+
+# The tab page is only 200x100 when its controls are created, so anchors would push the
+# list and the status below the visible area; both are sized from the page instead.
+function Update-SettingsLayout {
+    $page = $tabSettings.ClientSize
+    $width = [Math]::Max(300, $page.Width - 60)
+    $settingsStatus.SetBounds(30, [Math]::Max(330, $page.Height - 36), $width, 28)
+    $modelsList.SetBounds(30, 190, $width, [Math]::Max(120, $settingsStatus.Top - 198))
+}
+$tabSettings.Add_Resize({ Update-SettingsLayout })
+Update-SettingsLayout
 
 function Sync-BridgePasswordsFromBoxes {
     foreach ($bridge in $script:localBridges) {
         $script:bridgePasswords[$bridge.Key] = $bridgePasswordBoxes[$bridge.Key].Text.Trim()
     }
+}
+
+function Get-SelectedModelDisplay {
+    $bridge = Get-LocalBridge $script:selectedGroqModel
+    if ($null -eq $bridge) {
+        return "Groq · $($script:selectedGroqModel)"
+    }
+    $model = $script:bridgeModels | Where-Object { $_.id -eq $script:selectedGroqModel } | Select-Object -First 1
+    $name = if ($null -ne $model) { $model.name } else { $script:selectedGroqModel.Substring($bridge.Key.Length + 1) }
+    return "$($bridge.Label) · $name"
 }
 
 function Get-SelectedProviderLabel {
@@ -1903,6 +1924,28 @@ function Update-ModelCapabilityControls {
 
 $contextPanel.Add_Resize({ Update-ContextLayout })
 
+function Add-ModelListRow {
+    param([string]$name, [string]$provider, [string]$context, $capabilities, [string]$modelId)
+
+    # One column per capability, so vision, web and attachments read at a glance.
+    $yes = [string][char]0x2713
+    $no = [string][char]0x2014
+    $item = New-Object Windows.Forms.ListViewItem($name)
+    foreach ($text in @(
+        $provider
+        $context
+        $(if ($capabilities.Chat) { $yes } else { $no })
+        $(if ($capabilities.Vision) { $yes } else { $no })
+        $(if ($capabilities.Web) { $yes } else { $no })
+        $(if ($capabilities.TextFiles -or $capabilities.Vision) { $yes } else { $no })
+        $capabilities.Summary
+    )) {
+        [void]$item.SubItems.Add([string]$text)
+    }
+    $item.Tag = $modelId
+    [void]$modelsList.Items.Add($item)
+}
+
 function Show-GroqModels {
     param($models)
 
@@ -1917,12 +1960,7 @@ function Show-GroqModels {
     foreach ($model in $script:availableGroqModels) {
         $capabilities = Get-GroqModelCapabilities $model.id
         $context = if ($null -ne $model.context_window) { "{0:N0}" -f [int64]$model.context_window } else { "-" }
-        $item = New-Object Windows.Forms.ListViewItem([string]$model.id)
-        [void]$item.SubItems.Add([string]$model.owned_by)
-        [void]$item.SubItems.Add($context)
-        [void]$item.SubItems.Add($capabilities.Summary)
-        $item.Tag = [string]$model.id
-        [void]$modelsList.Items.Add($item)
+        Add-ModelListRow ([string]$model.id) ([string]$model.owned_by) $context $capabilities ([string]$model.id)
         if ($capabilities.Chat) {
             [void]$modelCombo.Items.Add("Groq · $($model.id)")
             $script:modelComboIds.Add([string]$model.id)
@@ -1930,12 +1968,7 @@ function Show-GroqModels {
     }
     foreach ($model in $script:bridgeModels) {
         $capabilities = Get-GroqModelCapabilities $model.id
-        $item = New-Object Windows.Forms.ListViewItem([string]$model.id)
-        [void]$item.SubItems.Add("$($model.Provider) (suscripción)")
-        [void]$item.SubItems.Add("-")
-        [void]$item.SubItems.Add($capabilities.Summary)
-        $item.Tag = [string]$model.id
-        [void]$modelsList.Items.Add($item)
+        Add-ModelListRow ([string]$model.name) "$($model.Provider) (suscripción)" "-" $capabilities ([string]$model.id)
         [void]$modelCombo.Items.Add("$($model.Provider) · $($model.name)")
         $script:modelComboIds.Add([string]$model.id)
     }
@@ -1974,7 +2007,7 @@ function Import-AppSettings {
     }
 
     if (-not (Test-Path -LiteralPath $settingsPath)) {
-        Update-BridgeModels
+        Initialize-ModelSources
         return
     }
 
@@ -1999,7 +2032,16 @@ function Import-AppSettings {
     } catch {
         Set-StatusText $settingsStatus "No se pudo cargar la configuración: $($_.Exception.Message)" -Level Error
     }
-    Update-BridgeModels
+    Initialize-ModelSources
+}
+
+function Initialize-ModelSources {
+    # Tests drive fake bridges themselves; probing at startup would hit the real ones.
+    if ($env:TXT_PREVIEW_TEST_MODE -eq "1") {
+        Show-GroqModels $script:availableGroqModels
+    } else {
+        Update-BridgeModels
+    }
 }
 
 function Save-AppSettings {
@@ -5674,7 +5716,7 @@ $Texto
     $body = New-GroqRequestJson $prompt
 
     Stop-SpeechForAiRequest
-    Start-Busy "Traduciendo con IA..."
+    Start-Busy "Traduciendo con IA · $(Get-SelectedModelDisplay)..."
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
         $traducido = Get-AiResponseText $response
@@ -6055,7 +6097,7 @@ $Texto
     $body = New-GroqRequestJson $prompt
 
     Stop-SpeechForAiRequest
-    Start-Busy "Corrigiendo gramática y ortografía..."
+    Start-Busy "Corrigiendo gramática y ortografía · $(Get-SelectedModelDisplay)..."
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
         $corregido = Get-AiResponseText $response
@@ -6213,7 +6255,7 @@ $Texto
     $body = New-GroqRequestJson $prompt
 
     Stop-SpeechForAiRequest
-    Start-Busy "Consultando a la IA..."
+    Start-Busy "Consultando a la IA · $(Get-SelectedModelDisplay)..."
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
         $respuesta = Get-AiResponseText $response
@@ -6255,7 +6297,7 @@ $Texto
     $body = New-GroqRequestJson $prompt
 
     Stop-SpeechForAiRequest
-    Start-Busy "Creando resumen profesional..."
+    Start-Busy "Creando resumen profesional · $(Get-SelectedModelDisplay)..."
     try {
         $response = Invoke-GroqRequest -Headers $headers -Body $body
         $resumen = Get-AiResponseText $response
