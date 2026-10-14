@@ -5558,6 +5558,47 @@ $btnInstallUpdate.Add_Click({
     }
 })
 
+function Add-ImageAttachment {
+    param([IO.FileInfo]$fileInfo, $capabilities)
+
+    if (-not $capabilities.Vision) {
+        throw "El modelo elegido no admite imágenes."
+    }
+    $currentImages = @($script:attachedFiles | Where-Object { $_.Kind -eq "Image" })
+    if ($currentImages.Count -ge 3) {
+        throw "Qwen admite como máximo tres imágenes por solicitud."
+    }
+    $imageBytes = ($currentImages | Measure-Object -Property Size -Sum).Sum + $fileInfo.Length
+    if ($imageBytes -gt 14MB) {
+        throw "Las imágenes superan el límite seguro de 14 MB para una solicitud codificada."
+    }
+    $script:attachedFiles.Add([pscustomobject]@{
+        Name = $fileInfo.Name; Path = $fileInfo.FullName; Kind = "Image"; Size = $fileInfo.Length; Content = $null
+    })
+}
+
+# Clipboard images have no file, so they are saved as PNG in TEMP to reuse the image path.
+function Add-ClipboardImageAttachment {
+    $capabilities = Get-SelectedModelCapabilities
+    if (-not $capabilities.Vision) {
+        throw "El modelo elegido no admite imágenes."
+    }
+    $image = [Windows.Forms.Clipboard]::GetImage()
+    $path = Join-Path ([IO.Path]::GetTempPath()) ("portapapeles-{0:yyyyMMdd-HHmmss-fff}.png" -f (Get-Date))
+    try {
+        $image.Save($path, [Drawing.Imaging.ImageFormat]::Png)
+    } finally {
+        $image.Dispose()
+    }
+    try {
+        Add-ImageAttachment (Get-Item -LiteralPath $path) $capabilities
+    } catch {
+        Remove-Item -LiteralPath $path -ErrorAction SilentlyContinue
+        throw
+    }
+    Update-AttachmentSummary
+}
+
 $btnAttachFiles.Add_Click({
     $capabilities = Get-SelectedModelCapabilities
     $dialog = New-Object Windows.Forms.OpenFileDialog
@@ -5584,20 +5625,7 @@ $btnAttachFiles.Add_Click({
             $extension = [IO.Path]::GetExtension($path).ToLowerInvariant()
             $fileInfo = Get-Item -LiteralPath $path
             if ($extension -in $imageExtensions) {
-                if (-not $capabilities.Vision) {
-                    throw "El modelo elegido no admite imágenes."
-                }
-                $currentImages = @($script:attachedFiles | Where-Object { $_.Kind -eq "Image" })
-                if ($currentImages.Count -ge 3) {
-                    throw "Qwen admite como máximo tres imágenes por solicitud."
-                }
-                $imageBytes = ($currentImages | Measure-Object -Property Size -Sum).Sum + $fileInfo.Length
-                if ($imageBytes -gt 14MB) {
-                    throw "Las imágenes superan el límite seguro de 14 MB para una solicitud codificada."
-                }
-                $script:attachedFiles.Add([pscustomobject]@{
-                    Name = $fileInfo.Name; Path = $fileInfo.FullName; Kind = "Image"; Size = $fileInfo.Length; Content = $null
-                })
+                Add-ImageAttachment $fileInfo $capabilities
             } elseif ($extension -in $textExtensions) {
                 if (-not $capabilities.TextFiles) {
                     throw "El modelo elegido no admite documentos de texto en esta aplicación."
@@ -5722,7 +5750,18 @@ $Texto
 $btnTraducirEs.Add_Click({ Invoke-Translation "inglés" "español" })
 $btnTraducirEn.Add_Click({ Invoke-Translation "español" "inglés" })
 
-$btnPegar.Add_Click({
+function Invoke-ClipboardPaste {
+    if ([Windows.Forms.Clipboard]::ContainsImage()) {
+        try {
+            Add-ClipboardImageAttachment
+            $tabs.SelectedTab = $tabEditor
+            Show-Message "Imagen del portapapeles adjuntada para la próxima acción de IA."
+        } catch {
+            Show-Message "No se pudo adjuntar la imagen: $($_.Exception.Message)" -Level Error
+        }
+        return
+    }
+
     try {
         $contenido = Get-Clipboard -Raw
         if ([string]::IsNullOrWhiteSpace($contenido)) {
@@ -5739,7 +5778,9 @@ $btnPegar.Add_Click({
     } catch {
         Show-Message "No se pudo leer el portapapeles." -Level Error
     }
-})
+}
+
+$btnPegar.Add_Click({ Invoke-ClipboardPaste })
 
 $btnCopyMd.Add_Click({
     $previewContent = Get-PreviewContent

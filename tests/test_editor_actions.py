@@ -41,6 +41,44 @@ class EditorShortcutTests(unittest.TestCase):
 
 
 @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
+class ClipboardPasteTests(unittest.TestCase):
+    SET_IMAGE = (
+        "$bitmap = New-Object Drawing.Bitmap 4, 4; "
+        "[Windows.Forms.Clipboard]::SetImage($bitmap); $bitmap.Dispose(); "
+    )
+
+    def test_vision_model_attaches_a_clipboard_image(self) -> None:
+        results = run_app_snippet(
+            "$script:selectedGroqModel = 'qwen/qwen3.8-27b'; " + self.SET_IMAGE +
+            "$textBox.Text = 'previo'; Invoke-ClipboardPaste; "
+            "$image = $script:attachedFiles[0]; "
+            "'RESULT=' + $script:attachedFiles.Count + ',' + $image.Kind + ',' + "
+            "[IO.Path]::GetExtension($image.Path) + ',' + (Test-Path -LiteralPath $image.Path) + ',' + "
+            "($image.Size -gt 0) + ',' + $textBox.Text; "
+            "Remove-Item -LiteralPath $image.Path"
+        )
+        # The image becomes an attachment and the editor text is left alone.
+        self.assertEqual(results[-1], "1,Image,.png,True,True,previo")
+
+    def test_model_without_vision_rejects_a_clipboard_image(self) -> None:
+        results = run_app_snippet(
+            "$script:selectedGroqModel = 'openai/gpt-oss-120b'; " + self.SET_IMAGE +
+            "$textBox.Text = 'previo'; Invoke-ClipboardPaste; "
+            "'RESULT=' + $script:attachedFiles.Count + ',' + $textBox.Text"
+        )
+        self.assertEqual(results[-1], "0,previo")
+
+    def test_clipboard_text_is_still_pasted_into_the_editor(self) -> None:
+        results = run_app_snippet(
+            "$script:selectedGroqModel = 'qwen/qwen3.8-27b'; "
+            "[Windows.Forms.Clipboard]::SetText('hola portapapeles'); "
+            "Invoke-ClipboardPaste; "
+            "'RESULT=' + $script:attachedFiles.Count + ',' + $textBox.Text"
+        )
+        self.assertEqual(results[-1], "0,hola portapapeles")
+
+
+@unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
 class LastAiActionMarkTests(unittest.TestCase):
     def test_only_the_last_used_ai_action_is_marked(self) -> None:
         results = run_app_snippet(
