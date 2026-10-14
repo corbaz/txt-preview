@@ -1,6 +1,6 @@
 # TXT Preview
 
-Aplicación de escritorio para Windows que reúne en una sola ventana un editor de texto, una vista previa Markdown, herramientas de IA (consultar, resumir, corregir y traducir con [Groq](https://groq.com)) y lectura en voz alta.
+Aplicación de escritorio para Windows que reúne en una sola ventana un editor de texto, una vista previa Markdown, herramientas de IA (consultar, resumir, corregir y traducir con [Groq](https://groq.com) o con tus suscripciones de Claude, OpenAI y Gemini mediante bridges locales) y lectura en voz alta.
 
 ## Qué podés hacer
 
@@ -48,6 +48,36 @@ Si algo opcional no se puede instalar, avisa en amarillo y sigue: las voces de W
 4. Volvé al **Editor**, escribí algo y probá **Consultar IA**.
 
 La API key se guarda cifrada para tu usuario de Windows en `%LOCALAPPDATA%\TXT Preview\settings.json`. Nunca se sube al repositorio.
+
+## Modelos por suscripción (bridges locales)
+
+Además de Groq, la app puede usar tus suscripciones de Claude, OpenAI (Codex) y Gemini a través de los bridges del repo `web-chat`. Cada bridge escucha solo en `127.0.0.1`, así que nadie de la red puede usarlo, y pide usuario y contraseña.
+
+| Bridge | Puerto | Variable de contraseña |
+|--------|--------|------------------------|
+| Claude | 4098 | `CLAUDE_BRIDGE_PASSWORD` |
+| Codex (OpenAI) | 4094 | `CODEX_BRIDGE_PASSWORD` |
+| Gemini | 4092 | `GEMINI_BRIDGE_PASSWORD` |
+
+1. Arrancá los bridges que quieras usar.
+2. Abrí la app. Al iniciar, y cada vez que tocás **Actualizar modelos**, busca los bridges. En **Configuración**, al lado de cada uno, ves si está **Apagado**, si tiene **Contraseña incorrecta o faltante** o si está **Conectado** y con cuántos modelos. No hace falta una API key de Groq para usarlos.
+3. Sus modelos aparecen en el mismo selector, agrupados por proveedor (`Claude · Claude Sonnet`, `Groq · openai/gpt-oss-120b`, etc.). Todas las acciones de IA funcionan igual.
+
+La app busca la contraseña de cada bridge en este orden:
+
+1. La variable de entorno del proceso (o de tu usuario de Windows).
+2. El campo **Contraseña (opcional)** de Configuración, que se guarda cifrado igual que la API key.
+3. El `password.txt` que genera el bridge en `%LOCALAPPDATA%\prompting\<bridge>\` cuando no le pasás ninguna.
+
+Si definís las contraseñas en tu perfil de PowerShell, ponelas **fuera** de las funciones que arrancan los servers. Así las ve también la app cuando la abrís desde ese perfil:
+
+```powershell
+$env:CLAUDE_BRIDGE_PASSWORD = '...'
+$env:CODEX_BRIDGE_PASSWORD  = '...'
+$env:GEMINI_BRIDGE_PASSWORD = '...'
+```
+
+Los modelos de Claude y los de Codex que lo declaran entienden imágenes; Gemini no. Los documentos adjuntos se envían como texto, igual que a Groq. La búsqueda web es solo de Groq.
 
 ## Voces y audio (opcional)
 

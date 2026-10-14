@@ -1391,7 +1391,7 @@ $settingsTitle.SetBounds(28, 24, 500, 40)
 $tabSettings.Controls.Add($settingsTitle)
 
 $settingsHint = New-Object Windows.Forms.Label
-$settingsHint.Text = "La API key se cifra para tu usuario de Windows. Los modelos se consultan directamente desde Groq."
+$settingsHint.Text = "La API key y las contraseñas de los bridges se cifran para tu usuario de Windows."
 $settingsHint.SetBounds(30, 67, 570, 26)
 $tabSettings.Controls.Add($settingsHint)
 
