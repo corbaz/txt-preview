@@ -1570,6 +1570,16 @@ foreach ($bridge in $script:localBridges) {
     $bridgeNameLabels[$bridge.Key] = $nameLabel
     $bridgePasswordBoxes[$bridge.Key] = $passwordBox
     $bridgeStatusLabels[$bridge.Key] = $statusLabel
+    # Leaving the box after changing the password checks that bridge again right away.
+    $passwordBox.Tag = $bridge.Key
+    $passwordBox.Add_Leave({
+        param($sender)
+        $key = [string]$sender.Tag
+        if ([string]$script:bridgePasswords[$key] -ne $sender.Text.Trim()) {
+            Sync-BridgePasswordsFromBoxes
+            Update-BridgeModels
+        }
+    })
     $bridgeIndex++
 }
 $modelsList.SetBounds(30, 190, 1120, 364)
@@ -1680,7 +1690,7 @@ function Update-BridgeModels {
             try {
                 $result = Invoke-BridgeHttp $bridge "GET" "/models" $null 10
                 if ($result.Status -eq 401) {
-                    $status = "Contraseña incorrecta o faltante"
+                    $status = if ([string]::IsNullOrWhiteSpace((Get-BridgePassword $bridge))) { "Falta la contraseña" } else { "Contraseña incorrecta" }
                 } elseif ($result.Status -ne 200) {
                     $status = "Error HTTP $($result.Status)"
                 } else {
@@ -5738,14 +5748,19 @@ $modelsList.Add_DoubleClick({
     }
 })
 
-$btnSaveSettings.Add_Click({
+function Invoke-SaveSettings {
     try {
         Save-AppSettings
-        Set-StatusText $settingsStatus "Configuración guardada de forma segura para este usuario de Windows."
     } catch {
         Set-StatusText $settingsStatus "No se pudo guardar: $($_.Exception.Message)" -Level Error
+        return
     }
-})
+    # A new bridge password only matters once the bridges are checked with it.
+    Update-BridgeModels
+    Set-StatusText $settingsStatus "Configuración guardada de forma segura para este usuario de Windows. Bridges: $(Get-BridgeStatusSummary)"
+}
+
+$btnSaveSettings.Add_Click({ Invoke-SaveSettings })
 
 $btnRefreshModels.Add_Click({
     $btnRefreshModels.Enabled = $false

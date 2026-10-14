@@ -91,7 +91,8 @@ class LocalBridgeTests(unittest.TestCase):
             f"$env:LOCALAPPDATA = '{self.data_dir}'; "
             f"$env:CLAUDE_BRIDGE_PASSWORD = '{password}'; "
             "$env:CODEX_BRIDGE_PASSWORD = ''; $env:GEMINI_BRIDGE_PASSWORD = ''; "
-            "$script:bridgePasswords = @{}; "
+            # Startup loaded the real settings.json; forget its bridge passwords.
+            "$script:bridgePasswords = @{}; foreach ($box in $bridgePasswordBoxes.Values) { $box.Text = '' }; "
             f"(Get-LocalBridge 'claude:x').Port = {self.port}; "
             f"(Get-LocalBridge 'codex:x').Port = {free_port()}; "
             f"(Get-LocalBridge 'gemini:x').Port = {free_port()}; "
@@ -117,7 +118,40 @@ class LocalBridgeTests(unittest.TestCase):
             "'RESULT=' + $script:bridgeStatus['claude'] + '|' + @($script:bridgeModels).Count",
             password="otra",
         )
-        self.assertEqual(results, ["Contraseña incorrecta o faltante|0"])
+        self.assertEqual(results, ["Contraseña incorrecta|0"])
+
+    def test_missing_password_is_reported_apart_from_a_wrong_one(self) -> None:
+        results = self.snippet("'RESULT=' + $script:bridgeStatus['claude']", password="")
+        self.assertEqual(results, ["Falta la contraseña"])
+
+    def test_saving_a_new_password_rechecks_the_bridges(self) -> None:
+        settings = Path(self.data_dir, "settings.json")
+        results = self.snippet(
+            f"$settingsDirectory = '{self.data_dir}'; $settingsPath = '{settings}'; "
+            "'RESULT=' + $script:bridgeStatus['claude'] + ',' + ($modelCombo.Items -contains 'Claude · Claude Sonnet'); "
+            "$bridgePasswordBoxes['claude'].Text = 'secreto'; Invoke-SaveSettings; "
+            "'RESULT=' + $script:bridgeStatus['claude'] + ',' + ($modelCombo.Items -contains 'Claude · Claude Sonnet') + ',' + $settingsStatus.Text",
+            password="",
+        )
+        self.assertEqual(results, [
+            "Falta la contraseña,False",
+            "Conectado (1 modelo),True,Configuración guardada de forma segura para este usuario de Windows. "
+            "Bridges: Claude Conectado (1 modelo) · Codex Apagado · Gemini Apagado",
+        ])
+
+    def test_leaving_a_changed_password_box_rechecks_the_bridges(self) -> None:
+        results = self.snippet(
+            "$box = $bridgePasswordBoxes['claude']; $script:rechecks = 0; "
+            "function Update-BridgeModels { $script:rechecks++ }; "
+            "$leave = [Windows.Forms.Control].GetMethod('OnLeave', [Reflection.BindingFlags]'NonPublic,Instance'); "
+            "$leave.Invoke($box, @([EventArgs]::Empty)); "
+            "$box.Text = 'secreto'; $leave.Invoke($box, @([EventArgs]::Empty)); "
+            "$leave.Invoke($box, @([EventArgs]::Empty)); "
+            "'RESULT=' + $script:rechecks + ',' + $script:bridgePasswords['claude']",
+            password="",
+        )
+        # Only the first leave after an edit rechecks; leaving untouched boxes costs nothing.
+        self.assertEqual(results, ["1,secreto"])
 
     def test_password_precedence_environment_then_settings_then_file(self) -> None:
         bridge_dir = Path(self.data_dir, "prompting", "claude-bridge")
