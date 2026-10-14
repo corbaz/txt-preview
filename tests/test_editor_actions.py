@@ -14,6 +14,7 @@ ROOT = Path(__file__).parents[1]
 
 def run_app_snippet(snippet: str) -> list[str]:
     command = (
+        "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); "
         "$env:TXT_PREVIEW_TEST_MODE = '1'; "
         f". '{ROOT / 'txt.ps1'}'; "
         f"{snippet}"

@@ -1528,9 +1528,159 @@ $script:availableGroqModels = @(
     [pscustomobject]@{ id = "whisper-large-v3-turbo"; owned_by = "OpenAI"; context_window = 448; active = $true }
 )
 
+# Local subscription bridges from the web-chat repo. They only listen on 127.0.0.1 and
+# share one contract: Basic auth (user = Key), GET /models and POST /chat. Their models
+# are listed as "<Key>:<bridge model id>" so every AI action can route by the id alone.
+$script:localBridges = @(
+    [pscustomobject]@{ Key = "claude"; Label = "Claude"; Port = 4098 }
+    [pscustomobject]@{ Key = "codex"; Label = "Codex"; Port = 4094 }
+    [pscustomobject]@{ Key = "gemini"; Label = "Gemini"; Port = 4092 }
+)
+$script:bridgeModels = [Collections.Generic.List[object]]::new()
+$script:bridgeStatus = @{}
+$script:bridgePasswords = @{}
+# Model ids in the same order as the items of the model selector.
+$script:modelComboIds = [Collections.Generic.List[string]]::new()
+
+function Get-LocalBridge {
+    param([string]$modelId)
+
+    foreach ($bridge in $script:localBridges) {
+        if ($modelId -like "$($bridge.Key):*") {
+            return $bridge
+        }
+    }
+    return $null
+}
+
+function Get-BridgePassword {
+    param($bridge)
+
+    $name = "$($bridge.Key.ToUpperInvariant())_BRIDGE_PASSWORD"
+    $candidates = @(
+        [Environment]::GetEnvironmentVariable($name)
+        [Environment]::GetEnvironmentVariable($name, "User")
+        $script:bridgePasswords[$bridge.Key]
+    )
+    foreach ($candidate in $candidates) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+            return $candidate.Trim()
+        }
+    }
+    # Without a configured password each bridge generates one in its data folder.
+    $passwordFile = Join-Path $env:LOCALAPPDATA "prompting\$($bridge.Key)-bridge\password.txt"
+    if (Test-Path -LiteralPath $passwordFile) {
+        return (Get-Content -LiteralPath $passwordFile -Raw).Trim()
+    }
+    return ""
+}
+
+function Test-BridgeListening {
+    param($bridge)
+
+    # A refused connection to localhost takes about two seconds on Windows, so a short
+    # TCP probe tells a stopped bridge apart without delaying the startup.
+    $client = [Net.Sockets.TcpClient]::new()
+    try {
+        $connect = $client.ConnectAsync("127.0.0.1", [int]$bridge.Port)
+        $deadline = [DateTime]::UtcNow.AddMilliseconds(500)
+        while (-not $connect.IsCompleted -and [DateTime]::UtcNow -lt $deadline) {
+            [Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 10
+        }
+        return $connect.IsCompleted -and -not $connect.IsFaulted -and $client.Connected
+    } catch {
+        return $false
+    } finally {
+        $client.Dispose()
+    }
+}
+
+function Invoke-BridgeHttp {
+    param(
+        $bridge,
+        [string]$method,
+        [string]$path,
+        [string]$body,
+        [int]$timeoutSeconds
+    )
+
+    $client = [Net.Http.HttpClient]::new()
+    $client.Timeout = [TimeSpan]::FromSeconds($timeoutSeconds)
+    $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::new($method), "http://127.0.0.1:$($bridge.Port)$path")
+    $response = $null
+    try {
+        $credentials = "$($bridge.Key):$(Get-BridgePassword $bridge)"
+        $token = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($credentials))
+        $request.Headers.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new("Basic", $token)
+        if ($body) {
+            $request.Content = [Net.Http.StringContent]::new($body, [Text.Encoding]::UTF8, "application/json")
+        }
+        $response = Wait-TaskWithEvents ($client.SendAsync($request))
+        $bytes = Wait-TaskWithEvents ($response.Content.ReadAsByteArrayAsync())
+        return [pscustomobject]@{ Status = [int]$response.StatusCode; Text = [Text.Encoding]::UTF8.GetString($bytes) }
+    } finally {
+        if ($null -ne $response) { $response.Dispose() }
+        $request.Dispose()
+        $client.Dispose()
+    }
+}
+
+function Update-BridgeModels {
+    $script:bridgeModels.Clear()
+    foreach ($bridge in $script:localBridges) {
+        $status = "Apagado"
+        if (Test-BridgeListening $bridge) {
+            try {
+                $result = Invoke-BridgeHttp $bridge "GET" "/models" $null 10
+                if ($result.Status -eq 401) {
+                    $status = "Contraseña incorrecta o faltante"
+                } elseif ($result.Status -ne 200) {
+                    $status = "Error HTTP $($result.Status)"
+                } else {
+                    $models = @($result.Text | ConvertFrom-Json)
+                    foreach ($model in $models) {
+                        # Claude Code always reads images, agy never does; Codex says it per model.
+                        $vision = switch ($bridge.Key) {
+                            "claude" { $true }
+                            "codex" { $model.vision -eq $true }
+                            default { $false }
+                        }
+                        $name = if ($model.name) { [string]$model.name } else { [string]$model.id }
+                        $script:bridgeModels.Add([pscustomobject]@{
+                            id = "$($bridge.Key):$($model.id)"; name = $name; Provider = $bridge.Label; Vision = $vision
+                        })
+                    }
+                    $status = if ($models.Count -eq 1) { "Conectado (1 modelo)" } else { "Conectado ($($models.Count) modelos)" }
+                }
+            } catch {
+                $status = "Sin respuesta: $($_.Exception.Message)"
+            }
+        }
+        $script:bridgeStatus[$bridge.Key] = $status
+    }
+    Show-GroqModels $script:availableGroqModels
+}
+
+function Get-BridgeStatusSummary {
+    return (@($script:localBridges | ForEach-Object { "$($_.Label) $($script:bridgeStatus[$_.Key])" }) -join " · ")
+}
+
 function Get-GroqModelCapabilities {
     param([string]$modelId)
 
+    $bridge = Get-LocalBridge $modelId
+    if ($null -ne $bridge) {
+        $model = $script:bridgeModels | Where-Object { $_.id -eq $modelId } | Select-Object -First 1
+        $vision = $null -ne $model -and $model.Vision -eq $true
+        $features = @("Suscripción $($bridge.Label) (bridge local)", "Texto")
+        if ($vision) { $features += "Visión · Imágenes (máx. 3)" }
+        $features += "Documentos (texto, PDF, Word, PowerPoint)"
+        return [pscustomobject]@{
+            Chat = $true; Reasoning = $true; Web = $false; Vision = $vision; TextFiles = $true
+            Summary = $features -join " · "
+        }
+    }
     if ($modelId -eq "qwen/qwen3.8-27b") {
         return [pscustomobject]@{
             Chat = $true; Reasoning = $true; Web = $false; Vision = $true; TextFiles = $true
@@ -1663,7 +1813,7 @@ function Update-CapabilityBadges {
 
 function Update-ModelCapabilityControls {
     if ($modelCombo.SelectedIndex -ge 0) {
-        $script:selectedGroqModel = [string]$modelCombo.SelectedItem
+        $script:selectedGroqModel = $script:modelComboIds[$modelCombo.SelectedIndex]
     }
     $capabilities = Get-SelectedModelCapabilities
     $checkWebSearch.Enabled = $capabilities.Web
@@ -1702,7 +1852,9 @@ function Show-GroqModels {
     $modelsList.Items.Clear()
     $modelCombo.BeginUpdate()
     $modelCombo.Items.Clear()
+    $script:modelComboIds.Clear()
 
+    # One selector for every provider: "Groq · <id>" first, then each running bridge.
     foreach ($model in $script:availableGroqModels) {
         $capabilities = Get-GroqModelCapabilities $model.id
         $context = if ($null -ne $model.context_window) { "{0:N0}" -f [int64]$model.context_window } else { "-" }
@@ -1713,13 +1865,25 @@ function Show-GroqModels {
         $item.Tag = [string]$model.id
         [void]$modelsList.Items.Add($item)
         if ($capabilities.Chat) {
-            [void]$modelCombo.Items.Add([string]$model.id)
+            [void]$modelCombo.Items.Add("Groq · $($model.id)")
+            $script:modelComboIds.Add([string]$model.id)
         }
+    }
+    foreach ($model in $script:bridgeModels) {
+        $capabilities = Get-GroqModelCapabilities $model.id
+        $item = New-Object Windows.Forms.ListViewItem([string]$model.id)
+        [void]$item.SubItems.Add("$($model.Provider) (suscripción)")
+        [void]$item.SubItems.Add("-")
+        [void]$item.SubItems.Add($capabilities.Summary)
+        $item.Tag = [string]$model.id
+        [void]$modelsList.Items.Add($item)
+        [void]$modelCombo.Items.Add("$($model.Provider) · $($model.name)")
+        $script:modelComboIds.Add([string]$model.id)
     }
 
     $modelCombo.EndUpdate()
     $modelsList.EndUpdate()
-    $selectedIndex = $modelCombo.FindStringExact($script:selectedGroqModel)
+    $selectedIndex = $script:modelComboIds.IndexOf($script:selectedGroqModel)
     if ($selectedIndex -lt 0 -and $modelCombo.Items.Count -gt 0) {
         $selectedIndex = 0
     }
@@ -1751,7 +1915,7 @@ function Import-AppSettings {
     }
 
     if (-not (Test-Path -LiteralPath $settingsPath)) {
-        Show-GroqModels $script:availableGroqModels
+        Update-BridgeModels
         return
     }
 
@@ -1766,7 +1930,7 @@ function Import-AppSettings {
     } catch {
         Set-StatusText $settingsStatus "No se pudo cargar la configuración: $($_.Exception.Message)" -Level Error
     }
-    Show-GroqModels $script:availableGroqModels
+    Update-BridgeModels
 }
 
 function Save-AppSettings {
@@ -4265,9 +4429,19 @@ function Remove-AiCitationMarkers {
 function Get-AiResponseText {
     param($response)
 
+    # Bridges answer {text, isError, error}, already decoded as UTF-8 by Invoke-BridgeHttp.
+    if ($null -eq $response.choices) {
+        if ($response.isError) {
+            $bridge = Get-LocalBridge $script:selectedGroqModel
+            $label = if ($null -ne $bridge) { $bridge.Label } else { "Bridge" }
+            throw "$($label): $($response.error)"
+        }
+        return Remove-AiCitationMarkers ([string]$response.text)
+    }
+
     # Decodes the model text and drops citation markers, so Vista previa, Play, Repetir,
     # Llevar al editor and the exports never see them.
-    $text = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($response.choices[0].message.content))
+    $text =[System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes($response.choices[0].message.content))
     return Remove-AiCitationMarkers $text
 }
 
@@ -4283,6 +4457,19 @@ function Invoke-GroqRequest {
         [hashtable]$headers,
         [string]$body
     )
+
+    $bridge = Get-LocalBridge $script:selectedGroqModel
+    if ($null -ne $bridge) {
+        # A subscription answer can take minutes; the bridges time out on their own side.
+        $result = Invoke-BridgeHttp $bridge "POST" "/chat" $body 600
+        $data = $null
+        try { $data = $result.Text | ConvertFrom-Json } catch { }
+        if ($result.Status -ne 200) {
+            $detail = if ($null -ne $data -and $data.error) { $data.error } else { "HTTP $($result.Status)" }
+            throw "$($bridge.Label): $detail"
+        }
+        return $data
+    }
 
     $client = [Net.Http.HttpClient]::new()
     $request = [Net.Http.HttpRequestMessage]::new(
@@ -4314,6 +4501,19 @@ function Invoke-GroqRequest {
 }
 
 function Get-GroqHeaders {
+    $bridge = Get-LocalBridge $script:selectedGroqModel
+    if ($null -ne $bridge) {
+        $password = Get-BridgePassword $bridge
+        if ([string]::IsNullOrWhiteSpace($password)) {
+            throw "Falta la contraseña del bridge de $($bridge.Label) ($($bridge.Key.ToUpperInvariant())_BRIDGE_PASSWORD)."
+        }
+        $token = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("$($bridge.Key):$password"))
+        return @{
+            "Content-Type"  = "application/json"
+            "Authorization" = "Basic $token"
+        }
+    }
+
     $apiKey = $script:groqApiKey
     if ([string]::IsNullOrWhiteSpace($apiKey) -and $null -ne $txtApiKey) {
         $apiKey = $txtApiKey.Text.Trim()
@@ -4352,8 +4552,24 @@ function New-GroqRequestJson {
     $combinedText = $textParts -join "`n`n"
 
     $images = @($script:attachedFiles | Where-Object { $_.Kind -eq "Image" })
+    $bridge = Get-LocalBridge $script:selectedGroqModel
+    if ($null -ne $bridge) {
+        $bridgeBody = [ordered]@{
+            model   = $script:selectedGroqModel.Substring($bridge.Key.Length + 1)
+            message = $combinedText
+        }
+        if ($images.Count -gt 0) {
+            $bridgeBody.images = @(foreach ($imageAttachment in $images) {
+                [ordered]@{
+                    mimeType = Get-ImageMediaType ([IO.Path]::GetExtension($imageAttachment.Path))
+                    data     = [Convert]::ToBase64String([IO.File]::ReadAllBytes($imageAttachment.Path))
+                }
+            })
+        }
+        return $bridgeBody | ConvertTo-Json -Depth 5
+    }
     if ($images.Count -gt 0) {
-        $content = [Collections.Generic.List[object]]::new()
+        $content =[Collections.Generic.List[object]]::new()
         $content.Add([ordered]@{ type = "text"; text = $combinedText })
         foreach ($imageAttachment in $images) {
             $base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($imageAttachment.Path))
@@ -5431,7 +5647,7 @@ $modelsList.Add_DoubleClick({
         Set-StatusText $settingsStatus "$modelId no es un modelo de chat para las acciones del editor." -Level Warning
         return
     }
-    $index = $modelCombo.FindStringExact($modelId)
+    $index = $script:modelComboIds.IndexOf($modelId)
     if ($index -ge 0) {
         $modelCombo.SelectedIndex = $index
     }
@@ -5453,14 +5669,21 @@ $btnRefreshModels.Add_Click({
     try {
         $models = Get-GroqModelsFromApi
         $script:groqApiKey = $txtApiKey.Text.Trim()
-        Show-GroqModels $models
+        $script:availableGroqModels = @($models)
         Save-AppSettings
-        Set-StatusText $settingsStatus "$($models.Count) modelos activos cargados desde Groq."
+        $groqMessage = "$($models.Count) modelos activos cargados desde Groq."
+        $groqLevel = "Info"
     } catch {
-        Set-StatusText $settingsStatus "No se pudieron actualizar los modelos: $($_.Exception.Message)"
+        $groqMessage = "No se pudieron actualizar los modelos de Groq: $($_.Exception.Message)"
+        $groqLevel = "Warning"
     } finally {
+        # Bridges are probed even without a Groq key: a subscription alone is enough.
+        Set-StatusText $settingsStatus "Buscando bridges locales..."
+        [Windows.Forms.Application]::DoEvents()
+        Update-BridgeModels
         $btnRefreshModels.Enabled = $true
     }
+    Set-StatusText $settingsStatus "$groqMessage Bridges: $(Get-BridgeStatusSummary)" -Level $groqLevel
 })
 
 $btnCheckUpdate.Add_Click({
