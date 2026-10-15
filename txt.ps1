@@ -6142,6 +6142,10 @@ $btnNavSettings.Add_Click({
     if (-not $script:updateCheckCompleted) {
         Update-AppUpdateControls
     }
+    # Asking Python for the edge-tts version waits on a process, so it runs on first visit.
+    if ($lblEdgeTtsVersion.Text -eq "Voces Edge: sin comprobar") {
+        Update-EdgeTtsVersionLabel
+    }
 })
 
 $tabs.Add_SelectedIndexChanged({
@@ -6522,6 +6526,5 @@ $form.Add_Resize({
 $btnUpdateVoices.Add_Click({ Update-EdgeTts })
 
 if ($env:TXT_PREVIEW_TEST_MODE -ne "1") {
-    Update-EdgeTtsVersionLabel
     [void]$form.ShowDialog()
 }
