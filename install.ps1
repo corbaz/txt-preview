@@ -158,9 +158,10 @@ if (-not $SkipPython) {
     }
     if (-not $python) {
         Write-Host "No se pudo instalar Python: las voces en línea quedan desactivadas (las de Windows funcionan igual)." -ForegroundColor Yellow
-    } elseif ((Invoke-Native $python @("-c", "import edge_tts")) -ne 0) {
-        Write-Host "Instalando edge-tts para las voces en línea..."
-        if ((Invoke-Native $python @("-m", "pip", "install", "--user", "--quiet", "edge-tts")) -ne 0) {
+    } else {
+        # Always the latest: Microsoft changes the voice service and an old edge-tts gets HTTP 403.
+        Write-Host "Instalando o actualizando edge-tts para las voces en línea..."
+        if ((Invoke-Native $python @("-m", "pip", "install", "--user", "--quiet", "--upgrade", "edge-tts")) -ne 0) {
             Write-Host "No se pudo instalar edge-tts; las voces de Windows funcionan igual." -ForegroundColor Yellow
         }
     }

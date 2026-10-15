@@ -1439,6 +1439,21 @@ $btnRefreshModels.Text = "Actualizar modelos"
 $btnRefreshModels.SetBounds(742, 104, 165, 32)
 $tabSettings.Controls.Add($btnRefreshModels)
 
+# Shown only after Edge answers 403, the sign of an edge-tts that Microsoft no longer accepts.
+$btnUpdateVoices = New-Object Windows.Forms.Button
+$btnUpdateVoices.Text = "Actualizar voces"
+$btnUpdateVoices.SetBounds(917, 104, 150, 32)
+$btnUpdateVoices.Visible = $false
+$tabSettings.Controls.Add($btnUpdateVoices)
+$script:voiceUpdateOffered = $false
+
+$lblEdgeTtsVersion = New-Object Windows.Forms.Label
+$lblEdgeTtsVersion.Text = "Voces Edge: sin comprobar"
+$lblEdgeTtsVersion.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+$lblEdgeTtsVersion.AutoEllipsis = $true
+$lblEdgeTtsVersion.SetBounds(1077, 106, 260, 28)
+$tabSettings.Controls.Add($lblEdgeTtsVersion)
+
 $modelCombo = New-Object ModernComboBox
 $modelCombo.DropDownStyle = [Windows.Forms.ComboBoxStyle]::DropDownList
 $modelCombo.FlatStyle = [Windows.Forms.FlatStyle]::Flat
@@ -1574,9 +1589,9 @@ foreach ($bridge in $script:localBridges) {
     # Leaving the box after changing the password checks that bridge again right away.
     $passwordBox.Tag = $bridge.Key
     $passwordBox.Add_Leave({
-        param($passwordControl)
-        $key = [string]$passwordControl.Tag
-        if ([string]$script:bridgePasswords[$key] -ne $passwordControl.Text.Trim()) {
+        param([Windows.Forms.TextBox]$editedBox)
+        $key = [string]$editedBox.Tag
+        if ([string]$script:bridgePasswords[$key] -ne $editedBox.Text.Trim()) {
             Sync-BridgePasswordsFromBoxes
             Update-BridgeModels
         }
@@ -2257,6 +2272,69 @@ function Find-PythonCommand {
 }
 
 $pythonCommand = Find-PythonCommand
+
+function Get-EdgeTtsVersion {
+    $result = Invoke-ProcessWithEvents $pythonCommand @("-c", "import importlib.metadata as m; print(m.version('edge-tts'))")
+    if ($result.ExitCode -ne 0) {
+        return ""
+    }
+    return $result.Output.Trim()
+}
+
+function Update-EdgeTtsVersionLabel {
+    if (-not $pythonCommand) {
+        $lblEdgeTtsVersion.Text = "Voces Edge: sin Python"
+        return
+    }
+    $version = Get-EdgeTtsVersion
+    $lblEdgeTtsVersion.Text = if ($version) { "Voces Edge: edge-tts v$version" } else { "Voces Edge: edge-tts no instalado" }
+}
+
+function Test-EdgeTtsOutdatedError {
+    param([string]$text)
+
+    # Microsoft rejects the handshake of an outdated edge-tts with HTTP 403.
+    return $text -match 'WSServerHandshakeError' -and $text -match '\b403\b'
+}
+
+function Set-VoiceUpdateOffer {
+    param([bool]$offered)
+
+    $script:voiceUpdateOffered = $offered
+    $btnUpdateVoices.Visible = $offered
+}
+
+function Show-EdgeVoiceError {
+    param([string]$detail)
+
+    if (Test-EdgeTtsOutdatedError $detail) {
+        Set-VoiceUpdateOffer $true
+        Show-Message "Las voces Edge necesitan una versión nueva de edge-tts. Tocá «Actualizar voces» en Configuración." -Level Error
+    } else {
+        Show-Message "No se pudo generar la voz Edge: $detail" -Level Error
+    }
+}
+
+function Update-EdgeTts {
+    if (-not $pythonCommand) {
+        Show-Message "Las voces Edge necesitan Python; las de Windows funcionan igual." -Level Error
+        return
+    }
+    Start-Busy "Actualizando las voces Edge (edge-tts)..."
+    try {
+        $result = Invoke-ProcessWithEvents $pythonCommand @("-m", "pip", "install", "--user", "--quiet", "--upgrade", "edge-tts")
+    } finally {
+        Stop-Busy
+    }
+    Update-EdgeTtsVersionLabel
+    if ($result.ExitCode -ne 0) {
+        $detail = if ($result.Error) { ($result.Error -split "`r?`n")[-1] } else { "pip terminó con código $($result.ExitCode)." }
+        Show-Message "No se pudieron actualizar las voces Edge: $detail" -Level Error
+        return
+    }
+    Set-VoiceUpdateOffer $false
+    Show-Message "Voces Edge actualizadas: $($lblEdgeTtsVersion.Text -replace '^Voces Edge: ', '')."
+}
 $edgeTtsWordsScript = Join-Path $PSScriptRoot "edge_tts_words.py"
 $ffplayCommand = (Get-Command ffplay.exe -ErrorAction SilentlyContinue).Source
 $ffprobeCommand = (Get-Command ffprobe.exe -ErrorAction SilentlyContinue).Source
@@ -2443,7 +2521,7 @@ $speechAlignmentWindow = 8
 $actionButtons = @(
     $btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn,
     $btnLeer, $btnPegar, $btnCopyMd, $btnCopyTxt, $btnMic, $btnPdf, $btnMp3, $btnLimpiar,
-    $btnTheme, $btnCerrar, $btnPauseVoice, $btnStopVoice, $btnSaveSettings, $btnRefreshModels,
+    $btnTheme, $btnCerrar, $btnPauseVoice, $btnStopVoice, $btnSaveSettings, $btnRefreshModels, $btnUpdateVoices,
     $btnCheckUpdate, $btnInstallUpdate, $btnAttachFiles, $btnClearAttachments,
     $btnUseResult, $btnDismissResult, $btnReplay
 )
@@ -3011,7 +3089,7 @@ function Start-CurrentEdgeChunk {
     if ($chunk.Status -eq "Failed") {
         $detail = if ($chunk.ErrorText) { $chunk.ErrorText } else { "Edge no generó el bloque de audio." }
         Stop-VoicePlayback
-        Show-Message "No se pudo generar la voz Edge: $detail" -Level Error
+        Show-EdgeVoiceError $detail
         return
     }
     if ($chunk.Status -ne "Ready") {
@@ -4529,7 +4607,11 @@ function Export-SpeechMp3 {
             Show-Message "MP3 guardado en $targetPath"
         } else {
             $detail = if ($result.Error) { ($result.Error -split "`r?`n")[-1] } else { "El proceso terminó con código $($result.ExitCode)." }
-            Show-Message "No se pudo generar el MP3: $detail" -Level Error
+            if (Test-EdgeTtsOutdatedError $detail) {
+                Show-EdgeVoiceError $detail
+            } else {
+                Show-Message "No se pudo generar el MP3: $detail" -Level Error
+            }
         }
     } catch {
         Show-Message "No se pudo generar el MP3: $($_.Exception.Message)" -Level Error
@@ -4770,7 +4852,7 @@ function Set-Theme {
     }
     $versionLabel.BackColor = Get-ThemeColor "Surface"
     $bridgeLabels = @($bridgeNameLabels.Values) + @($bridgeStatusLabels.Values)
-    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus) + $bridgeLabels) {
+    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblEdgeTtsVersion) + $bridgeLabels) {
         $label.BackColor = Get-ThemeColor "Window"
     }
     $settingsTitle.ForeColor = Get-ThemeColor "Heading"
@@ -4790,7 +4872,7 @@ function Set-Theme {
     $lblAttachments.BackColor = Get-ThemeColor "Elevated"
     $previewResultBar.BackColor = Get-ThemeColor "Elevated"
     $lblPreviewResult.BackColor = Get-ThemeColor "Elevated"
-    $infoControls = @($msgBox, $settingsHint, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblAttachments, $versionLabel, $lblPreviewResult) + @($bridgeStatusLabels.Values)
+    $infoControls = @($msgBox, $settingsHint, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblAttachments, $versionLabel, $lblPreviewResult, $lblEdgeTtsVersion) + @($bridgeStatusLabels.Values)
     foreach ($control in $infoControls) {
         Set-InfoStyle $control
     }
@@ -6437,6 +6519,9 @@ $form.Add_Resize({
     }
 })
 
+$btnUpdateVoices.Add_Click({ Update-EdgeTts })
+
 if ($env:TXT_PREVIEW_TEST_MODE -ne "1") {
+    Update-EdgeTtsVersionLabel
     [void]$form.ShowDialog()
 }
