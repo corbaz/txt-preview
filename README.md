@@ -2,6 +2,8 @@
 
 Aplicación de escritorio para Windows que reúne en una sola ventana un editor de texto, una vista previa Markdown, herramientas de IA (consultar, resumir, corregir y traducir con [Groq](https://groq.com) o con tus suscripciones de Claude, OpenAI y Gemini mediante bridges locales) y lectura en voz alta.
 
+Las mejoras publicadas en cada versión se detallan en [`CHANGELOG.md`](CHANGELOG.md).
+
 ## Qué podés hacer
 
 - Escribir o pegar texto y verlo formateado en **Vista previa**.
@@ -101,7 +103,9 @@ Al abrir la app, si hay una versión nueva aparece un aviso que pregunta si quer
 | `destination path ... already exists` | Usaste el comando viejo. Pegá el comando de instalación de arriba: actualiza y reinstala sin borrar nada. |
 | Acentos rotos o "No se encuentra el tipo [Net.Http.HttpClient]" | La app se abrió con Windows PowerShell 5.1. Volvé a ejecutar el instalador y abrila desde el acceso directo. |
 | Mensaje rojo "Error al conectar con la API" | Revisá la API key en **Configuración** y tu conexión a internet. |
-| No suenan las voces de Edge | Instalá Python y FFmpeg (ver tabla de voces). |
+| Solo aparece una voz y faltan las voces Edge | La instalación de Python cambió o perdió `edge-tts`. Volvé a ejecutar `install.ps1`, o ejecutá `python -m pip install --user --upgrade edge-tts`, y reabrí TXT. |
+| `No se encontró ffplay para reproducir la voz Edge` | El directorio que contiene `ffplay.exe` debe estar en `PATH`; por ejemplo, si está en `C:\FFmpeg\bin\ffplay.exe`, agregá `C:\FFmpeg\bin` (no solo `C:\FFmpeg`). Cerrá TXT y, si lo abrís desde una terminal, abrí también una terminal nueva. |
+| Las voces Edge aparecen pero no suenan | Comprobá que `ffplay.exe` y `ffprobe.exe` estén disponibles desde una PowerShell nueva y revisá la tabla de voces. |
 | "El PDF no tiene texto seleccionable" | Es un PDF escaneado (imágenes). Pasalo por un OCR o adjuntá las páginas como imágenes en un modelo con visión. |
 | "Hace falta Microsoft Office" al adjuntar .doc o .ppt | Abrilo y guardalo como .docx o .pptx; esos formatos se leen sin Office. |
 
