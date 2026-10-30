@@ -91,6 +91,8 @@ Los modelos de Claude y los de Codex que lo declaran entienden imágenes; Gemini
 
 Después de instalar Python o FFmpeg, cerrá y volvé a abrir la app.
 
+TXT consulta el catálogo Edge al iniciar. Si el servicio falla temporalmente, reintenta y usa el último catálogo válido guardado en `%LOCALAPPDATA%\TXT Preview\edge-voices.json`, por lo que las voces no desaparecen de la lista. La interfaz avisa cuando está usando esa copia; la síntesis sigue necesitando conexión a Internet. Si falta Python o `edge-tts`, no usa la copia porque esas voces no podrían reproducirse.
+
 ## Actualizaciones
 
 Al abrir la app, si hay una versión nueva aparece un aviso que pregunta si querés actualizar; si aceptás, se actualiza y se reinicia sola. También podés tocar **Buscar actualización** en **Configuración**. La actualización nunca pisa cambios que hayas hecho en los archivos de la app: si los hay, te avisa y no actualiza.
@@ -103,7 +105,7 @@ Al abrir la app, si hay una versión nueva aparece un aviso que pregunta si quer
 | `destination path ... already exists` | Usaste el comando viejo. Pegá el comando de instalación de arriba: actualiza y reinstala sin borrar nada. |
 | Acentos rotos o "No se encuentra el tipo [Net.Http.HttpClient]" | La app se abrió con Windows PowerShell 5.1. Volvé a ejecutar el instalador y abrila desde el acceso directo. |
 | Mensaje rojo "Error al conectar con la API" | Revisá la API key en **Configuración** y tu conexión a internet. |
-| Solo aparece una voz y faltan las voces Edge | La instalación de Python cambió o perdió `edge-tts`. Volvé a ejecutar `install.ps1`, o ejecutá `python -m pip install --user --upgrade edge-tts`, y reabrí TXT. |
+| Solo aparece una voz y faltan las voces Edge | TXT muestra la causa en la barra inferior. Si indica que falta `edge-tts`, volvé a ejecutar `install.ps1`, o ejecutá `python -m pip install --user --upgrade edge-tts`, y reabrí TXT. Si la consulta en línea falla, TXT reintenta y recupera automáticamente el último catálogo guardado. |
 | `No se encontró ffplay para reproducir la voz Edge` | El directorio que contiene `ffplay.exe` debe estar en `PATH`; por ejemplo, si está en `C:\FFmpeg\bin\ffplay.exe`, agregá `C:\FFmpeg\bin` (no solo `C:\FFmpeg`). Cerrá TXT y, si lo abrís desde una terminal, abrí también una terminal nueva. |
 | Las voces Edge aparecen pero no suenan | Comprobá que `ffplay.exe` y `ffprobe.exe` estén disponibles desde una PowerShell nueva y revisá la tabla de voces. |
 | "El PDF no tiene texto seleccionable" | Es un PDF escaneado (imágenes). Pasalo por un OCR o adjuntá las páginas como imágenes en un modelo con visión. |

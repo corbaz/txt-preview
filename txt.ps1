@@ -2252,6 +2252,35 @@ function Get-GroqModelsFromApi {
 $speechSynth = [System.Speech.Synthesis.SpeechSynthesizer]::new()
 # Same rules as Find-Python in install.ps1: skips the Microsoft Store stub in WindowsApps,
 # which opens the Store instead of running Python, and keeps only interpreters that run.
+function Test-PythonCandidate {
+    param(
+        [string]$candidate,
+        [int]$TimeoutMilliseconds = 5000
+    )
+
+    $process = $null
+    try {
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $candidate
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        [void]$startInfo.ArgumentList.Add("--version")
+        $process = [Diagnostics.Process]::Start($startInfo)
+        if (-not $process.WaitForExit($TimeoutMilliseconds)) {
+            try { $process.Kill($true) } catch { $process.Kill() }
+            $process.WaitForExit()
+            return $false
+        }
+        return $process.ExitCode -eq 0
+    } catch {
+        return $false
+    } finally {
+        if ($null -ne $process) {
+            $process.Dispose()
+        }
+    }
+}
+
 function Find-PythonCommand {
     $candidates = @(Get-Command python.exe -All -ErrorAction SilentlyContinue |
         Where-Object { $_.Source -notlike "*\WindowsApps\*" } |
@@ -2259,19 +2288,196 @@ function Find-PythonCommand {
     $candidates += @(Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA "Programs\Python\Python3*\python.exe") -ErrorAction SilentlyContinue |
         Sort-Object FullName -Descending |
         ForEach-Object { $_.FullName })
-    foreach ($candidate in $candidates) {
-        try {
-            & $candidate --version *> $null
-            if ($LASTEXITCODE -eq 0) {
-                return $candidate
-            }
-        } catch {
+    foreach ($candidate in @($candidates | Select-Object -Unique)) {
+        if (Test-PythonCandidate $candidate) {
+            return $candidate
         }
     }
     return $null
 }
 
 $pythonCommand = Find-PythonCommand
+
+function ConvertFrom-EdgeVoiceCatalogText {
+    param([string]$text)
+
+    $voices = [Collections.Generic.List[object]]::new()
+    foreach ($line in @($text -split "`r?`n")) {
+        if ($line -match '^(?<name>(?<culture>(?:es|en)-[A-Z]{2})-\S+)\s+(?<gender>Female|Male)\s+') {
+            $voices.Add([pscustomobject]@{
+                Name        = $Matches.name
+                Culture     = $Matches.culture
+                Gender      = $Matches.gender
+                DisplayName = ("Edge · {0} ({1})" -f $Matches.name, $Matches.gender)
+            })
+        }
+    }
+    return @($voices)
+}
+
+function Invoke-EdgeVoiceCatalogProcess {
+    param(
+        [string]$PythonCommand,
+        [int]$TimeoutMilliseconds = 15000
+    )
+
+    $process = $null
+    try {
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $PythonCommand
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        [void]$startInfo.ArgumentList.Add("-m")
+        [void]$startInfo.ArgumentList.Add("edge_tts")
+        [void]$startInfo.ArgumentList.Add("--list-voices")
+
+        $process = [Diagnostics.Process]::Start($startInfo)
+        $outputTask = $process.StandardOutput.ReadToEndAsync()
+        $errorTask = $process.StandardError.ReadToEndAsync()
+        $timedOut = -not $process.WaitForExit($TimeoutMilliseconds)
+        if ($timedOut) {
+            try { $process.Kill($true) } catch { $process.Kill() }
+            $process.WaitForExit()
+        }
+        $output = $outputTask.GetAwaiter().GetResult().Trim()
+        $errorText = $errorTask.GetAwaiter().GetResult().Trim()
+        if ($timedOut) {
+            $errorText = "La consulta de voces Edge superó $([Math]::Round($TimeoutMilliseconds / 1000.0)) segundos."
+        }
+        return [pscustomobject]@{
+            ExitCode = if ($timedOut) { -1 } else { $process.ExitCode }
+            Output   = $output
+            Error    = $errorText
+        }
+    } catch {
+        return [pscustomobject]@{ ExitCode = -1; Output = ""; Error = $_.Exception.Message }
+    } finally {
+        if ($null -ne $process) {
+            $process.Dispose()
+        }
+    }
+}
+
+function Save-EdgeVoiceCatalogCache {
+    param(
+        [string]$CachePath,
+        [object[]]$Voices
+    )
+
+    if ([string]::IsNullOrWhiteSpace($CachePath) -or $Voices.Count -eq 0) {
+        return $false
+    }
+    $directory = Split-Path -Parent $CachePath
+    if ([string]::IsNullOrWhiteSpace($directory)) {
+        return $false
+    }
+    [void][IO.Directory]::CreateDirectory($directory)
+    $temporaryPath = Join-Path $directory ([IO.Path]::GetRandomFileName())
+    try {
+        [pscustomobject]@{
+            SchemaVersion = 1
+            UpdatedAt     = [DateTime]::UtcNow.ToString("o")
+            Voices        = @($Voices | Select-Object Name, Culture, Gender, DisplayName)
+        } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $temporaryPath -Encoding UTF8
+        Move-Item -LiteralPath $temporaryPath -Destination $CachePath -Force
+        return $true
+    } catch {
+        return $false
+    } finally {
+        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Read-EdgeVoiceCatalogCache {
+    param([string]$CachePath)
+
+    if ([string]::IsNullOrWhiteSpace($CachePath) -or -not (Test-Path -LiteralPath $CachePath)) {
+        return @()
+    }
+    try {
+        $cached = Get-Content -LiteralPath $CachePath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($cached.SchemaVersion -ne 1) {
+            return @()
+        }
+        $voices = [Collections.Generic.List[object]]::new()
+        foreach ($voice in @($cached.Voices)) {
+            if (
+                $voice.Name -match '^(?:es|en)-[A-Z]{2}-\S+$' -and
+                $voice.Culture -match '^(?:es|en)-[A-Z]{2}$' -and
+                $voice.Gender -in @("Female", "Male")
+            ) {
+                $voices.Add([pscustomobject]@{
+                    Name        = [string]$voice.Name
+                    Culture     = [string]$voice.Culture
+                    Gender      = [string]$voice.Gender
+                    DisplayName = ("Edge · {0} ({1})" -f $voice.Name, $voice.Gender)
+                })
+            }
+        }
+        return @($voices)
+    } catch {
+        return @()
+    }
+}
+
+function Get-EdgeVoiceCatalog {
+    param(
+        [string]$PythonCommand,
+        [string]$CachePath,
+        [scriptblock]$CatalogInvoker,
+        [int]$RetryDelayMilliseconds = 250
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PythonCommand)) {
+        return [pscustomobject]@{
+            Source = "None"; Voices = @(); Level = "Error"
+            Message = "No se encontró Python para cargar las voces Edge; se mantienen las voces de Windows."
+        }
+    }
+    if ($null -eq $CatalogInvoker) {
+        $CatalogInvoker = { param($python) Invoke-EdgeVoiceCatalogProcess -PythonCommand $python }
+    }
+
+    $lastError = ""
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        $result = & $CatalogInvoker $PythonCommand
+        $voices = if ($null -ne $result) { @(ConvertFrom-EdgeVoiceCatalogText ([string]$result.Output)) } else { @() }
+        if ($null -ne $result -and $result.ExitCode -eq 0 -and $voices.Count -gt 0) {
+            [void](Save-EdgeVoiceCatalogCache -CachePath $CachePath -Voices $voices)
+            return [pscustomobject]@{ Source = "Online"; Voices = $voices; Level = "Info"; Message = "" }
+        }
+        $lastError = if ($null -eq $result) {
+            "La consulta no devolvió ningún resultado."
+        } elseif (-not [string]::IsNullOrWhiteSpace([string]$result.Error)) {
+            [string]$result.Error
+        } else {
+            "La consulta no devolvió voces compatibles."
+        }
+        if ($lastError -match 'No module named [''"]?edge_tts') {
+            return [pscustomobject]@{
+                Source = "None"; Voices = @(); Level = "Error"
+                Message = "Voces Edge: edge-tts no está instalado en el Python detectado. Ejecutá install.ps1 y reabrí TXT."
+            }
+        }
+        if ($attempt -lt 2 -and $RetryDelayMilliseconds -gt 0) {
+            Start-Sleep -Milliseconds $RetryDelayMilliseconds
+        }
+    }
+
+    $cachedVoices = @(Read-EdgeVoiceCatalogCache -CachePath $CachePath)
+    if ($cachedVoices.Count -gt 0) {
+        return [pscustomobject]@{
+            Source = "Cache"; Voices = $cachedVoices; Level = "Warning"
+            Message = "No se pudo actualizar la lista de voces Edge; se usa el último catálogo guardado."
+        }
+    }
+    return [pscustomobject]@{
+        Source = "None"; Voices = @(); Level = "Error"
+        Message = "No se pudo cargar el catálogo de voces Edge ($lastError). Se mantienen las voces de Windows; revisá la conexión o ejecutá install.ps1."
+    }
+}
 
 function Get-EdgeTtsVersion {
     $result = Invoke-ProcessWithEvents $pythonCommand @("-c", "import importlib.metadata as m; print(m.version('edge-tts'))")
@@ -2366,39 +2572,21 @@ $voiceProviderByDisplay = @{}
 $voiceGenderByDisplay = @{}
 $allVoiceDisplays = [Collections.Generic.List[string]]::new()
 
-if ($pythonCommand) {
-    try {
-        $voiceListStartInfo = [Diagnostics.ProcessStartInfo]::new()
-        $voiceListStartInfo.FileName = $pythonCommand
-        $voiceListStartInfo.UseShellExecute = $false
-        $voiceListStartInfo.CreateNoWindow = $true
-        $voiceListStartInfo.RedirectStandardOutput = $true
-        $voiceListStartInfo.RedirectStandardError = $true
-        [void]$voiceListStartInfo.ArgumentList.Add("-m")
-        [void]$voiceListStartInfo.ArgumentList.Add("edge_tts")
-        [void]$voiceListStartInfo.ArgumentList.Add("--list-voices")
-
-        $voiceListProcess = [Diagnostics.Process]::Start($voiceListStartInfo)
-        $voiceListOutput = $voiceListProcess.StandardOutput.ReadToEnd()
-        $voiceListProcess.WaitForExit()
-
-        if ($voiceListProcess.ExitCode -eq 0) {
-            $edgeVoiceLines = $voiceListOutput -split "`r?`n"
-            foreach ($voiceLine in $edgeVoiceLines) {
-                if ($voiceLine -match '^(?<name>(?<culture>(?:es|en)-[A-Z]{2})-\S+)\s+(?<gender>Female|Male)\s+') {
-                    $displayName = "Edge · {0} ({1})" -f $Matches.name, $Matches.gender
-                    $voiceNameByDisplay[$displayName] = $Matches.name
-                    $voiceCultureByDisplay[$displayName] = $Matches.culture
-                    $voiceProviderByDisplay[$displayName] = "Edge"
-                    $voiceGenderByDisplay[$displayName] = $Matches.gender
-                    $allVoiceDisplays.Add($displayName)
-                }
-            }
-        }
-        $voiceListProcess.Dispose()
-    } catch {
-        # Si Edge TTS no está disponible, se mantienen las voces locales.
-    }
+$edgeVoiceCachePath = if ($env:TXT_PREVIEW_TEST_MODE -eq "1") {
+    if ($env:TXT_PREVIEW_EDGE_VOICE_CACHE) { $env:TXT_PREVIEW_EDGE_VOICE_CACHE } else { $null }
+} else {
+    Join-Path $settingsDirectory "edge-voices.json"
+}
+$edgeVoiceCatalog = Get-EdgeVoiceCatalog -PythonCommand $pythonCommand -CachePath $edgeVoiceCachePath
+$script:edgeVoiceCatalogMessage = $edgeVoiceCatalog.Message
+$script:edgeVoiceCatalogMessageLevel = $edgeVoiceCatalog.Level
+foreach ($edgeVoice in @($edgeVoiceCatalog.Voices)) {
+    $displayName = [string]$edgeVoice.DisplayName
+    $voiceNameByDisplay[$displayName] = [string]$edgeVoice.Name
+    $voiceCultureByDisplay[$displayName] = [string]$edgeVoice.Culture
+    $voiceProviderByDisplay[$displayName] = "Edge"
+    $voiceGenderByDisplay[$displayName] = [string]$edgeVoice.Gender
+    $allVoiceDisplays.Add($displayName)
 }
 
 foreach ($installedVoice in $availableVoices) {
@@ -6508,6 +6696,9 @@ $form.Add_Shown({
     $form.PerformLayout()
     Update-ToolbarLayout
     Set-WindowChrome $form ([bool]$btnTheme.Tag)
+    if (-not [string]::IsNullOrWhiteSpace($script:edgeVoiceCatalogMessage)) {
+        Show-Message $script:edgeVoiceCatalogMessage -Level $script:edgeVoiceCatalogMessageLevel
+    }
     # Delay the update check so the window finishes painting first.
     $startupUpdateTimer.Start()
 })

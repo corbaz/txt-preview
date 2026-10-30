@@ -1,5 +1,19 @@
 # Historial de cambios
 
+## v:26.10.30-15.28
+
+### Catálogo de voces Edge resistente
+
+- TXT reintenta la consulta inicial de voces Edge y guarda atómicamente el último catálogo válido en `%LOCALAPPDATA%\TXT Preview\edge-voices.json`.
+- Un fallo temporal de red o del servicio ya no hace desaparecer las voces: TXT utiliza el catálogo guardado y muestra una advertencia visible.
+- Una caché dañada se ignora con seguridad; si falta Python o `edge-tts`, se conserva el catálogo local de Windows y se informa cómo repararlo.
+- La detección de Python usa el código de salida del proceso con timeout, sin depender del estado global heredado de la terminal.
+
+### Validación
+
+- Se añadieron pruebas para consulta normal, reintento, recuperación desde caché, caché dañada y dependencia ausente.
+- Pasaron 123 pruebas, el parser de PowerShell terminó sin errores y el smoke real confirmó 92 voces Edge, 5 voces Windows y una caché válida de 92 entradas.
+
 ## v:26.10.22-09.52
 
 ### Proveedores y modelos de IA
