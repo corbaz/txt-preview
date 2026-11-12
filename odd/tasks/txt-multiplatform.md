@@ -18,7 +18,7 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 | --- | --- | --- | --- |
 | T1 | S5, S7 | Scaffold `app/`: pywebview entry, JS bridge, requirements, minimal shell; runs on Windows | 131c4dd |
 | T2 | S1 | Port portable logic to Python: markdown render, citation stripping, AI prompts, Groq/bridge HTTP, model catalog | 3d073aa |
-| T3 | S1, S2 | UI shell: Editor/Vista previa/Configuración/Navegador tabs, themes light/dark | pending |
+| T3 | S1, S2 | UI shell: Editor/Vista previa/Configuración/Navegador tabs, themes light/dark | 45dd5fd |
 | T4 | S6, S2 | Edge-only TTS: chunker, playback (ffplay), pause/resume, replay, speed, per-word highlight in preview | pending |
 | T5 | S1 | Attachments: text/images/docx/pptx/pdf extraction (python-docx, python-pptx, PyMuPDF) | pending |
 | T6 | S1 | Export: PDF and MP3 | pending |
