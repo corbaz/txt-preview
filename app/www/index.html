@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TXT Preview</title>
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body data-theme="dark">
+  <header id="app-header">
+    <div id="segmented" role="tablist">
+      <button class="seg active" data-tab="editor">Editor</button>
+      <button class="seg" data-tab="preview">Vista previa</button>
+      <button class="seg" data-tab="settings">Configuración</button>
+      <button class="seg" data-tab="browser">Navegador</button>
+    </div>
+    <span id="version-badge"></span>
+  </header>
+
+  <main id="pages">
+    <section class="page active" data-page="editor"><h2>Editor</h2><p>En construcción (T3).</p></section>
+    <section class="page" data-page="preview"><h2>Vista previa</h2><p>En construcción (T3).</p></section>
+    <section class="page" data-page="settings"><h2>Configuración</h2><p>En construcción (T2/T10).</p></section>
+    <section class="page" data-page="browser"><h2>Navegador</h2><p>En construcción (T3).</p></section>
+  </main>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
