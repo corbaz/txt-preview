@@ -14,15 +14,40 @@
       <button class="seg" data-tab="settings">Configuración</button>
       <button class="seg" data-tab="browser">Navegador</button>
     </div>
+    <button id="theme-toggle" class="ghost">Tema: Oscuro</button>
     <span id="version-badge"></span>
   </header>
 
   <main id="pages">
-    <section class="page active" data-page="editor"><h2>Editor</h2><p>En construcción (T3).</p></section>
-    <section class="page" data-page="preview"><h2>Vista previa</h2><p>En construcción (T3).</p></section>
-    <section class="page" data-page="settings"><h2>Configuración</h2><p>En construcción (T2/T10).</p></section>
-    <section class="page" data-page="browser"><h2>Navegador</h2><p>En construcción (T3).</p></section>
+    <section class="page active" data-page="editor">
+      <textarea id="editor" placeholder="Escribí o pegá tu texto acá..."></textarea>
+    </section>
+
+    <section class="page" data-page="preview">
+      <div id="preview" class="markdown-body"></div>
+    </section>
+
+    <section class="page" data-page="settings">
+      <div class="settings-form">
+        <label for="api-key">API key de Groq</label>
+        <input id="api-key" type="password" placeholder="gsk_..." autocomplete="off" />
+        <p class="hint">Se guarda cifrada en Configuración (T10). Podés crear una gratis en console.groq.com/keys.</p>
+        <label for="model-select">Modelo</label>
+        <select id="model-select" disabled><option>openai/gpt-oss-120b</option></select>
+        <p class="hint">T2: catálogo conectado en el siguiente paso de integración.</p>
+      </div>
+    </section>
+
+    <section class="page" data-page="browser">
+      <div id="browser-bar">
+        <input id="browser-address" type="text" placeholder="https://..." />
+        <button id="browser-go" class="ghost">Abrir</button>
+      </div>
+      <iframe id="browser-frame" title="Navegador"></iframe>
+    </section>
   </main>
+
+  <footer id="status-bar"><span id="status-message"></span></footer>
 
   <script src="js/main.js"></script>
 </body>

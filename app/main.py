@@ -11,6 +11,11 @@ from pathlib import Path
 import webview
 
 ROOT = Path(__file__).resolve().parent
+APP = ROOT
+if str(APP) not in sys.path:
+    sys.path.insert(0, str(APP))
+
+from txt_core.markdown import render_markdown
 REPO = ROOT.parent
 WWW = ROOT / "www"
 
@@ -31,6 +36,10 @@ class Api:
 
     def platform(self) -> str:
         return sys.platform
+
+    def render_preview(self, text: str) -> str:
+        """Sanitized markdown HTML for Vista previa (word spans arrive with T4)."""
+        return render_markdown(text)
 
 
 def create_app() -> None:

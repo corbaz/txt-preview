@@ -34,3 +34,4 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 
 - L1: "la idea es converti a la app en multiplataforma que yo trabaje todo aca en windows pero ue la app este preparada para que la clone la mac y funciones identica en la mac y cada uno tenga su instalador en el radme explicado para el usurio o una ia para que le instale todo con su doctor si le falta algo se entiende analizalo profundamente . Luego si yo hago un cambio en windows debe quedar compatible para la Mac asi el otro usuario en su mac lo actualiza con un pull se entiende tdo"
 - L2: "lo de tauri me confundi talvez pyton sea mejor cual es tu mejor opcion" → user confirmed Python + pywebview (S5) and Edge-only TTS (S6). Branch renamed to `feat/cross-platform`.
+- L3: T2 delivered citations/prompts/groq/bridges/models; the Markdown renderer (listed in T2) is implemented inside T3 where the preview consumes it.
