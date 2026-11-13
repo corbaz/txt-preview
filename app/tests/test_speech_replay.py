@@ -242,12 +242,70 @@ class TestPlaySwitchesVoiceToTheTextLanguage(SpeechApiTestCase):
         self.assertFalse(result["voice_switched"])
         self.assertEqual(result["voice"], "es-ES-ElviraNeural")
 
+    def test_english_text_switches_a_spanish_male_voice_to_the_en_male_default(self):
+        # S15/T22 truth table: ES text? No — EN text + ES Male voice: the
+        # language changes, the active gender (Male) is preserved and the
+        # default EN+Male voice is selected and persisted.
+        self.api.set_speech_voice("es-CR-JuanNeural")
+        result = self.start("The house was old and the garden was full of trees.")
+        self.assertTrue(result["voice_switched"])
+        self.assertEqual(result["voice"], "en-US-AndrewMultilingualNeural")
+        self.assertEqual(result["voice_language"], "en")
+        self.assertEqual(result["voice_gender"], "Male")
+        self.assertEqual(
+            settings.load_settings(self.settings_dir)["speech_voice"],
+            "en-US-AndrewMultilingualNeural")
+
+    def test_spanish_text_switches_an_english_female_voice_to_the_es_female_default(self):
+        # S15/T22 truth table: ES text + EN Female voice: the language
+        # changes, the active gender (Female) is preserved and the default
+        # ES+Female voice is selected and persisted (here the catalog
+        # fallback, because Ramona/Elena are not in it).
+        self.api.set_speech_voice("en-US-EmmaMultilingualNeural")
+        result = self.start("El perro de Juan corre por la playa y la gente.")
+        self.assertTrue(result["voice_switched"])
+        self.assertEqual(result["voice"], "es-ES-ElviraNeural")
+        self.assertEqual(result["voice_language"], "es")
+        self.assertEqual(result["voice_gender"], "Female")
+        self.assertEqual(
+            settings.load_settings(self.settings_dir)["speech_voice"],
+            "es-ES-ElviraNeural")
+
     def test_result_keeps_the_voice_fields_without_a_switch(self):
         result = self.start("El perro de Juan corre por la playa y la gente.")
         self.assertTrue(result["ok"])
         self.assertEqual(result["voice"], "es-ES-ElviraNeural")
         self.assertEqual(result["voice_language"], "es")
         self.assertFalse(result["voice_switched"])
+
+
+class TestVoiceDefaultsMap(SpeechApiTestCase):
+    """S15/T22: list_voices exposes the legacy default voice for every
+    language+gender combination, resolved by one source (voices.py
+    default_voice_for) so the selector never duplicates the table in JS."""
+
+    def test_all_four_combinations_get_the_legacy_default(self):
+        self.save_catalog()
+        result = self.api.list_voices()
+        self.assertTrue(result["ok"])
+        defaults = result["defaults"]
+        # es|Female misses both preferred names in this catalog (Juan,
+        # Andrew and Emma are present): the first catalog voice of the
+        # combination is the fallback default.
+        self.assertEqual(defaults["es|Male"], "es-CR-JuanNeural")
+        self.assertEqual(defaults["es|Female"], "es-ES-ElviraNeural")
+        self.assertEqual(defaults["en|Male"], "en-US-AndrewMultilingualNeural")
+        self.assertEqual(defaults["en|Female"], "en-US-EmmaMultilingualNeural")
+
+    def test_combination_without_voices_maps_to_none(self):
+        voices.save_voice_cache(
+            [voice for voice in VOICE_CATALOG
+             if voice["name"] != "en-US-EmmaMultilingualNeural"],
+            self.settings_dir)
+        result = self.api.list_voices()
+        self.assertTrue(result["ok"])
+        self.assertIsNone(result["defaults"]["en|Female"])
+        self.assertEqual(result["defaults"]["es|Male"], "es-CR-JuanNeural")
 
 
 if __name__ == "__main__":

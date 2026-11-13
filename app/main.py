@@ -219,13 +219,28 @@ class Api:
         return {"ok": True, "theme": self._theme}
 
     # ---- Voice catalog (T4/S6) ---------------------------------------------
+    def _voice_defaults_map(self, catalog: list[dict[str, str]]) -> dict:
+        """S15/T22: default voice for every language+gender combination,
+        resolved by the legacy priority in voices.default_voice_for (single
+        source of truth — the selector never duplicates the table in JS).
+        None when a combination has no voice in the catalog."""
+        return {
+            f"{language}|{gender}": voices.default_voice_for(language, gender,
+                                                             catalog)
+            for language in ("es", "en")
+            for gender in ("Male", "Female")
+        }
+
     def list_voices(self, force_refresh: bool = False, runner=None) -> dict:
         """Legacy Get-EdgeVoiceCatalog: cache first; edge_tts --list-voices on
         a miss or force refresh. A failed refresh falls back to the last
-        saved catalog; with no cache the legacy failure message wins."""
+        saved catalog; with no cache the legacy failure message wins.
+        S15/T22: the result also carries `defaults`, the legacy default voice
+        for each language+gender combination resolved against that catalog."""
         cached = [] if force_refresh else voices.load_voice_cache(self._settings_dir)
         if cached:
-            return {"ok": True, "voices": cached}
+            return {"ok": True, "voices": cached,
+                    "defaults": self._voice_defaults_map(cached)}
         try:
             fetched = voices.fetch_voice_catalog(
                 self.engine.python_command, runner=runner)
@@ -233,11 +248,13 @@ class Api:
             stale = voices.load_voice_cache(self._settings_dir)
             if stale:
                 return {"ok": True, "voices": stale,
+                        "defaults": self._voice_defaults_map(stale),
                         "warning": "No se pudo actualizar la lista de voces Edge; "
                                    "se usa el último catálogo guardado."}
             return {"ok": False, "voices": [], "error": str(error)}
         voices.save_voice_cache(fetched, self._settings_dir)
-        return {"ok": True, "voices": fetched}
+        return {"ok": True, "voices": fetched,
+                "defaults": self._voice_defaults_map(fetched)}
 
     def set_speech_voice(self, name: str) -> dict:
         """Persist the selected Edge voice (legacy voiceCombo selection)."""

@@ -803,18 +803,98 @@ class TestPlayVoiceAutoSwitch(UiContractTestCase):
             'api.start_speech($("editor").value, getSpeechWords())', window)
 
     def test_apply_voice_switch_updates_the_selector_and_the_toggles(self):
+        # S15/T22: the toggles move through the shared setVoiceToggles helper
+        # and the selector is re-rendered filtered by the new combination.
         body = js_function(self.js_source, "applyVoiceSwitch")
         self.assertIn("voice_switched", body)
         self.assertIn('const select = $("voice-select")', body)
         self.assertIn("select.value = result.voice", body)
-        self.assertIn("aria-pressed", body)
-        self.assertIn("VOICE_TOGGLE_GROUPS", body)
+        self.assertIn("setVoiceToggles(", body)
+        self.assertIn("renderFilteredVoiceCatalog(", body)
         self.assertIn("voice_language", body)
 
     def test_apply_voice_switch_gates_on_ok_and_reuses_the_status_helper(self):
         body = js_function(self.js_source, "applyVoiceSwitch")
         self.assertIn("result.ok", body)
         self.assertIn("setStatus(result.message)", body)
+
+
+class TestVoiceSelectorFiltersByActiveToggles(UiContractTestCase):
+    """S15/T22: the voice selector shows ONLY the voices of the active
+    language+gender combination (never both languages); every toggle click
+    re-renders it, selects and persists that combination's legacy default,
+    and a matching Play language never mutates the filter."""
+
+    def py_function_source(self, class_name, function_name):
+        tree = ast.parse(self.py_source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == class_name:
+                for child in node.body:
+                    if isinstance(child, ast.FunctionDef) \
+                            and child.name == function_name:
+                        return ast.unparse(child)
+        raise AssertionError(f"{class_name}.{function_name} not found")
+
+    def test_list_voices_returns_the_legacy_defaults_map(self):
+        body = self.py_function_source("Api", "list_voices")
+        self.assertIn("'defaults'", body)
+        self.assertIn("self._voice_defaults_map(", body)
+        # One source of truth: the legacy priority table stays in voices.py.
+        helper = self.py_function_source("Api", "_voice_defaults_map")
+        self.assertIn("voices.default_voice_for(", helper)
+        self.assertIn("'es', 'en'", helper)
+        self.assertIn("'Male', 'Female'", helper)
+
+    def test_apply_voice_catalog_never_renders_groups_or_all_voices(self):
+        body = js_function(self.js_source, "applyVoiceCatalog")
+        self.assertIn("renderFilteredVoiceCatalog(", body)
+        self.assertNotIn("optgroup", body)
+        self.assertNotIn("VOICE_GROUP_LABELS", self.js_source)
+        # The voice selector never renders both languages (optgroups are
+        # legitimate only in the model selector).
+        render = js_function(self.js_source, "renderFilteredVoiceCatalog")
+        self.assertNotIn("optgroup", render)
+        self.assertNotIn("VOICE_GROUP_LABELS", render)
+
+    def test_rendered_options_match_gender_and_culture_only(self):
+        body = js_function(self.js_source, "renderFilteredVoiceCatalog")
+        self.assertIn("voice.gender === gender", body)
+        self.assertIn(".slice(0, 2) === culture", body)
+        # One source of truth: the legacy default comes from the backend
+        # defaults map, with the first matching voice as fallback.
+        self.assertIn("voiceDefaults[", body)
+        self.assertIn("filtered[0].name", body)
+        self.assertIn("select.disabled = true", body)
+        self.assertNotIn("optgroup", body)
+
+    def test_initial_load_derives_the_toggles_from_the_persisted_voice(self):
+        body = js_function(self.js_source, "applyVoiceCatalog")
+        self.assertIn("voiceRecordOf(", body)
+        derive = body.index("setVoiceToggles(record.gender")
+        render = body.index("renderFilteredVoiceCatalog(")
+        self.assertLess(derive, render)
+
+    def test_render_keeps_the_persisted_voice_when_it_is_compatible(self):
+        body = js_function(self.js_source, "renderFilteredVoiceCatalog")
+        self.assertIn("keepPreferred", body)
+        self.assertIn("!chooseDefault", body)
+
+    def test_toggle_click_rerenders_and_persists_exactly_once(self):
+        body = js_function(self.js_source, "selectVoiceByFilter")
+        self.assertIn("renderFilteredVoiceCatalog(null, true)", body)
+        self.assertEqual(body.count("set_speech_voice"), 1)
+        toggle = js_function(self.js_source, "activateVoiceToggle")
+        self.assertIn("aria-pressed", toggle)
+        self.assertIn("selectVoiceByFilter()", toggle)
+
+    def test_apply_voice_switch_sets_toggles_before_rendering_and_never_persists(self):
+        body = js_function(self.js_source, "applyVoiceSwitch")
+        self.assertIn("setVoiceToggles(", body)
+        self.assertIn("renderFilteredVoiceCatalog(", body)
+        # The backend already persisted the switched voice: no second write.
+        self.assertNotIn("set_speech_voice", body)
+        self.assertLess(body.index("setVoiceToggles("),
+                        body.index("renderFilteredVoiceCatalog("))
 
 
 if __name__ == "__main__":

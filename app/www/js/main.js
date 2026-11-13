@@ -228,27 +228,20 @@
     } catch (_) { /* the tick is best effort */ }
   }
 
-  // S13 rule 2: when Play switched the voice to the text language, the
-  // selector and the Hombre/Mujer + Español/Inglés toggles follow it.
+  // S13 rule 2 + S15 truth table: when Play switched the voice, the
+  // language+gender toggles move to the backend result FIRST, then the
+  // selector renders ONLY that combination and shows the voice the backend
+  // already persisted (never a redundant set_speech_voice from the UI). A
+  // matching language (voice_switched=false) keeps the chosen voice and
+  // mutates nothing.
   function applyVoiceSwitch(result) {
     if (!result || !result.ok || !result.voice_switched) return;
     const select = $("voice-select");
-    if (select && result.voice) {
-      if (!Array.from(select.options).some((o) => o.value === result.voice)) {
-        const option = document.createElement("option");
-        option.value = result.voice;
-        option.textContent = result.voice_display || result.voice;
-        select.appendChild(option);
-      }
+    setVoiceToggles(result.voice_gender, result.voice_language);
+    renderFilteredVoiceCatalog(result.voice, false);
+    if (select && result.voice
+      && Array.from(select.options).some((o) => o.value === result.voice)) {
       select.value = result.voice;
-    }
-    const genderId = result.voice_gender === "Male" ? "gender-male" : "gender-female";
-    for (const id of VOICE_TOGGLE_GROUPS[genderId]) {
-      $(id).setAttribute("aria-pressed", String(id === genderId));
-    }
-    const languageId = result.voice_language === "en" ? "lang-en" : "lang-es";
-    for (const id of VOICE_TOGGLE_GROUPS[languageId]) {
-      $(id).setAttribute("aria-pressed", String(id === languageId));
     }
     if (result.message) setStatus(result.message);
   }
@@ -668,45 +661,86 @@
     setStatus(`Modelo: ${provider === "Groq" ? "Groq · " + select.value : (option ? option.textContent : select.value)}`);
   });
 
-  // ---- Voz Edge (T4/S6) -----------------------------------------------------
-  // Legacy voice catalog: es/en voices from edge-tts; the Hombre/Mujer and
-  // Español/Inglés toggles filter the catalog client-side and the selection
-  // persists through set_speech_voice.
-  const VOICE_GROUP_LABELS = { es: "Español", en: "English" };
+  // ---- Voz Edge (T4/S6, filters S15/T22) -------------------------------------
+  // The Hombre/Mujer + Español/Inglés toggles own the active language+gender
+  // combination. The selector renders ONLY the voices of that combination —
+  // never both languages at once — and its selection is the legacy default
+  // for the combination, delivered by list_voices as `defaults` so the
+  // priority table lives in one place (voices.py), never duplicated in JS.
   let voiceCatalog = [];
+  let voiceDefaults = {};
 
-  function applyVoiceCatalog(result, selectedVoice) {
+  function voiceRecordOf(name) {
+    return voiceCatalog.find((voice) => voice.name === name) || null;
+  }
+
+  function voiceFilterActive(toggleId) {
+    return $(toggleId).getAttribute("aria-pressed") === "true";
+  }
+
+  // The JS-owned filter state: the four aria-pressed toggles.
+  function selectedVoiceFilter() {
+    const gender = voiceFilterActive("gender-male") ? "Male" : "Female";
+    const culture = voiceFilterActive("lang-es") ? "es" : "en";
+    return { gender, culture };
+  }
+
+  function setVoiceToggles(gender, culture) {
+    const genderId = gender === "Male" ? "gender-male" : "gender-female";
+    for (const id of VOICE_TOGGLE_GROUPS[genderId]) {
+      $(id).setAttribute("aria-pressed", String(id === genderId));
+    }
+    const languageId = culture === "en" ? "lang-en" : "lang-es";
+    for (const id of VOICE_TOGGLE_GROUPS[languageId]) {
+      $(id).setAttribute("aria-pressed", String(id === languageId));
+    }
+  }
+
+  // S15: render only the active combination. keepPreferred keeps a voice
+  // that already matches the filter (chooseDefault=false); otherwise the
+  // combination's legacy default is chosen (backend defaults map, fallback
+  // first matching voice). Zero matching voices disables the selector.
+  function renderFilteredVoiceCatalog(preferredVoice, chooseDefault) {
     const select = $("voice-select");
-    if (!select) return;
-    voiceCatalog = result.voices || [];
-    const previous = selectedVoice || select.value;
+    if (!select) return null;
+    const { gender, culture } = selectedVoiceFilter();
+    const filtered = voiceCatalog.filter((voice) =>
+      voice.gender === gender
+      && String(voice.culture || "").slice(0, 2) === culture);
     select.innerHTML = "";
-    const groups = {};
-    for (const voice of voiceCatalog) {
-      const language = (voice.culture || "").slice(0, 2);
-      (groups[language] = groups[language] || []).push(voice);
-    }
-    for (const language of Object.keys(groups).sort()) {
-      const group = document.createElement("optgroup");
-      group.label = VOICE_GROUP_LABELS[language] || language;
-      for (const voice of groups[language]) {
-        const option = document.createElement("option");
-        option.value = voice.name;
-        option.textContent = voice.display_name;
-        group.appendChild(option);
-      }
-      select.appendChild(group);
-    }
-    const hasPrevious = Array.from(select.options).some((o) => o.value === previous);
-    if (previous && !hasPrevious) {
-      // A persisted voice missing from the catalog stays selectable.
+    for (const voice of filtered) {
       const option = document.createElement("option");
-      option.value = previous;
-      option.textContent = previous;
+      option.value = voice.name;
+      option.textContent = voice.display_name;
       select.appendChild(option);
     }
-    if (previous) select.value = previous;
+    const keepPreferred = preferredVoice && !chooseDefault
+      && filtered.some((voice) => voice.name === preferredVoice);
+    const target = keepPreferred
+      ? preferredVoice
+      : (voiceDefaults[culture + "|" + gender]
+         || (filtered.length ? filtered[0].name : null));
+    if (!target) {
+      select.disabled = true;
+      setStatus("No hay voces Edge para el idioma y género activos.");
+      return null;
+    }
+    select.value = target;
     select.disabled = false;
+    return target;
+  }
+
+  // S15 initial load: derive the active toggles from the persisted voice
+  // when it exists in the catalog (so the selector renders only that
+  // combination and keeps the voice); otherwise keep the toggle state and
+  // choose that combination's default.
+  function applyVoiceCatalog(selectedVoice) {
+    const record = selectedVoice ? voiceRecordOf(selectedVoice) : null;
+    if (record) {
+      setVoiceToggles(record.gender, String(record.culture || "").slice(0, 2));
+    }
+    const preferred = record ? selectedVoice : ($("voice-select").value || null);
+    renderFilteredVoiceCatalog(preferred, !preferred);
   }
 
   async function refreshVoices(force, selectedVoice) {
@@ -720,7 +754,9 @@
         setStatus(result.error || "No se pudo cargar el catálogo de voces Edge.");
         return;
       }
-      applyVoiceCatalog(result, selectedVoice);
+      voiceCatalog = result.voices || [];
+      voiceDefaults = result.defaults || {};
+      applyVoiceCatalog(selectedVoice);
       if (result.warning) setStatus(result.warning);
     } finally {
       if (button) button.disabled = false;
@@ -729,38 +765,6 @@
 
   $("update-voices").addEventListener("click", () => refreshVoices(true));
 
-  // Gender/language toggles (legacy radio groups): pick the first catalog
-  // voice matching gender + culture and persist it.
-  function voiceFilterActive(toggleId) {
-    return $(toggleId).getAttribute("aria-pressed") === "true";
-  }
-
-  function selectedVoiceFilter() {
-    const gender = voiceFilterActive("gender-male") ? "Male" : "Female";
-    const culture = voiceFilterActive("lang-es") ? "es" : "en";
-    return { gender, culture };
-  }
-
-  async function selectVoiceByFilter() {
-    const api = window.pywebview && window.pywebview.api;
-    if (!api || !voiceCatalog.length) return;
-    const { gender, culture } = selectedVoiceFilter();
-    const voice = voiceCatalog.find((candidate) =>
-      candidate.gender === gender
-      && String(candidate.culture || "").slice(0, 2) === culture);
-    if (!voice) return;
-    const select = $("voice-select");
-    if (!Array.from(select.options).some((o) => o.value === voice.name)) {
-      const option = document.createElement("option");
-      option.value = voice.name;
-      option.textContent = voice.display_name;
-      select.appendChild(option);
-    }
-    select.value = voice.name;
-    const result = await api.set_speech_voice(voice.name);
-    if (result && result.ok) setStatus(`Voz Edge: ${result.voice}`);
-  }
-
   // Radio-like groups (legacy New-ToggleGroup panels): one active per group.
   const VOICE_TOGGLE_GROUPS = {
     "gender-male": ["gender-male", "gender-female"],
@@ -768,6 +772,19 @@
     "lang-es": ["lang-es", "lang-en"],
     "lang-en": ["lang-es", "lang-en"],
   };
+
+  // S15/T22: a toggle click re-renders the selector for the new active
+  // combination and selects + persists ITS default voice (never the
+  // previous selection). set_speech_voice runs exactly once per click.
+  async function selectVoiceByFilter() {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || !voiceCatalog.length) return null;
+    const chosen = renderFilteredVoiceCatalog(null, true);
+    if (!chosen) return null;
+    const result = await api.set_speech_voice(chosen);
+    if (result && result.ok) setStatus(`Voz Edge: ${result.voice}`);
+    return chosen;
+  }
 
   function activateVoiceToggle(toggleId) {
     for (const id of VOICE_TOGGLE_GROUPS[toggleId]) {
@@ -995,7 +1012,7 @@
     applyTheme, applyModelCatalog, saveApiKey, showWorkOverlay, hideWorkOverlay,
     applySelectedModelCapabilities, capabilitiesFor,
     loadStartupModels, applyUpdateStatus,
-    applyVoiceCatalog, refreshVoices,
+    applyVoiceCatalog, refreshVoices, renderFilteredVoiceCatalog,
     selectVoiceByFilter, applySpeechState, applyVoiceSwitch, speedLabel,
   };
 })();
