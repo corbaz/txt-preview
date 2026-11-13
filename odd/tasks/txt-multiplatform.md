@@ -32,7 +32,7 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 | T12 | S4 | Cross-platform test suite: port Windows-gated tests, cover shared logic | 8972bc6 |
 | T13 | S1, S7 | Cutover: default install path points to the new app; PS app kept as legacy | complete after T15 visual parity |
 | T15 | S8 | Rebuild the pywebview layout to match the original UI/UX: top nav/context bar, editor canvas, complete bottom control deck, maximized startup | d3a0886 |
-| T16 | S9 | Correct bottom-row distribution, pending-request spinners, and the main model selector | pending |
+| T16 | S9 | Correct bottom-row distribution, pending-request spinners, and the main model selector | 6bdcfdb |
 
 ## Log
 
