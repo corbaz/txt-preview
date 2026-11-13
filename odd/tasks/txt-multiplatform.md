@@ -27,7 +27,7 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 | T9 | S3 | README rewrite: clone → doctor → run flow per OS, explained for a human or an AI agent | README in this commit |
 | T10 | S2 | Settings/secrets: platform-aware paths, migrate DPAPI-encrypted settings from the PS app (Windows), Keychain-safe storage on macOS | cecbff6 |
 | T11 | S4 | In-app update: VERSION check + `git pull --ff-only` on both OS | 7e6a5de |
-| T12 | S4 | Cross-platform test suite: port Windows-gated tests, cover shared logic | pending |
+| T12 | S4 | Cross-platform test suite: port Windows-gated tests, cover shared logic | 8972bc6 |
 | T13 | S1, S7 | Cutover: default install path points to the new app; PS app kept as legacy | pending |
 
 ## Log
