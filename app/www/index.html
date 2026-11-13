@@ -72,6 +72,12 @@
           <option value="dark">Oscuro</option>
           <option value="light">Claro</option>
         </select>
+        <label for="voice-select">Voz Edge</label>
+        <div class="row">
+          <select id="voice-select" disabled><option>es-ES-ElviraNeural</option></select>
+          <button id="update-voices" class="ghost">Actualizar voces</button>
+        </div>
+        <p class="hint">Las voces Edge se leen con edge-tts; tocá «Actualizar voces» para refrescar la lista.</p>
         <label>Actualización</label>
         <div class="row" id="update-row">
           <button id="check-update" class="ghost">Buscar actualizaciones</button>

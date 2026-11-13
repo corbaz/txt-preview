@@ -38,6 +38,7 @@ from txt_core.exports import (
     markdown_to_text,
 )
 from txt_core.markdown import render_markdown
+from txt_core.speech import voices
 from txt_core.speech.engine import SpeechEngine
 
 REPO = ROOT.parent
@@ -181,6 +182,34 @@ class Api:
         self._theme = theme if theme in ("light", "dark") else DEFAULT_THEME
         settings.set_theme(self._theme, self._settings_dir)
         return {"ok": True, "theme": self._theme}
+
+    # ---- Voice catalog (T4/S6) ---------------------------------------------
+    def list_voices(self, force_refresh: bool = False, runner=None) -> dict:
+        """Legacy Get-EdgeVoiceCatalog: cache first; edge_tts --list-voices on
+        a miss or force refresh. A failed refresh falls back to the last
+        saved catalog; with no cache the legacy failure message wins."""
+        cached = [] if force_refresh else voices.load_voice_cache(self._settings_dir)
+        if cached:
+            return {"ok": True, "voices": cached}
+        try:
+            fetched = voices.fetch_voice_catalog(
+                self.engine.python_command, runner=runner)
+        except RuntimeError as error:
+            stale = voices.load_voice_cache(self._settings_dir)
+            if stale:
+                return {"ok": True, "voices": stale,
+                        "warning": "No se pudo actualizar la lista de voces Edge; "
+                                   "se usa el último catálogo guardado."}
+            return {"ok": False, "voices": [], "error": str(error)}
+        voices.save_voice_cache(fetched, self._settings_dir)
+        return {"ok": True, "voices": fetched}
+
+    def set_speech_voice(self, name: str) -> dict:
+        """Persist the selected Edge voice (legacy voiceCombo selection)."""
+        voice = (name or "").strip() or DEFAULT_SPEECH_VOICE
+        self._speech_voice = voice
+        settings.set_speech_voice(voice, self._settings_dir)
+        return {"ok": True, "voice": voice}
 
     def _resolve_api_key(self) -> str:
         """Stored settings key first, GROQ_API_KEY env fallback (legacy order)."""
@@ -507,13 +536,12 @@ class Api:
         if not target:
             return {"ok": False, "message": ""}
         try:
-            export_mp3_file(speech_text, target, DEFAULT_SPEECH_VOICE,
+            export_mp3_file(speech_text, target, self._speech_voice,
                             self.engine.applied_speed)
         except RuntimeError as error:
             return {"ok": False, "message": str(error)}
         except Exception as error:  # keep the shell alive; report to the UI
             return {"ok": False, "message": f"No se pudo generar el MP3: {error}"}
-        return {"ok": True, "path": target, "message": f"MP3 guardado en {target}"}
         return {"ok": True, "path": target, "message": f"MP3 guardado en {target}"}
 
     def _ask_save_path(self, _title: str, suggested_name: str, file_types) -> str | None:
@@ -587,16 +615,18 @@ class Api:
     def set_speech_speed(self, percent: int) -> dict:
         speed = max(SPEECH_SPEED_MIN, min(SPEECH_SPEED_MAX, int(percent)))
         self._speech_speed = speed
-        self.engine.applied_speed = speed
-        # Replay re-renders the same audio at the new tempo from the current
-        # position (legacy Set-SpeechSpeed); an Edge reading picks the rate up
-        # on the next jump/play.
         if self.engine.provider == "Replay" and self.engine.mode in ("Playing", "Paused"):
+            # Replay re-renders the same audio at the new tempo from the
+            # current position (legacy Set-SpeechSpeed replay branch).
             was_paused = self.engine.mode == "Paused"
             position = self._replay_position()
             self.engine.start_replay_playback(position)
             if was_paused:
                 self.engine.pause()
+        else:
+            # Legacy Restart-ActiveSpeechPlayback: an Edge reading restarts
+            # from the current position with the remaining text (engine).
+            self.engine.set_speed(speed)
         return {"ok": True, "message": self._last_message}
 
     def replay_start(self, offset_seconds: float = 0.0) -> dict:
@@ -628,9 +658,13 @@ class Api:
 
     # ---- Speech internals --------------------------------------------------
     def _speech_voice_display(self) -> str:
-        """Friendly display name; the id itself for non-default voices."""
+        """Friendly display name: legacy default label, catalog display
+        (Edge · name (gender)) when known, else the voice id."""
         if self._speech_voice == DEFAULT_SPEECH_VOICE:
             return DEFAULT_SPEECH_VOICE_DISPLAY
+        for voice in voices.load_voice_cache(self._settings_dir):
+            if voice["name"] == self._speech_voice:
+                return voice["display_name"]
         return self._speech_voice
 
     def _speech_state(self) -> dict:
@@ -673,7 +707,8 @@ class Api:
             engine.initialize_alignment(self._speech_words)
             engine.start_edge_session(
                 text, self._speech_voice_display(), self._speech_voice,
-                rate_percent=self._speech_speed,
+                rate_percent=self._speech_speed, start_cursor=index - 1,
+                cache_eligible=False,  # a jump is a partial reading (legacy)
             )
             if was_paused:
                 engine.pause()

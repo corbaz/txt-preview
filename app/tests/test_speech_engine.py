@@ -18,7 +18,13 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from txt_core.speech import engine as engine_module
-from txt_core.speech.engine import Chunk, EdgeWordMark, ReplayCache, SpeechEngine
+from txt_core.speech.engine import (
+    Chunk,
+    EdgeWordMark,
+    ReplayCache,
+    SpeechEngine,
+    get_remaining_speech_text,
+)
 
 
 class FakeProcess:
@@ -249,6 +255,145 @@ class TestReplayCache(SpeechEngineFixture, unittest.TestCase):
         self.assertEqual(self.engine.replay.mark_words, [])
 
 
+class TestGetRemainingSpeechText(unittest.TestCase):
+    # Legacy Get-RemainingSpeechText: the current chunk from the first
+    # whitespace boundary at/after the character position plus every later
+    # chunk, joined by blank lines.
+    def test_middle_of_word_advances_to_next_whitespace(self):
+        texts = ["hola mundo", "chau"]
+        self.assertEqual(get_remaining_speech_text(texts, 0, 2), "mundo\n\nchau")
+
+    def test_word_being_spoken_is_skipped(self):
+        # The scan starts on the word the audio clock is on: it is already
+        # being spoken, so the remaining text starts after it (legacy parity).
+        self.assertEqual(get_remaining_speech_text(["hola mundo"], 0, 5), "")
+
+    def test_first_whitespaces_are_trimmed(self):
+        self.assertEqual(get_remaining_speech_text(["hola  mundo"], 0, 4), "mundo")
+
+    def test_chunks_join_with_blank_lines(self):
+        # The in-flight word is skipped; later chunks join with blank lines.
+        self.assertEqual(get_remaining_speech_text(["a", "b", "c"], 0, 0), "b\n\nc")
+
+    def test_current_chunk_exhausted_returns_later_chunks(self):
+        self.assertEqual(get_remaining_speech_text(["hola", "chau"], 0, 99), "chau")
+
+    def test_last_chunk_exhausted_returns_empty(self):
+        self.assertEqual(get_remaining_speech_text(["hola"], 0, 99), "")
+
+    def test_index_past_the_chunks_returns_empty(self):
+        self.assertEqual(get_remaining_speech_text(["hola"], 1, 0), "")
+        self.assertEqual(get_remaining_speech_text([], 0, 0), "")
+
+
+class TestSetSpeed(SpeechEngineFixture, unittest.TestCase):
+    def test_idle_only_updates_the_rate(self):
+        self.engine.start_edge_session("hola mundo", "Elvira (es-ES)",
+                                       "es-ES-ElviraNeural")
+        self.engine.set_speed(150)
+        self.assertEqual(self.engine.applied_speed, 150)
+        self.assertEqual(self.engine.mode, "Generating")
+        self.assertEqual(len(self.runner.processes), len(self.engine.chunks))
+
+    def test_playing_restarts_from_current_position_at_new_rate(self):
+        self.start_session("hola mundo", words="hola\nmundo")
+        self.ready_chunk(self.engine.chunks[0], timings=[
+            {"text": "hola", "start_seconds": 0.0},
+            {"text": "mundo", "start_seconds": 0.5},
+        ])
+        self.engine.poll()
+        # The audio clock is ~0.3s in: "hola" is being spoken, "mundo" remains.
+        self.engine.player_started_at -= 0.3
+        generation_before = len(self.runner.processes)
+        self.engine.set_speed(150)
+
+        self.assertEqual(self.engine.applied_speed, 150)
+        # New Edge session with the remaining text only.
+        self.assertEqual(len(self.engine.chunks), 1)
+        self.assertEqual(self.engine.chunks[0].text, "mundo")
+        with open(self.engine.chunks[0].text_file, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "mundo")
+        self.assertEqual(self.runner.processes[generation_before].args,
+                         ["fakepython", str(engine_module.EDGE_TTS_WORDS_SCRIPT),
+                          "--voice", "es-ES-ElviraNeural",
+                          "--rate", "50",
+                          "--text-file", self.engine.chunks[0].text_file,
+                          "--media-file", self.engine.chunks[0].media_file,
+                          "--timings-file", self.engine.chunks[0].timing_file])
+        # The highlight floor sits on the word cursor at the restart.
+        self.assertEqual(self.engine.align_floor, self.engine.align_cursor)
+        self.assertEqual(self.engine.align_cursor, 0)
+        # The old reading's media files are gone.
+        self.assertEqual([c.status for c in self.engine.chunks], ["Generating"])
+        self.assertIn("Velocidad cambiada a 1,50x. Continuando desde la posición actual.",
+                      self.last_message())
+
+    def test_paused_restarts_and_stays_paused(self):
+        self.start_session("hola mundo", words="hola\nmundo")
+        self.ready_chunk(self.engine.chunks[0])
+        self.engine.poll()
+        self.engine.player_started_at -= 0.3
+        with mock.patch.object(engine_module.SuspendResume, "suspend"), \
+                mock.patch.object(engine_module.SuspendResume, "resume"):
+            self.engine.pause()
+            self.engine.set_speed(50)
+        self.assertEqual(self.engine.mode, "Paused")
+        self.assertEqual(self.engine.chunks[0].text, "mundo")
+        self.assertIn("Velocidad cambiada a 0,50x. La lectura permanece pausada.",
+                      self.last_message())
+
+    def test_finished_reading_reports_legacy_message(self):
+        self.start_session("hola mundo")
+        self.ready_chunk(self.engine.chunks[0])
+        self.engine.poll()
+        self.engine.player_process.finish(0)
+        self.engine.poll()  # the chunk played; the session is over
+        self.engine.set_speed(150)
+        self.assertEqual(self.engine.mode, "Idle")
+        self.assertIn("La lectura ya había finalizado.", self.last_message())
+
+    def test_restart_never_replaces_the_replay_cache(self):
+        self.start_session("hola mundo")
+        self.ready_chunk(self.engine.chunks[0])
+        self.engine.poll()
+        self.engine.replay.eligible = True
+        self.engine.set_speed(150)
+        self.assertFalse(self.engine.replay.eligible)
+
+
+    def test_marks_realign_through_get_replay_word_timings(self):
+        # Legacy Get-ReplayWordTimings: a spoken token that does not advance
+        # the aligner produces no replay mark (char mapping gave it one).
+        self.start_session("hola zzz mundo", words="hola\nmundo")
+        self.ready_chunk(self.engine.chunks[0], timings=[
+            {"text": "hola", "start_seconds": 0.0},
+            {"text": "zzz", "start_seconds": 0.2},
+            {"text": "mundo", "start_seconds": 0.5},
+        ])
+        self.engine.poll()
+        self.engine.replay.eligible = True
+        self.engine.stop_voice_playback()
+        self.assertEqual(self.engine.replay.mark_words, [0, 1])
+        self.assertEqual(self.engine.replay.mark_seconds, [0.0, 0.5])
+
+    def test_jump_session_marks_start_after_the_jump_cursor(self):
+        # Legacy CacheStartCursor = wordIndex - 1: after a Move-SpeechToWord
+        # jump, Repetir marks the preview words the jumped reading really
+        # highlighted (offset by the words before the jump).
+        self.engine.start_edge_session("mundo chau", "Elvira (es-ES)",
+                                       "es-ES-ElviraNeural", start_cursor=0)
+        self.engine.initialize_alignment("hola\nmundo\nchau")
+        self.ready_chunk(self.engine.chunks[0], timings=[
+            {"text": "mundo", "start_seconds": 0.0},
+            {"text": "chau", "start_seconds": 0.4},
+        ])
+        self.engine.poll()
+        self.engine.replay.eligible = True
+        self.engine.stop_voice_playback()
+        self.assertEqual(self.engine.replay.mark_words, [1, 2])
+        self.assertEqual(self.engine.replay.mark_seconds, [0.0, 0.4])
+
+
 class TestStopVoicePlayback(SpeechEngineFixture, unittest.TestCase):
     def test_stop_cleans_everything(self):
         self.start_session("hola mundo")
@@ -305,3 +450,22 @@ class TestReplayStart(SpeechEngineFixture, unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestReplayCacheEligibility(SpeechEngineFixture, unittest.TestCase):
+    """Legacy CacheEligible: only a Play-started reading may feed Repetir."""
+
+    def test_play_start_is_cache_eligible(self):
+        self.start_session()
+        self.assertTrue(self.engine.replay.eligible)
+
+    def test_explicit_partial_start_is_not_eligible(self):
+        self.engine.start_edge_session(
+            "hola mundo", "Elvira (es-ES)", "es-ES-ElviraNeural", cache_eligible=False,
+        )
+        self.assertFalse(self.engine.replay.eligible)
+
+    def test_stop_turns_eligibility_off(self):
+        self.start_session()
+        self.engine.stop_voice_playback()
+        self.assertFalse(self.engine.replay.eligible)

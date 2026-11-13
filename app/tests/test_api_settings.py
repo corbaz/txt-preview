@@ -226,6 +226,41 @@ class TestSelectedModelPersistence(ApiSettingsTestCase):
             "claude:sonnet-4")
 
 
+class TestSpeechSpeedWiring(ApiSettingsTestCase):
+    """Api.set_speech_speed: Edge sessions restart via engine.set_speed
+    (legacy Restart-ActiveSpeechPlayback); Replay keeps restarting the same
+    audio at the new tempo from the current position."""
+
+    def test_edge_speed_change_calls_engine_set_speed(self):
+        self.api.set_speech_speed(150)
+        self.api.engine.set_speed.assert_called_once_with(150)
+        self.assertEqual(self.api._speech_speed, 150)
+
+    def test_speed_is_clamped_to_legacy_bounds(self):
+        self.api.set_speech_speed(10)
+        self.api.engine.set_speed.assert_called_once_with(50)
+        self.api.engine.set_speed.reset_mock()
+        self.api.set_speech_speed(500)
+        self.api.engine.set_speed.assert_called_once_with(200)
+
+    def test_replay_speed_change_restarts_at_current_position(self):
+        self.api.engine.provider = "Replay"
+        self.api.engine.mode = "Playing"
+        with mock.patch.object(main.Api, "_replay_position", return_value=2.5):
+            self.api.set_speech_speed(150)
+        self.api.engine.set_speed.assert_not_called()
+        self.api.engine.start_replay_playback.assert_called_once_with(2.5)
+        self.api.engine.pause.assert_not_called()
+
+    def test_replay_speed_change_while_paused_stays_paused(self):
+        self.api.engine.provider = "Replay"
+        self.api.engine.mode = "Paused"
+        with mock.patch.object(main.Api, "_replay_position", return_value=1.0):
+            self.api.set_speech_speed(150)
+        self.api.engine.start_replay_playback.assert_called_once_with(1.0)
+        self.api.engine.pause.assert_called_once_with()
+
+
 class TestAskAiKeyOrder(ApiSettingsTestCase):
     def test_stored_settings_key_wins_over_env(self):
         self.api.set_api_key("gsk_stored_key")

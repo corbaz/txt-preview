@@ -27,12 +27,36 @@ from .marks import (
     EdgeWordMark,
     edge_word_marks,
     get_mark_index_at,
+    speech_alignment_key,
     speech_words_key,
-    word_index_at_character,
 )
-from .replay import build_atempo_filter, format_replay_time, get_replay_word_timings
+from .replay import build_atempo_filter, format_replay_time, get_replay_word_timings  # noqa: F401 (re-exported)
 
 HIGHLIGHT_LEAD_SECONDS = 0.06
+
+
+def get_remaining_speech_text(texts: Sequence[str], current_index: int,
+                              char_position: int) -> str:
+    """Legacy Get-RemainingSpeechText: the current chunk from the first
+    whitespace boundary at/after the character position plus every later
+    chunk, joined by blank lines. Empty once the reading is exhausted."""
+    if current_index < 0 or current_index >= len(texts):
+        return ""
+    current = texts[current_index]
+    position = max(0, min(char_position, len(current)))
+    while position < len(current) and not current[position].isspace():
+        position += 1
+    parts: list[str] = []
+    remaining = current[position:].lstrip()
+    if remaining:
+        parts.append(remaining)
+    parts.extend(texts[current_index + 1:])
+    return "\n\n".join(parts)
+
+
+def _speed_label(percent: int) -> str:
+    """Legacy lblSpeedValue factor, es-AR decimal comma ('1,50x')."""
+    return f"{percent / 100:.2f}".replace(".", ",") + "x"
 
 REPO = Path(__file__).resolve().parents[3]
 EDGE_TTS_WORDS_SCRIPT = REPO / "edge_tts_words.py"
@@ -133,6 +157,10 @@ class SpeechEngine:
         self.align_cursor = -1
         self.align_floor = -1
         self.align_misses = 0
+        self._align_raw_words = ""
+        # Legacy CacheStartCursor: preview cursor this session started from;
+        # Repetir timings are offset by it (None until a session starts).
+        self.session_start_cursor: int | None = None
 
         self.replay = ReplayCache()
         self.replay_offset = 0.0
@@ -146,7 +174,7 @@ class SpeechEngine:
             return True
         if not raw_words:
             return False
-        from .marks import speech_alignment_key
+        self._align_raw_words = raw_words
         self.align_words = [speech_alignment_key(w) for w in raw_words.split("\n")]
         self.align_words_key = speech_words_key(raw_words)
         return True
@@ -154,9 +182,11 @@ class SpeechEngine:
     def reset_alignment(self, start_cursor: int = -1) -> None:
         self.align_words = []
         self.align_words_key = None
+        self._align_raw_words = ""
         self.align_cursor = max(-1, start_cursor)
         self.align_floor = self.align_cursor
         self.align_misses = 0
+        self.session_start_cursor = None
 
     def step_alignment(self, spoken_word: str) -> None:
         self.align_cursor, self.align_misses = next_alignment_cursor(
@@ -184,7 +214,8 @@ class SpeechEngine:
 
     # ---- Session -----------------------------------------------------------
     def start_edge_session(self, text: str, voice_display: str, voice_name: str,
-                           rate_percent: int = 100) -> None:
+                           rate_percent: int = 100, start_cursor: int | None = None,
+                           cache_eligible: bool = True) -> None:
         self._require_tools()
         self.session_id += 1
         self.provider = "Edge"
@@ -210,6 +241,13 @@ class SpeechEngine:
             start_word += len(chunk_text.split())
         for chunk in self.chunks:
             self._start_chunk_generation(chunk, voice_name, rate_percent)
+        # Legacy CacheStartCursor: the alignment floor this session starts
+        # from (a Move-SpeechToWord jump passes wordIndex - 1).
+        self.session_start_cursor = (max(-1, int(start_cursor))
+                                     if start_cursor is not None else self.align_floor)
+        # Legacy: only a reading started by Play is a new generation; voice or
+        # speed restarts are partial and never replace the Repetir cache.
+        self.replay.eligible = cache_eligible
         self.mode = "Generating"
         self.emit("info", f"Preparando {len(self.chunks)} bloques; el primero se reproducirá apenas esté listo...")
 
@@ -385,6 +423,57 @@ class SpeechEngine:
             self.mode = "Generating"
         self.emit("info", "Continuando la lectura desde la posición pausada.")
 
+    def set_speed(self, percent: int) -> None:
+        """Legacy Set-SpeechSpeed + Restart-ActiveSpeechPlayback: a live Edge
+        reading restarts from the current position with the remaining text at
+        the new rate, keeping the highlight; a paused reading stays paused.
+        Replay keeps the caller-side restart (same audio, new tempo)."""
+        percent = int(percent)
+        self.applied_speed = percent
+        if self.provider == "Replay" or self.provider is None:
+            return
+        if self.mode not in ("Playing", "Paused"):
+            return
+        was_paused = self.mode == "Paused"
+        speed_text = _speed_label(percent)
+        char_position = self._edge_character_position()
+        texts = [chunk.text for chunk in self.chunks]
+        remaining = get_remaining_speech_text(texts, self.current_index, char_position)
+        cursor = self.align_cursor
+        voice_display, voice_name = self.voice_display, self.voice_name
+        raw_words = self._align_raw_words
+        self.stop_voice_playback()
+        if not remaining.strip():
+            self.emit("warning", "La lectura ya había finalizado.")
+            return
+        # Keep the highlight where it was: the floor moves to the current
+        # word cursor and the restarted reading advances from there.
+        self.reset_alignment(cursor)
+        self.initialize_alignment(raw_words)
+        self.start_edge_session(remaining, voice_display, voice_name,
+                                rate_percent=percent)
+        # Voice/speed restarts are partial readings: never replace Repetir.
+        self.replay.eligible = False
+        if was_paused:
+            self.pause()
+            self.emit("info", f"Velocidad cambiada a {speed_text}. La lectura permanece pausada.")
+        else:
+            self.emit("info", f"Velocidad cambiada a {speed_text}. Continuando desde la posición actual.")
+
+    def _edge_character_position(self) -> int:
+        """Legacy Get-EdgeChunkCharacterPosition: character offset of the word
+        the audio clock is currently on, within the current chunk text."""
+        if self.current_index >= len(self.chunks):
+            return 0
+        chunk = self.chunks[self.current_index]
+        elapsed = self.elapsed_seconds()
+        if elapsed is None or not chunk.word_marks:
+            return 0
+        mark_index = self.get_mark_index(chunk, elapsed)
+        if mark_index < 0:
+            return 0
+        return chunk.word_marks[mark_index].character
+
     def stop_voice_playback(self) -> None:
         was_replay = self.provider == "Replay"
         self._save_replay_cache()
@@ -430,17 +519,14 @@ class SpeechEngine:
             self.emit("warning", f"No se pudo preparar Repetir: {error}")
             return
         mark_seconds: list[float] = []
-        mark_words: list[int] = []
+        spoken_words: list[str] = []
         chunk_offset = 0.0
         duration = 0.0
         for chunk in self.chunks:
             duration += chunk.duration_seconds
             for mark in chunk.word_marks:
                 mark_seconds.append(chunk_offset + mark.start_seconds)
-                # Replay mark word = preview word index of the mark's character
-                # within the chunk, offset by the chunks played before it.
-                mark_words.append(chunk.start_word_index
-                                  + word_index_at_character(chunk.text, mark.character))
+                spoken_words.append(mark.text)
             chunk_offset += chunk.duration_seconds
         if duration <= 0:
             self.emit("warning", "El audio generado está vacío.")
@@ -449,7 +535,16 @@ class SpeechEngine:
         if mark_seconds and mark_seconds[-1] > duration + 0.05:
             # Word times beyond the audio mean a clock mismatch: keep the audio, drop the marks.
             mark_seconds.clear()
-            mark_words.clear()
+            spoken_words.clear()
+        # Legacy Get-ReplayWordTimings: re-run the live aligner over every
+        # spoken word so Repetir marks the same preview words the reading did.
+        timings: dict[str, list] | None = None
+        if (mark_seconds and self.session_start_cursor is not None
+                and self.align_words and self.align_words_key):
+            timings = get_replay_word_timings(
+                mark_seconds, spoken_words, self.align_words, self.session_start_cursor)
+        mark_words = list(timings["words"]) if timings else []
+        mark_seconds = list(timings["seconds"]) if timings else []
         self.replay = ReplayCache(
             file=replay_file, duration=duration,
             voice_display=self.voice_display or "",

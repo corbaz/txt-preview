@@ -164,12 +164,12 @@
   function applySpeechState(state) {
     if (!state) return;
     speechState = state;
-    if (state.mode === "Playing" || state.mode === "Paused") {
-      if (typeof state.highlight_word_index === "number") {
-        setSpeechWordIndex(state.highlight_word_index);
-      }
-    } else {
+    if (state.mode === "Idle") {
+      // Legacy KeepHighlight: a speed/voice restart regenerates without
+      // clearing where the reading got to.
       clearSpeechProgress();
+    } else if (typeof state.highlight_word_index === "number") {
+      setSpeechWordIndex(state.highlight_word_index);
     }
     $("speech-pause").textContent = state.mode === "Paused" ? "Continuar" : "Pausar";
     if (state.message) setStatus(state.message);
@@ -223,8 +223,7 @@
   });
 
   $("export-mp3").addEventListener("click", () => {
-    withBusy($("export-mp3"), `Generando MP3 con Elvira (es-ES)...`,
-      (api) => api.export_mp3());
+    withBusy($("export-mp3"), "Generando MP3...", (api) => api.export_mp3());
   });
 
   async function copyPreview(plain) {
@@ -370,6 +369,71 @@
     setStatus(`Modelo: ${provider === "Groq" ? "Groq · " + select.value : (option ? option.textContent : select.value)}`);
   });
 
+  // ---- Voz Edge (T4/S6) -----------------------------------------------------
+  // Legacy voice catalog: es/en voices from edge-tts, grouped by language,
+  // selection persisted through Configuración.
+  const VOICE_GROUP_LABELS = { es: "Español", en: "English" };
+
+  function applyVoiceCatalog(result, selectedVoice) {
+    const select = $("voice-select");
+    if (!select) return;
+    const previous = selectedVoice || select.value;
+    select.innerHTML = "";
+    const groups = {};
+    for (const voice of result.voices || []) {
+      const language = (voice.culture || "").slice(0, 2);
+      (groups[language] = groups[language] || []).push(voice);
+    }
+    for (const language of Object.keys(groups).sort()) {
+      const group = document.createElement("optgroup");
+      group.label = VOICE_GROUP_LABELS[language] || language;
+      for (const voice of groups[language]) {
+        const option = document.createElement("option");
+        option.value = voice.name;
+        option.textContent = voice.display_name;
+        group.appendChild(option);
+      }
+      select.appendChild(group);
+    }
+    const hasPrevious = Array.from(select.options).some((o) => o.value === previous);
+    if (previous && !hasPrevious) {
+      // A persisted voice missing from the catalog stays selectable.
+      const option = document.createElement("option");
+      option.value = previous;
+      option.textContent = previous;
+      select.appendChild(option);
+    }
+    if (previous) select.value = previous;
+    select.disabled = false;
+  }
+
+  async function refreshVoices(force, selectedVoice) {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api) return;
+    const button = $("update-voices");
+    if (button) button.disabled = true;
+    try {
+      const result = await api.list_voices(!!force);
+      if (!result.ok) {
+        setStatus(result.error || "No se pudo cargar el catálogo de voces Edge.");
+        return;
+      }
+      applyVoiceCatalog(result, selectedVoice);
+      if (result.warning) setStatus(result.warning);
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  $("update-voices").addEventListener("click", () => refreshVoices(true));
+
+  $("voice-select").addEventListener("change", async () => {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api) return;
+    const result = await api.set_speech_voice($("voice-select").value);
+    if (result && result.ok) setStatus(`Voz Edge: ${result.voice}`);
+  });
+
   // ---- In-app update (T11/S4) ---------------------------------------------
   // Legacy Update-AppUpdateControls / Install-AppUpdate messages: the three
   // task-worded states plus the legacy refusal details from txt.ps1.
@@ -438,6 +502,8 @@
       try {
         const config = await api.get_settings();
         if (config && config.theme) applyTheme(config.theme);
+        // Legacy voice catalog load: cache first, edge-tts on a miss.
+        refreshVoices(false, config && config.speech_voice);
       } catch (_) { /* settings are best effort */ }
     }
     const version = await api.app_version();
@@ -541,5 +607,6 @@
     copyPreview, withBusy,
     applyTheme, applyModelCatalog, saveApiKey,
     applyUpdateStatus,
+    applyVoiceCatalog, refreshVoices,
   };
 })();
