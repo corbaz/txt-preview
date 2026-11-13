@@ -188,6 +188,8 @@ def check_ffmpeg() -> Dict:
 
 
 def _webview2_present_windows() -> bool:
+    if sys.platform != "win32":
+        return False
     try:
         import winreg
     except ImportError:  # pragma: no cover - win32 siempre tiene winreg
