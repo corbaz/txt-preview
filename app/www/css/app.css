@@ -126,9 +126,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--notice);
+  color: var(--notice); /* active: the selected model has the capability */
   cursor: help;
 }
+
+/* S11: inactive state — the selected model lacks the capability. */
+.cap.off { color: var(--muted); }
 
 .cap svg { width: 14px; height: 14px; }
 
@@ -195,8 +198,11 @@ body {
   font-size: 15px;
 }
 
+/* S11: reduced-motion reported the spinner "quieto" on Windows/WebView2 —
+   the rotation may slow down but is never disabled, so the pending work
+   still reads as movement. */
 @media (prefers-reduced-motion: reduce) {
-  .work-spinner { animation: none; } /* the ring stays visible, no rotation */
+  .work-spinner { animation: work-spin 2.7s linear infinite; }
 }
 
 .page { display: none; flex: 1; height: 100%; overflow: auto; }

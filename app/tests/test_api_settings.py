@@ -218,6 +218,78 @@ class TestUpdateModels(ApiSettingsTestCase):
         self.assertIn("openai/gpt-oss-120b", ids)
 
 
+class TestS11CatalogCapabilities(ApiSettingsTestCase):
+    """S11/T18: the catalog exposes the full capability dict for every item."""
+
+    def test_groq_entries_carry_full_capabilities(self):
+        self.api.set_api_key("gsk_caps_groq")
+        groq_model = models.ModelInfo("openai/gpt-oss-120b", "OpenAI", 131072)
+        with mock.patch.object(models, "fetch_models", return_value=[groq_model]), \
+                mock.patch.object(main, "_tcp_listening", return_value=False):
+            result = self.api.update_models()
+        entry = next(e for e in result["models"] if e["id"] == "openai/gpt-oss-120b")
+        caps = entry["capabilities"]
+        self.assertEqual(
+            (caps["chat"], caps["reasoning"], caps["web"], caps["vision"], caps["text_files"]),
+            (True, True, True, False, True))
+        self.assertEqual(caps["summary"], models.model_capabilities("openai/gpt-oss-120b").summary)
+
+    def test_bridge_entries_carry_capabilities_with_live_vision(self):
+        self.api.set_api_key("gsk_caps_bridge")
+        with mock.patch.object(models, "fetch_models", return_value=[]), \
+                mock.patch.object(main, "_tcp_listening", return_value=True), \
+                mock.patch.object(main.bridges, "bridge_http") as bridge_http:
+            def fake_http(bridge, method, path, body, timeout, password):
+                if bridge.key == "claude":
+                    return 200, json.dumps([{"id": "sonnet-4", "name": "Sonnet 4"}])
+                return 200, json.dumps([])
+            bridge_http.side_effect = fake_http
+            result = self.api.update_models()
+        caps = next(e for e in result["models"]
+                    if e["id"] == "claude:sonnet-4")["capabilities"]
+        self.assertTrue(caps["chat"])
+        self.assertTrue(caps["text_files"])
+        self.assertFalse(caps["web"])
+
+
+class TestS11SelectedModelValidation(ApiSettingsTestCase):
+    """S11/T18: non-chat and unknown Groq models are refused before any
+    persistence or session change; known chat Groq and bridge ids pass."""
+
+    def test_rejects_non_chat_groq_without_persistence_or_change(self):
+        # load_settings merges defaults, so persistence is checked on the raw
+        # settings file: a rejected selection writes nothing.
+        raw_file = Path(settings._settings_file(self.settings_dir))
+        result = self.api.set_selected_model("whisper-large-v3")
+        self.assertFalse(result["ok"])
+        self.assertEqual(self.api.get_selected_model(), "openai/gpt-oss-120b")
+        self.assertFalse(raw_file.exists())
+
+    def test_rejects_safeguard_non_chat(self):
+        self.assertFalse(self.api.set_selected_model(
+            "openai/gpt-oss-safeguard-20b")["ok"])
+
+    def test_rejects_unknown_groq_id(self):
+        result = self.api.set_selected_model("moonshotai/kimi-k2")
+        self.assertFalse(result["ok"])
+        self.assertEqual(self.api.get_selected_model(), "openai/gpt-oss-120b")
+
+    def test_accepts_known_chat_groq_and_persists(self):
+        result = self.api.set_selected_model("qwen/qwen3.8-27b")
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.api.get_selected_model(), "qwen/qwen3.8-27b")
+        self.assertEqual(
+            settings.load_settings(self.settings_dir)["selected_model"],
+            "qwen/qwen3.8-27b")
+
+    def test_accepts_bridge_ids(self):
+        result = self.api.set_selected_model("claude:sonnet-4")
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            settings.load_settings(self.settings_dir)["selected_model"],
+            "claude:sonnet-4")
+
+
 class TestSelectedModelPersistence(ApiSettingsTestCase):
     def test_set_selected_model_persists_to_settings(self):
         self.api.set_selected_model("claude:sonnet-4")

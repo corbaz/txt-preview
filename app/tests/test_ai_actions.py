@@ -213,6 +213,54 @@ class TestAskAiBridgeRouting(unittest.TestCase):
         self.assertEqual(chat.call_args[0][2], "des-memoria")
 
 
+class TestS11ChatAndWebGating(unittest.TestCase):
+    """S11/T18: the request is refused up front on a non-chat model and when
+    the web checkbox is set on a non-web model — the body is never silently
+    sent without the requested tool. Resumir behavior stays untouched."""
+
+    def test_consult_with_web_on_non_web_groq_returns_clear_error(self):
+        api = api_with_env(self, GROQ_API_KEY="gsk_test")
+        api._selected_model = "qwen/qwen3.8-27b"
+        with mock.patch.object(groq, "post_chat") as post:
+            result = api.ask_ai("consult", True, "consulta")
+        self.assertFalse(result["ok"])
+        self.assertIn("búsqueda web", result["error"])
+        post.assert_not_called()
+
+    def test_consult_with_web_on_bridge_returns_clear_error(self):
+        api = api_with_env(self, GROQ_API_KEY="gsk_test")
+        api._selected_model = "claude:claude-sonnet-4"
+        with mock.patch.object(groq, "post_chat") as post:
+            result = api.ask_ai("consult", True, "hola")
+        self.assertFalse(result["ok"])
+        self.assertIn("búsqueda web", result["error"])
+        post.assert_not_called()
+
+    def test_action_on_non_chat_model_refuses_before_the_request(self):
+        api = api_with_env(self, GROQ_API_KEY="gsk_test")
+        api._selected_model = "whisper-large-v3"
+        with mock.patch.object(groq, "post_chat") as post:
+            result = api.ask_ai("summarize", False, "texto")
+        self.assertFalse(result["ok"])
+        post.assert_not_called()
+
+    def test_gpt_oss_consult_with_web_sends_browser_search(self):
+        api = api_with_env(self, GROQ_API_KEY="gsk_test")
+        api._selected_model = "openai/gpt-oss-20b"
+        with mock.patch.object(groq, "post_chat", return_value={"text": "x"}) as post:
+            api.ask_ai("consult", True, "hola")
+        self.assertEqual(post.call_args[0][1]["tools"], [{"type": "browser_search"}])
+
+    def test_summarize_stays_untouched_on_chat_models(self):
+        api = api_with_env(self, GROQ_API_KEY="gsk_test")
+        with mock.patch.object(groq, "post_chat", return_value={"text": "resumen"}):
+            result = api.ask_ai("summarize", True, "texto")  # web ignored by default model? no: gated
+        # default model is web-capable, so summarize with the checkbox runs normally
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["editor_action"], "replace")
+        self.assertEqual(result["message"], "Resumen profesional listo en Vista previa.")
+
+
 class TestAttachmentsApi(unittest.TestCase):
     def setUp(self):
         self.api = api_with_env(self)

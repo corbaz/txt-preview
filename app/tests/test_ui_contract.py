@@ -137,6 +137,15 @@ class UiContractTestCase(unittest.TestCase):
         self.py_source = MAIN_PY.read_text(encoding="utf-8")
         self.js_source = MAIN_JS.read_text(encoding="utf-8")
 
+    def handler_window(self, control_id):
+        marker = f'$("{control_id}")'
+        windows = []
+        start = self.js_source.find(marker)
+        while start >= 0:
+            windows.append(self.js_source[max(0, start - 200):start + 700])
+            start = self.js_source.find(marker, start + 1)
+        return "\n".join(windows)
+
 
 class TestTopNavigation(UiContractTestCase):
     def test_left_tabs_in_original_order(self):
@@ -372,15 +381,6 @@ class TestJavaScriptWiring(UiContractTestCase):
         "theme-toggle": "set_theme",
     }
 
-    def handler_window(self, control_id):
-        marker = f'$("{control_id}")'
-        windows = []
-        start = self.js_source.find(marker)
-        while start >= 0:
-            windows.append(self.js_source[max(0, start - 200):start + 700])
-            start = self.js_source.find(marker, start + 1)
-        return "\n".join(windows)
-
     def test_every_deck_control_is_bound_and_calls_its_api(self):
         missing = []
         for control_id, method in self.BINDINGS.items():
@@ -560,11 +560,19 @@ class TestWorkOverlay(UiContractTestCase):
         self.assertIsNotNone(message, ".work-message rule missing")
         self.assertIn("margin-top:", message)
 
-    def test_reduced_motion_keeps_the_visible_ring_without_rotation(self):
+    def test_spinner_rotation_is_always_infinite(self):
+        spinner = css_block(self.css_source, ".work-spinner")
+        self.assertIn("animation:", spinner)
+        self.assertIn("infinite", spinner)  # S11: it visibly turns like a gif
+
+    def test_reduced_motion_slows_the_rotation_but_never_stops_it(self):
         index = self.css_source.index("prefers-reduced-motion: reduce")
         segment = self.css_source[index:index + 300]
         self.assertIn(".work-spinner", segment)
-        self.assertIn("animation: none", segment)
+        # S11: Windows/WebView2 reported the spinner "quieto" — reduced-motion
+        # may slow the rotation, never disable it.
+        self.assertNotIn("animation: none", segment)
+        self.assertIn("infinite", segment)
         spinner = css_block(self.css_source, ".work-spinner")
         self.assertIn("border:", spinner)  # the ring stays visible
 
@@ -591,6 +599,84 @@ class TestWorkOverlay(UiContractTestCase):
         body = js_function(self.js_source, "runAi")
         self.assertIn("button.disabled = true", body)
         self.assertNotIn("aria-busy", body)
+
+
+class TestModelCapabilityIcons(UiContractTestCase):
+    """S11/T18: the five context-bar icons reflect the selected model's
+    capabilities live, the web checkbox is model-gated, and a rejected
+    selection reverts with a visible error."""
+
+    def setUp(self):
+        super().setUp()
+        self.css_source = APP_CSS.read_text(encoding="utf-8")
+
+    def test_capability_icons_carry_data_capability_in_fixed_order(self):
+        caps = self.tree.find(node_id="context-bar").find_all(cls="cap")
+        self.assertEqual([cap.attrs.get("data-capability") for cap in caps],
+                         ["chat", "reasoning", "web", "vision", "text_files"])
+
+    def test_capability_css_has_active_and_inactive_states(self):
+        self.assertIsNotNone(css_block(self.css_source, ".cap"), ".cap rule missing")
+        off = css_block(self.css_source, ".cap.off")
+        self.assertIsNotNone(off, ".cap.off rule missing")
+        self.assertIn("color:", off)
+
+    def test_catalog_entries_retain_capabilities(self):
+        body = js_function(self.js_source, "applyModelCatalog")
+        self.assertIn("capabilities", body)
+        self.assertIn("catalogCapabilities", self.js_source)
+
+    def test_selection_updates_icon_states_tooltips_and_web_checkbox(self):
+        body = js_function(self.js_source, "applySelectedModelCapabilities")
+        self.assertIn("data-capability", body)
+        self.assertIn('classList.toggle("off"', body)
+        self.assertIn("title", body)
+        self.assertIn('$("web-search")', body)
+        self.assertIn("checked", body)
+        self.assertIn("disabled", body)
+
+    def test_same_web_model_preserves_the_checkbox_choice(self):
+        body = js_function(self.js_source, "applySelectedModelCapabilities")
+        self.assertIn("lastCapabilityModel", body)
+
+    def test_selection_gates_attachments_and_surfaces_the_summary(self):
+        body = js_function(self.js_source, "applySelectedModelCapabilities")
+        self.assertIn('$("attach-files")', body)
+        window = self.handler_window("model-select")
+        self.assertIn("get_attachment_summary", window)
+
+    def test_rejected_selection_reverts_and_shows_the_error(self):
+        window = self.handler_window("model-select")
+        self.assertIn("set_selected_model", window)
+        self.assertIn("!result.ok", window)
+        self.assertIn("selectedModelId", window)  # revert target
+        self.assertIn("setStatus(result.error)", window)
+
+
+class TestArtboardS11Parity(UiContractTestCase):
+    """S11/T18: the chosen artboard proves the same two fixes — always
+    rotating spinner and live capability icons."""
+
+    def setUp(self):
+        super().setUp()
+        artboard = ROOT.parent / "design" / "txt-original-parity" \
+            / "01-original-layout.html"
+        self.artboard = artboard.read_text(encoding="utf-8")
+
+    def test_artboard_reduced_motion_keeps_the_rotation(self):
+        index = self.artboard.index("prefers-reduced-motion: reduce")
+        segment = self.artboard[index:index + 300]
+        self.assertIn(".work-spinner", segment)
+        self.assertNotIn("animation: none", segment)
+        self.assertIn("infinite", segment)
+
+    def test_artboard_capability_icons_carry_data_capability(self):
+        self.assertEqual(self.artboard.count('data-capability="'), 5)
+
+    def test_artboard_has_an_off_state_and_model_switch_proof(self):
+        self.assertIn(".cap.off", self.artboard)
+        self.assertIn("model-combo", self.artboard)
+        self.assertIn("applySelectedModelCapabilities", self.artboard)
 
 
 class TestSliderFillAlignment(UiContractTestCase):

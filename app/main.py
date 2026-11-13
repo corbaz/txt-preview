@@ -72,6 +72,9 @@ def _tcp_listening(port: int, timeout_seconds: float = 0.5) -> bool:
 
 # Legacy Show-Message / Set-StatusText strings for the AI actions (txt.ps1 ~6340-6580).
 ERR_API_CONNECTION = "Error al conectar con la API."
+# S11: capability gates speak before the request — never a silent tool omission.
+MSG_MODEL_NOT_CHAT = "El modelo elegido no admite chat de texto. Elegí otro modelo para las acciones de IA."
+MSG_MODEL_NO_WEB = "El modelo elegido no admite búsqueda web. Desmarcá «Usar web» o elegí otro modelo."
 MSG_ADDED_ATTACHMENTS = (
     "Los adjuntos visibles sobre el editor se enviarán en la próxima acción de IA."
 )
@@ -279,7 +282,9 @@ class Api:
             groq_models = list(models.DEFAULT_GROQ_MODELS)  # static catalog
         catalog: list[dict] = [
             {"id": item.id, "name": item.id, "provider": "Groq",
-             "vision": models.model_capabilities(item.id).vision}
+             "vision": models.model_capabilities(item.id).vision,
+             # S11: the full capability dict travels with every catalog entry.
+             "capabilities": models.model_capabilities(item.id).as_dict()}
             for item in groq_models
         ]
         bridge_status: dict[str, str] = {}
@@ -327,12 +332,15 @@ class Api:
             # Claude Code always reads images, Codex says it per model (legacy switch).
             vision = (bridge.key == "claude"
                       or (bridge.key == "codex" and model.get("vision") is True))
+            capabilities = models.model_capabilities(
+                f"{bridge.key}:{model['id']}", bridge.label, vision)
             entries.append({
                 "id": f"{bridge.key}:{model['id']}",
                 "name": str(model.get("name") or model.get("id")),
                 "provider": bridge.label,
                 "bridge": bridge.key,
                 "vision": vision,
+                "capabilities": capabilities.as_dict(),
             })
         count = len(model_list)
         status = ("Conectado (1 modelo)" if count == 1
@@ -349,6 +357,12 @@ class Api:
         return self._selected_model
 
     def set_selected_model(self, model_id: str) -> dict:
+        # S11: validate before persisting — a non-chat or unknown Groq model
+        # never changes the session nor the saved settings. Bridge ids are
+        # always chat models (their /models list feeds the selector live).
+        if bridges.get_bridge(model_id) is None \
+                and not models.model_capabilities(model_id).chat:
+            return {"ok": False, "error": MSG_MODEL_NOT_CHAT, "model": model_id}
         self._selected_model = model_id
         settings.set_selected_model(model_id, self._settings_dir)
         return {"ok": True, "model": model_id}
@@ -423,6 +437,14 @@ class Api:
             has_attachments = bool(self._attachments)
         if not (text or "").strip() and not has_attachments:
             return {"ok": False, "error": input_message}
+        # S11: capability gates before any request — a non-chat model never
+        # reaches the API, and a web request on a non-web model fails clearly
+        # instead of silently dropping the browser_search tool.
+        capabilities = self._selected_capabilities()
+        if not capabilities.chat:
+            return {"ok": False, "error": MSG_MODEL_NOT_CHAT}
+        if web_search and not capabilities.web:
+            return {"ok": False, "error": MSG_MODEL_NO_WEB}
         try:
             response = self._send_ai_request(self._build_prompt(action, text), bool(web_search))
             result_text = groq.extract_response_text(response)

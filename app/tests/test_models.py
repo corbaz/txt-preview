@@ -53,6 +53,42 @@ class TestCapabilities(unittest.TestCase):
         self.assertIn("Suscripción Claude (bridge local)", caps.summary)
 
 
+class TestS11OfficialCapabilityMap(unittest.TestCase):
+    """S11/T18: capabilities mapped conservatively by exact official IDs;
+    unknown IDs stay all-false/unclassified."""
+
+    def test_llama_models_chat_with_documents(self):
+        for model_id in ("llama-3.1-8b-instant", "llama-3.3-70b-versatile"):
+            caps = models.model_capabilities(model_id)
+            self.assertEqual(
+                (caps.chat, caps.reasoning, caps.web, caps.vision, caps.text_files),
+                (True, False, False, False, True),
+                model_id)
+
+    def test_minimax_chat_with_reasoning(self):
+        caps = models.model_capabilities("minimaxai/minimax-m2.7")
+        self.assertEqual(
+            (caps.chat, caps.reasoning, caps.web, caps.vision, caps.text_files),
+            (True, True, False, False, True))
+
+    def test_muse_spark_chat_reasoning_and_vision(self):
+        caps = models.model_capabilities("meta-models/muse-spark-open")
+        self.assertEqual(
+            (caps.chat, caps.reasoning, caps.web, caps.vision, caps.text_files),
+            (True, True, False, True, True))
+
+    def test_gpt_oss_variants_keep_web_search(self):
+        for model_id in ("openai/gpt-oss-120b", "openai/gpt-oss-20b"):
+            self.assertTrue(models.model_capabilities(model_id).web, model_id)
+
+    def test_unknown_live_id_stays_all_false(self):
+        caps = models.model_capabilities("moonshotai/kimi-k2")
+        self.assertEqual(
+            (caps.chat, caps.reasoning, caps.web, caps.vision, caps.text_files),
+            (False, False, False, False, False))
+        self.assertEqual(caps.summary, "Capacidades no catalogadas")
+
+
 class TestFetchModels(unittest.TestCase):
     def test_missing_key_message(self):
         with self.assertRaisesRegex(RuntimeError, "Ingresá una API key de Groq."):

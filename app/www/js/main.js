@@ -415,10 +415,70 @@
   // ---- Configuración (T10/S2) ---------------------------------------------
   const BRIDGE_GROUP_LABELS = ["Groq", "Claude", "Codex", "Gemini"];
 
+  // S11: conservative capability map by exact official model ID (mirrors
+  // txt_core/models.py). Unknown IDs stay all-false/unclassified until the
+  // catalog — which carries the full capabilities dict — overrides it.
+  const MODEL_CAPABILITIES = {
+    "llama-3.1-8b-instant": { chat: true, reasoning: false, web: false, vision: false, text_files: true },
+    "llama-3.3-70b-versatile": { chat: true, reasoning: false, web: false, vision: false, text_files: true },
+    "openai/gpt-oss-120b": { chat: true, reasoning: true, web: true, vision: false, text_files: true },
+    "openai/gpt-oss-20b": { chat: true, reasoning: true, web: true, vision: false, text_files: true },
+    "qwen/qwen3.8-27b": { chat: true, reasoning: true, web: false, vision: true, text_files: true },
+    "minimaxai/minimax-m2.7": { chat: true, reasoning: true, web: false, vision: false, text_files: true },
+    "meta-models/muse-spark-open": { chat: true, reasoning: true, web: false, vision: true, text_files: true },
+  };
+  const FALLBACK_CAPABILITIES = { chat: false, reasoning: false, web: false, vision: false, text_files: false };
+  const CAP_TITLES = {
+    chat: "Chat de texto",
+    reasoning: "Razonamiento",
+    web: "Navegación y búsqueda web",
+    vision: "Visión: entiende imágenes",
+    text_files: "Adjuntar documentos: texto, PDF, Word y PowerPoint",
+  };
+
+  // Capabilities of every catalog entry (Groq and bridges): kept by id so a
+  // selection can read the live dict instead of guessing.
+  const catalogCapabilities = {};
+  let lastCapabilityModel = null;
+  // The model the session currently points at; a rejected change reverts to it.
+  let selectedModelId = "openai/gpt-oss-120b";
+
+  function capabilitiesFor(modelId) {
+    return catalogCapabilities[modelId] || MODEL_CAPABILITIES[modelId] || FALLBACK_CAPABILITIES;
+  }
+
+  // S11: live capability badges/gates for the selected model — icon states
+  // and tooltips, the web checkbox, and the attachment button.
+  function applySelectedModelCapabilities(modelId) {
+    const caps = capabilitiesFor(modelId);
+    document.querySelectorAll(".cap[data-capability]").forEach((span) => {
+      const key = span.dataset.capability;
+      const supported = !!caps[key];
+      span.classList.toggle("off", !supported);
+      span.title = `${CAP_TITLES[key]} — ${supported ? "disponible en este modelo" : "no disponible en este modelo"}`;
+    });
+    if (modelId === lastCapabilityModel) return; // same model: keep the user's choice
+    lastCapabilityModel = modelId;
+    const webSupported = !!caps.web;
+    const webCheckbox = $("web-search");
+    webCheckbox.disabled = !webSupported;
+    webCheckbox.checked = webSupported; // web model: checked by default; otherwise gated off
+    const attachButton = $("attach-files");
+    const canAttach = !!caps.text_files || !!caps.vision;
+    attachButton.disabled = !canAttach;
+    attachButton.title = canAttach
+      ? "Adjuntar archivos al contexto"
+      : "El modelo elegido no admite archivos adjuntos";
+  }
+
   // S9: preferredModel preselects the persisted model (startup load); without
   // it the catalog keeps whatever the selector already shows.
   function applyModelCatalog(result, preferredModel) {
     const select = $("model-select");
+    // S11: catalog entries carry the full capabilities dict; remember them.
+    for (const model of result.models || []) {
+      if (model.capabilities) catalogCapabilities[model.id] = model.capabilities;
+    }
     const previous = preferredModel || select.value
       || (select.options[0] && select.options[0].value) || "";
     select.innerHTML = "";
@@ -456,6 +516,8 @@
     }
     if (previous) select.value = previous;
     select.disabled = select.options.length === 0;
+    // The catalog may have resolved the capabilities of the shown model.
+    applySelectedModelCapabilities(select.value);
   }
 
   // S9: startup model load — the persisted model is preselected and the
@@ -482,6 +544,8 @@
       const result = await api.update_models();
       if (result.ok) {
         applyModelCatalog(result, selectedModel);
+        applySelectedModelCapabilities(select.value);
+        selectedModelId = select.value;
         if (wasReady && status.textContent === "Cargando modelos...") {
           setStatus("Listo.");
         }
@@ -538,6 +602,8 @@
         return;
       }
       applyModelCatalog(result);
+      applySelectedModelCapabilities($("model-select").value);
+      selectedModelId = $("model-select").value;
       setStatus(result.error || "Modelos actualizados.");
     } finally {
       button.disabled = false;
@@ -549,6 +615,16 @@
     if (!api) return;
     const select = $("model-select");
     const result = await api.set_selected_model(select.value);
+    if (!result.ok) {
+      // S11: a rejected selection (non-chat/unknown) reverts to the session
+      // model and surfaces the reason.
+      setStatus(result.error);
+      select.value = selectedModelId;
+      applySelectedModelCapabilities(selectedModelId);
+      return;
+    }
+    selectedModelId = select.value;
+    applySelectedModelCapabilities(select.value);
     try {
       $("attachment-summary").textContent = await api.get_attachment_summary();
     } catch (_) { /* the summary is best effort */ }
@@ -766,6 +842,10 @@
     // S9: the main model selector gets its catalog at startup, after the
     // persisted settings (selected model) are known. Not awaited: the model
     // fetch runs while the editor is already usable.
+    // S11: the persisted/default model drives the capability icons before
+    // the catalog arrives (static map), and again after it loads.
+    selectedModelId = (config && config.selected_model) || selectedModelId;
+    applySelectedModelCapabilities(selectedModelId);
     loadStartupModels(config && config.selected_model);
     setInterval(speechTick, 120);
   });
@@ -878,6 +958,7 @@
     runAi, applyAttachments, getSpeechLanguage: () => speechLanguage,
     copyMain, withBusy,
     applyTheme, applyModelCatalog, saveApiKey, showWorkOverlay, hideWorkOverlay,
+    applySelectedModelCapabilities, capabilitiesFor,
     loadStartupModels, applyUpdateStatus,
     applyVoiceCatalog, refreshVoices,
     selectVoiceByFilter, applySpeechState, speedLabel,

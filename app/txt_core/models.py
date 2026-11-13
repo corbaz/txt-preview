@@ -68,7 +68,11 @@ def bridge_capabilities(label: str, vision: bool) -> Capabilities:
 
 def model_capabilities(model_id: str, bridge_label: str | None = None,
                        bridge_vision: bool | None = None) -> Capabilities:
-    """Legacy Get-GroqModelCapabilities rules; bridge entries need their vision flag."""
+    """Legacy Get-GroqModelCapabilities rules; bridge entries need their vision flag.
+
+    S11: the map is conservative and keyed by exact official model IDs — an
+    unknown ID stays all-false/unclassified instead of being guessed.
+    """
     if bridge_label is not None:
         return bridge_capabilities(bridge_label, bool(bridge_vision))
     if model_id == "qwen/qwen3.8-27b":
@@ -80,6 +84,21 @@ def model_capabilities(model_id: str, bridge_label: str | None = None,
         return Capabilities(
             True, True, True, False, True,
             "Texto · Razonamiento · Búsqueda web · Documentos (texto, PDF, Word, PowerPoint)",
+        )
+    if model_id in ("llama-3.1-8b-instant", "llama-3.3-70b-versatile"):
+        return Capabilities(
+            True, False, False, False, True,
+            "Texto · Documentos (texto, PDF, Word, PowerPoint)",
+        )
+    if model_id == "minimaxai/minimax-m2.7":
+        return Capabilities(
+            True, True, False, False, True,
+            "Texto · Razonamiento · Documentos (texto, PDF, Word, PowerPoint)",
+        )
+    if model_id == "meta-models/muse-spark-open":
+        return Capabilities(
+            True, True, False, True, True,
+            "Texto · Razonamiento · Visión · Imágenes (máx. 3) · Documentos (texto, PDF, Word, PowerPoint)",
         )
     if model_id == "allam-2-7b":
         return Capabilities(True, False, False, False, True, "Texto · Árabe · Documentos (texto, PDF, Word, PowerPoint)")

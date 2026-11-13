@@ -7,10 +7,17 @@ from __future__ import annotations
 
 
 def consult_prompt(text: str) -> str:
-    """Prompt for the Consultar action (txt.ps1 ~6521)."""
+    """Prompt for the Consultar action (txt.ps1 ~6521).
+
+    S11: keeps the legacy base but forbids echoing the question (the reported
+    "Consulta AI repite la pregunta") and directs web-enabled models to
+    actually research and synthesize instead of restating the input.
+    """
     return (
         "Respondé de manera clara, precisa y útil la siguiente consulta.\n"
         "Devolvé solamente la respuesta, sin introducciones innecesarias.\n"
+        "No repitas, parafrasees, cites ni reformules la consulta: arrancá directo con la respuesta.\n"
+        "Si tenés búsqueda web disponible, investigá el tema, contrastá fuentes y sintetizá lo encontrado en la respuesta.\n"
         "\n"
         "Consulta:\n"
         f"{text}\n"
