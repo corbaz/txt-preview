@@ -46,7 +46,7 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 | T20 | S13 | Replay honors the current speed; Play auto-switches the voice to the text language | 6f044ec |
 | T21 | S14 | Make click-to-jump atomic, restore live highlighting, and shorten the first speech chunk | aecd1c1 |
 | T22 | S15 | Enforce voice language/gender filters and the confirmed Play truth table | f2c0c9b |
-| T23 | S16 | Restore replay highlighting, modernize attachment dialogs, bump release and push main | pending |
+| T23 | S16 | Restore replay highlighting, modernize attachment dialogs, bump release and push main | 869e5cf |
 
 ## Log
 
