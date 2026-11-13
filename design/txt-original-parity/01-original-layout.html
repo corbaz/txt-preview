@@ -154,6 +154,19 @@ body { background: #000; font-family: "Segoe UI Variable Text", "Segoe UI", syst
 .btn.accent:hover { background: var(--accent-hover); }
 .btn.last-ai { background: var(--hover); color: var(--accent); border-color: var(--accent); }
 
+/* Spinner en Consultar IA (S9): igual que la producción — girando dentro del
+   padding izquierdo, sin cambiar el ancho del botón ni reemplazar el texto. */
+.btn.ai-busy { position: relative; cursor: progress; }
+.btn.ai-busy::before {
+  content: ""; position: absolute; left: 1px; top: 50%;
+  width: 12px; height: 12px; margin-top: -6px;
+  border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%;
+  animation: ai-spin 0.8s linear infinite;
+}
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .btn.ai-busy::before { animation: none; } }
+
 /* Radio-toggle groups (Hombre/Mujer, Español/Inglés): contenedores de 152x30 */
 .togglegroup { position: absolute; width: 152px; height: 30px; display: flex; }
 .toggle {
@@ -179,7 +192,7 @@ body { background: #000; font-family: "Segoe UI Variable Text", "Segoe UI", syst
 .slider::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
 .slider::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); }
 
-.version { position: absolute; right: 12px; top: 146px; width: 180px; height: 26px; text-align: right; color: var(--muted); font-size: 12px; }
+.version { position: absolute; right: 18px; bottom: 14px; width: 180px; height: 26px; text-align: right; color: var(--muted); font-size: 12px; }
 
 /* Select de voz */
 .voice { position: absolute; }
@@ -262,33 +275,35 @@ La vista previa y el navegador se renderizan en esta misma superficie al cambiar
   <div class="deck">
     <div class="deck-inner">
 
-      <!-- Fila 1 (y=12): IA -->
-      <button class="btn accent" id="btn-consultar" style="left: 0; top: 12px; width: 130px;">Consultar IA</button>
-      <button class="btn" style="left: 138px; top: 12px; width: 140px;">Resumir con IA</button>
-      <button class="btn" style="left: 286px; top: 12px; width: 240px;">Corregir Gramática y Ortografía</button>
-      <button class="btn" style="left: 534px; top: 12px; width: 210px;">Traducir Inglés a Español</button>
-      <button class="btn" style="left: 752px; top: 12px; width: 210px;">Traducir Español a Inglés</button>
+      <!-- Fila 1 (y=12): IA — centrada en el área de 1252px como la producción
+           (offset (1252-962)/2 = 145; en 1920 la fila queda en x~483–1444) -->
+      <button class="btn accent" id="btn-consultar" style="left: 145px; top: 12px; width: 130px;">Consultar IA</button>
+      <button class="btn" style="left: 283px; top: 12px; width: 140px;">Resumir con IA</button>
+      <button class="btn" style="left: 431px; top: 12px; width: 240px;">Corregir Gramática y Ortografía</button>
+      <button class="btn" style="left: 679px; top: 12px; width: 210px;">Traducir Inglés a Español</button>
+      <button class="btn" style="left: 897px; top: 12px; width: 210px;">Traducir Español a Inglés</button>
 
-      <!-- Fila 2 (y=54): portapapeles, exportación, utilidades -->
-      <button class="btn" style="left: 0; top: 54px; width: 230px;">Pegar desde el portapapeles al editor</button>
-      <button class="btn" style="left: 238px; top: 54px; width: 160px;">Copiar MD</button>
-      <button class="btn" style="left: 406px; top: 54px; width: 165px;">Copiar TXT</button>
-      <button class="btn" style="left: 579px; top: 54px; width: 120px;">Micrófono</button>
-      <button class="btn" style="left: 707px; top: 54px; width: 70px;">PDF</button>
-      <button class="btn" style="left: 785px; top: 54px; width: 70px;">MP3</button>
-      <button class="btn" style="left: 863px; top: 54px; width: 120px;">Limpiar chat</button>
+      <!-- Fila 2 (y=54): portapapeles, exportación, utilidades — offset (1252-983)/2 = 134 -->
+      <button class="btn" style="left: 134px; top: 54px; width: 230px;">Pegar desde el portapapeles al editor</button>
+      <button class="btn" style="left: 372px; top: 54px; width: 160px;">Copiar MD</button>
+      <button class="btn" style="left: 540px; top: 54px; width: 165px;">Copiar TXT</button>
+      <button class="btn" style="left: 713px; top: 54px; width: 120px;">Micrófono</button>
+      <button class="btn" style="left: 841px; top: 54px; width: 70px;">PDF</button>
+      <button class="btn" style="left: 919px; top: 54px; width: 70px;">MP3</button>
+      <button class="btn" style="left: 997px; top: 54px; width: 120px;">Limpiar chat</button>
 
       <!-- Fila 3 (y=96/98): voz + reproducción + tema + cerrar -->
-      <div class="togglegroup" role="group" aria-label="Voz: género" style="left: 0; top: 98px;">
+      <!-- Fila 3 (y=96/98): voz + reproducción + tema + cerrar — offset (1252-1238)/2 = 7 -->
+      <div class="togglegroup" role="group" aria-label="Voz: género" style="left: 7px; top: 98px;">
         <button class="toggle" aria-pressed="true">Hombre</button>
         <button class="toggle" aria-pressed="false">Mujer</button>
       </div>
-      <div class="togglegroup" role="group" aria-label="Voz: idioma" style="left: 160px; top: 98px;">
+      <div class="togglegroup" role="group" aria-label="Voz: idioma" style="left: 167px; top: 98px;">
         <button class="toggle" aria-pressed="true">Español</button>
         <button class="toggle" aria-pressed="false">Inglés</button>
       </div>
-      <span class="deck-label" style="left: 322px; top: 96px; width: 40px;">Voz</span>
-      <div class="voice" style="left: 364px; top: 101px; width: 280px;">
+      <span class="deck-label" style="left: 329px; top: 96px; width: 40px;">Voz</span>
+      <div class="voice" style="left: 371px; top: 101px; width: 280px;">
         <select class="combo" id="voice-combo" aria-label="Voz Edge" style="width: 100%; height: 34px;">
           <option selected>es-ES-ElviraNeural</option>
           <option>es-ES-AlvaroNeural</option>
@@ -296,19 +311,20 @@ La vista previa y el navegador se renderizan en esta misma superficie al cambiar
           <option>en-US-JennyNeural</option>
         </select>
       </div>
-      <button class="btn" id="btn-play" style="left: 654px; top: 96px; width: 80px; color: var(--play); border-color: var(--play);">Play</button>
-      <button class="btn" style="left: 742px; top: 96px; width: 100px; color: var(--pause); border-color: var(--pause);">Pausar</button>
-      <button class="btn" style="left: 850px; top: 96px; width: 100px; color: var(--stop); border-color: var(--stop);">Detener</button>
-      <button class="btn" id="btn-theme" style="left: 970px; top: 96px; width: 150px;">Tema: Oscuro</button>
-      <button class="btn" style="left: 1128px; top: 96px; width: 110px;">Cerrar</button>
+      <button class="btn" id="btn-play" style="left: 661px; top: 96px; width: 80px; color: var(--play); border-color: var(--play);">Play</button>
+      <button class="btn" style="left: 749px; top: 96px; width: 100px; color: var(--pause); border-color: var(--pause);">Pausar</button>
+      <button class="btn" style="left: 857px; top: 96px; width: 100px; color: var(--stop); border-color: var(--stop);">Detener</button>
+      <button class="btn" id="btn-theme" style="left: 977px; top: 96px; width: 150px;">Tema: Oscuro</button>
+      <button class="btn" style="left: 1135px; top: 96px; width: 110px;">Cerrar</button>
 
-      <!-- Fila 4 (y=138): velocidad + repetir/seek + versión -->
-      <span class="deck-label" style="left: 0; top: 138px; width: 150px;">Velocidad de lectura</span>
-      <input type="range" class="slider" id="speed" min="50" max="200" step="5" value="100" style="left: 158px; top: 139px;" aria-label="Velocidad de lectura" />
-      <span class="deck-label" id="speed-value" style="left: 416px; top: 138px; width: 65px;">1,00x</span>
-      <button class="btn" style="left: 491px; top: 138px; width: 100px;">Repetir</button>
-      <input type="range" class="slider" id="seek" min="0" max="600" step="10" value="0" style="left: 599px; top: 139px;" aria-label="Posición de la lectura" />
-      <span class="deck-label" id="seek-time" style="left: 857px; top: 138px; width: 110px;">0:00 / 0:00</span>
+      <!-- Fila 4 (y=138): velocidad + repetir/seek — offset (1252-967)/2 = 142;
+           la versión es absoluta abajo a la derecha, no corre la fila -->
+      <span class="deck-label" style="left: 142px; top: 138px; width: 150px;">Velocidad de lectura</span>
+      <input type="range" class="slider" id="speed" min="50" max="200" step="5" value="100" style="left: 300px; top: 139px;" aria-label="Velocidad de lectura" />
+      <span class="deck-label" id="speed-value" style="left: 558px; top: 138px; width: 65px;">1,00x</span>
+      <button class="btn" style="left: 633px; top: 138px; width: 100px;">Repetir</button>
+      <input type="range" class="slider" id="seek" min="0" max="600" step="10" value="0" style="left: 741px; top: 139px;" aria-label="Posición de la lectura" />
+      <span class="deck-label" id="seek-time" style="left: 999px; top: 138px; width: 110px;">0:00 / 0:00</span>
       <span class="version" id="version-label">v:26.11.13-08.51</span>
     </div>
   </div>
@@ -353,6 +369,20 @@ La vista previa y el navegador se renderizan en esta misma superficie al cambiar
       if (!btn.classList.contains("accent")) btn.classList.add("last-ai");
       setStatus("Solicitud '" + btn.textContent.trim() + "' enviada — Procesando…", "warning");
     });
+  });
+
+  /* Prueba de diseño (S9): Consultar IA muestra el spinner hasta "recibir" la
+     respuesta. Igual que la producción: clase ai-busy + aria-busy, quita en
+     finally; acá se simula con un timeout de 1,2 s. */
+  var consultar = document.getElementById("btn-consultar");
+  consultar.addEventListener("click", function () {
+    consultar.classList.add("ai-busy");
+    consultar.setAttribute("aria-busy", "true");
+    setTimeout(function () {
+      consultar.classList.remove("ai-busy");
+      consultar.removeAttribute("aria-busy");
+      setStatus("Respuesta de la IA recibida — Vista previa actualizada.");
+    }, 1200);
   });
 
   /* Tema claro/oscuro. */

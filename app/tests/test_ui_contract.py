@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INDEX = ROOT / "www" / "index.html"
 MAIN_PY = ROOT / "main.py"
 MAIN_JS = ROOT / "www" / "js" / "main.js"
+APP_CSS = ROOT / "www" / "css" / "app.css"
 
 STATUS_DEFAULT = "Sin archivos adjuntos para la próxima solicitud"
 
@@ -102,6 +103,32 @@ def control_labels(node):
                 or "deck-label" in control.attrs.get("class", "")):
             labels.append(control.text())
     return labels
+
+
+import re
+
+
+def css_block(source, selector):
+    """Body of the first top-level `selector { ... }` rule."""
+    pattern = re.escape(selector) + r"\s*\{([^{}]*)\}"
+    match = re.search(pattern, source)
+    return match.group(1) if match else None
+
+
+def js_function(source, name):
+    """Full text of `function name(...) { ... }` (brace matched)."""
+    marker = f"function {name}("
+    start = source.index(marker)
+    brace = source.index("{", start)
+    depth = 0
+    for index in range(brace, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start:index + 1]
+    raise AssertionError(f"unclosed function {name}")
 
 
 class UiContractTestCase(unittest.TestCase):
@@ -386,6 +413,122 @@ class TestJavaScriptWiring(UiContractTestCase):
     def test_gender_language_toggles_filter_the_voice_catalog(self):
         for token in ("voiceCatalog", "gender", "culture", "aria-pressed"):
             self.assertIn(token, self.js_source)
+
+
+class TestBottomRowDistribution(UiContractTestCase):
+    """S9: rows centered/distributed like the original; version pinned
+    bottom-right of the deck without shifting row 4."""
+
+    def setUp(self):
+        super().setUp()
+        self.css_source = APP_CSS.read_text(encoding="utf-8")
+
+    def test_deck_rows_are_centered_like_the_original(self):
+        row = css_block(self.css_source, ".deck-row")
+        self.assertIsNotNone(row, ".deck-row rule missing")
+        self.assertIn("justify-content: center", row)
+
+    def test_deck_inner_spans_a_centered_desktop_area(self):
+        inner = css_block(self.css_source, ".deck-inner")
+        self.assertIsNotNone(inner, ".deck-inner rule missing")
+        self.assertIn("width: 100%", inner)
+        self.assertIn("max-width: 1252px", inner)
+        self.assertIn("margin: 0 auto", inner)
+
+    def test_version_is_pinned_bottom_right_without_shifting_row4(self):
+        deck = css_block(self.css_source, "#deck")
+        self.assertIsNotNone(deck, "#deck rule missing")
+        self.assertIn("position: relative", deck)
+        version = css_block(self.css_source, ".version")
+        self.assertIsNotNone(version, ".version rule missing")
+        self.assertIn("position: absolute", version)
+        self.assertIn("right: 18px", version)
+        self.assertIn("bottom: 14px", version)
+        self.assertNotIn("margin-left: auto", version)
+
+
+class TestAiActionSpinner(UiContractTestCase):
+    """S9: every [data-ai-action] button shows an in-button spinner until the
+    AI answer arrives (setAiBusy true before ask_ai, false in finally)."""
+
+    def setUp(self):
+        super().setUp()
+        self.css_source = APP_CSS.read_text(encoding="utf-8")
+
+    def test_every_ai_action_button_is_wired_through_run_ai(self):
+        self.assertIn('querySelectorAll("[data-ai-action]")', self.js_source)
+        for action in ("consult", "summarize", "correct",
+                       "translate_en_es", "translate_es_en"):
+            row = self.tree.find(node_id="deck-row-1")
+            actions = [button.attrs.get("data-ai-action")
+                       for button in row.find_all("button")]
+            self.assertIn(action, actions)
+
+    def test_set_ai_busy_toggles_class_and_aria_busy(self):
+        body = js_function(self.js_source, "setAiBusy")
+        self.assertIn("ai-busy", body)
+        self.assertIn('setAttribute("aria-busy", "true")', body)
+        self.assertIn('removeAttribute("aria-busy")', body)
+
+    def test_run_ai_shows_spinner_until_the_response_arrives(self):
+        body = js_function(self.js_source, "runAi")
+        self.assertLess(body.index("setAiBusy(button, true)"),
+                        body.index("ask_ai("))
+        self.assertGreater(body.index("setAiBusy(button, false)"),
+                           body.index("finally"))
+
+    def test_spinner_css_is_visible_and_keeps_the_button_width(self):
+        spinner = css_block(self.css_source, ".btn.ai-busy::before")
+        self.assertIsNotNone(spinner, ".btn.ai-busy::before rule missing")
+        self.assertIn("width: 12px", spinner)
+        self.assertIn("border-radius: 50%", spinner)
+        self.assertIn("animation: ai-spin", spinner)
+        # Absolutely positioned inside the padding: the original button width
+        # (text label) stays stable while it spins.
+        self.assertIn("position: absolute", spinner)
+        self.assertIn("@keyframes ai-spin", self.css_source)
+
+    def test_spinner_respects_prefers_reduced_motion(self):
+        index = self.css_source.index("prefers-reduced-motion: reduce")
+        segment = self.css_source[index:index + 300]
+        self.assertIn("animation: none", segment)
+
+
+class TestMainModelSelectorStartup(UiContractTestCase):
+    """S9: the main-page model selector loads its catalog on startup — no
+    visit to Configuración and no manual 'Actualizar modelos' click."""
+
+    def test_pywebviewready_loads_models_and_restores_the_saved_model(self):
+        start = self.js_source.index('"pywebviewready"')
+        end = self.js_source.index("});", start)
+        handler = self.js_source[start:end]
+        self.assertIn("get_settings", handler)
+        self.assertIn("selected_model", handler)
+        self.assertIn("loadStartupModels(", handler)
+
+    def test_startup_asks_the_api_for_the_catalog(self):
+        body = js_function(self.js_source, "loadStartupModels")
+        self.assertIn("update_models()", body)
+        self.assertIn("applyModelCatalog(result, selectedModel)", body)
+
+    def test_startup_shows_loading_status_and_restores_ready(self):
+        body = js_function(self.js_source, "loadStartupModels")
+        self.assertIn('"Cargando modelos..."', body)
+        self.assertIn('"Listo."', body)
+
+    def test_catalog_failure_keeps_the_default_and_needs_more_than_one_model(self):
+        body = js_function(self.js_source, "loadStartupModels")
+        self.assertIn("select.options.length > 1", body)
+
+    def test_apply_model_catalog_accepts_a_preferred_model(self):
+        self.assertIn("function applyModelCatalog(result, preferredModel)",
+                      self.js_source)
+
+    def test_apply_model_catalog_enables_the_selector_with_options(self):
+        body = js_function(self.js_source, "applyModelCatalog")
+        self.assertIn("select.disabled = select.options.length === 0;", body)
+        # The persisted/saved model stays selected after the catalog load.
+        self.assertIn("preferredModel", body)
 
 
 if __name__ == "__main__":

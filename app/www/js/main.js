@@ -412,9 +412,12 @@
   // ---- Configuración (T10/S2) ---------------------------------------------
   const BRIDGE_GROUP_LABELS = ["Groq", "Claude", "Codex", "Gemini"];
 
-  function applyModelCatalog(result) {
+  // S9: preferredModel preselects the persisted model (startup load); without
+  // it the catalog keeps whatever the selector already shows.
+  function applyModelCatalog(result, preferredModel) {
     const select = $("model-select");
-    const previous = select.value || (select.options[0] && select.options[0].value) || "";
+    const previous = preferredModel || select.value
+      || (select.options[0] && select.options[0].value) || "";
     select.innerHTML = "";
     const groups = {};
     for (const model of result.models || []) {
@@ -441,8 +444,54 @@
       select.appendChild(group);
     }
     const hasPrevious = Array.from(select.options).some((o) => o.value === previous);
-    if (hasPrevious) select.value = previous;
-    select.disabled = false;
+    if (previous && !hasPrevious) {
+      // A persisted model missing from the catalog stays selectable.
+      const option = document.createElement("option");
+      option.value = previous;
+      option.textContent = previous;
+      select.appendChild(option);
+    }
+    if (previous) select.value = previous;
+    select.disabled = select.options.length === 0;
+  }
+
+  // S9: startup model load — the persisted model is preselected and the
+  // catalog arrives without visiting Configuración or clicking Actualizar
+  // modelos. update_models already caches and returns fallback models on a
+  // Groq error.
+  async function loadStartupModels(selectedModel) {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api) return;
+    const select = $("model-select");
+    if (selectedModel) {
+      if (!Array.from(select.options).some((o) => o.value === selectedModel)) {
+        const option = document.createElement("option");
+        option.value = selectedModel;
+        option.textContent = selectedModel;
+        select.appendChild(option);
+      }
+      select.value = selectedModel;
+    }
+    const status = $("status-message");
+    const wasReady = !status.textContent || status.textContent === "Listo.";
+    if (wasReady) setStatus("Cargando modelos...");
+    try {
+      const result = await api.update_models();
+      if (result.ok) {
+        applyModelCatalog(result, selectedModel);
+        if (wasReady && status.textContent === "Cargando modelos...") {
+          setStatus("Listo.");
+        }
+        return;
+      }
+      // No API key: keep the default option.
+      setStatus(result.error || "No se pudo cargar el catálogo de modelos.");
+    } catch (_) {
+      // Keep the default option; the selector only becomes usable when there
+      // is more than one known model.
+    } finally {
+      if (select.options.length > 1) select.disabled = false;
+    }
   }
 
   async function saveApiKey() {
@@ -688,24 +737,42 @@
     try { theme = localStorage.getItem("txt-theme") || "dark"; } catch (_) {}
     applyTheme(theme);
     const api = window.pywebview && window.pywebview.api;
+    let config = null;
     if (api) {
       // Persisted settings win over localStorage (legacy Import-AppSettings).
       try {
-        const config = await api.get_settings();
-        if (config && config.theme) applyTheme(config.theme);
-        // Legacy voice catalog load: cache first, edge-tts on a miss.
-        refreshVoices(false, config && config.speech_voice);
+        config = await api.get_settings();
       } catch (_) { /* settings are best effort */ }
+      if (config && config.theme) applyTheme(config.theme);
+      // Legacy voice catalog load: cache first, edge-tts on a miss.
+      refreshVoices(false, config && config.speech_voice);
     }
     const version = await api.app_version();
     // VERSION already carries the "v:" prefix (legacy $appVersion).
     $("version-badge").textContent = version;
     setStatus("Listo.");
+    // S9: the main model selector gets its catalog at startup, after the
+    // persisted settings (selected model) are known. Not awaited: the model
+    // fetch runs while the editor is already usable.
+    loadStartupModels(config && config.selected_model);
     setInterval(speechTick, 120);
   });
 
-  // ---- AI actions (T5) ------------------------------------------------------
+  // ---- AI actions (T5/S9) ---------------------------------------------------
   let speechLanguage = "es";
+
+  // S9: in-button spinner while the AI request is pending. The class and
+  // aria-busy go on the active button only; the label text never changes, so
+  // the original button width stays stable.
+  function setAiBusy(button, busy) {
+    if (!button) return;
+    button.classList.toggle("ai-busy", busy);
+    if (busy) {
+      button.setAttribute("aria-busy", "true");
+    } else {
+      button.removeAttribute("aria-busy");
+    }
+  }
 
   const AI_BUSY_LABELS = {
     consult: "Consultando a la IA",
@@ -720,6 +787,7 @@
     if (!api) return;
     const button = document.querySelector(`[data-ai-action="${action}"]`);
     if (button) button.disabled = true;
+    setAiBusy(button, true);
     try {
       const model = await api.get_selected_model();
       setStatus(`${AI_BUSY_LABELS[action] || "Consultando a la IA"} · ${model}...`);
@@ -742,6 +810,7 @@
       setTab("preview");
       setStatus(result.message);
     } finally {
+      setAiBusy(button, false);
       if (button) button.disabled = false;
     }
   }
@@ -798,7 +867,7 @@
     setSpeechWordIndex, clearSpeechProgress,
     runAi, applyAttachments, getSpeechLanguage: () => speechLanguage,
     copyMain, withBusy,
-    applyTheme, applyModelCatalog, saveApiKey,
+    applyTheme, applyModelCatalog, saveApiKey, setAiBusy, loadStartupModels,
     applyUpdateStatus,
     applyVoiceCatalog, refreshVoices,
     selectVoiceByFilter, applySpeechState, speedLabel,
