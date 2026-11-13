@@ -191,6 +191,55 @@
     window.pywebview.api.replay_start(0);
   });
 
+  // ---- Preview exports & clipboard (T6) -------------------------------------
+  // Legacy Export-PreviewPdf / Export-SpeechMp3 / Copy MD / Copy TXT:
+  // the Api works on the session preview text (what Vista previa shows),
+  // not on the editor.
+  async function withBusy(button, busyMessage, action) {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || !button) return;
+    button.disabled = true;
+    setStatus(busyMessage);
+    try {
+      const result = await action(api);
+      if (result && result.message) setStatus(result.message);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  $("export-pdf").addEventListener("click", () => {
+    withBusy($("export-pdf"), "Generando PDF...", (api) => api.export_pdf());
+  });
+
+  $("export-mp3").addEventListener("click", () => {
+    withBusy($("export-mp3"), `Generando MP3 con Elvira (es-ES)...`,
+      (api) => api.export_mp3());
+  });
+
+  async function copyPreview(plain) {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api) return;
+    const text = plain
+      ? await api.get_preview_plain_text()
+      : await api.get_preview_text();
+    if (!text || !text.trim()) {
+      setStatus("No hay contenido para copiar.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus(plain
+        ? "Texto sin formato copiado al portapapeles."
+        : "Markdown copiado al portapapeles.");
+    } catch (_) {
+      setStatus("No se pudo copiar al portapapeles.");
+    }
+  }
+
+  $("copy-md").addEventListener("click", () => copyPreview(false));
+  $("copy-txt").addEventListener("click", () => copyPreview(true));
+
   // ---- Embedded browser ---------------------------------------------------
   function normalizeAddress(raw) {
     const value = raw.trim();
@@ -316,5 +365,6 @@
     wrapSpeechWords, getSpeechWords, getSpeechTextFrom,
     setSpeechWordIndex, clearSpeechProgress,
     runAi, applyAttachments, getSpeechLanguage: () => speechLanguage,
+    copyPreview, withBusy,
   };
 })();

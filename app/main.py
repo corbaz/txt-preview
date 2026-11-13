@@ -26,6 +26,13 @@ from txt_core.attachments import (
     add_attachment,
     attachment_summary,
 )
+from txt_core.exports import (
+    MSG_MP3_EMPTY,
+    MSG_PDF_EMPTY,
+    export_mp3 as export_mp3_file,
+    export_pdf as export_pdf_file,
+    markdown_to_text,
+)
 from txt_core.markdown import render_markdown
 from txt_core.speech.engine import SpeechEngine
 
@@ -90,6 +97,11 @@ class Api:
         # process env and (later steps) the stored settings.
         self._bridge_passwords: dict[str, str] = {}
         self._speech_language = "es"
+        # ---- Exports (T6) ---------------------------------------------------
+        # The markdown text last rendered in Vista previa: exports and the
+        # clipboard buttons work on this, not on the editor (legacy
+        # Get-PreviewContent).
+        self._preview_text = ""
 
     # ---- Existing bridge ---------------------------------------------------
     def app_version(self) -> str:
@@ -100,6 +112,7 @@ class Api:
 
     def render_preview(self, text: str) -> str:
         """Sanitized markdown HTML for Vista previa."""
+        self._preview_text = text
         return render_markdown(text)
 
     # ---- AI actions (T5/S1) -------------------------------------------------
@@ -240,6 +253,8 @@ class Api:
             "editor_action": "keep",
             "speech_language": self._speech_language,
         }
+        # Vista previa will show this answer; exports follow the preview.
+        self._preview_text = result_text
         if action == "consult":
             result["message"] = (
                 "Respuesta lista en Vista previa. Tu consulta sigue en el Editor."
@@ -276,6 +291,63 @@ class Api:
         if not chosen:
             return {"added": [], "errors": [], "summary": self.get_attachment_summary()}
         return self.add_attachments(list(chosen))
+
+    # ---- Preview exports (T6/S1) -------------------------------------------
+    def get_preview_text(self) -> str:
+        """Raw markdown of what Vista previa shows (legacy Copy MD)."""
+        return self._preview_text
+
+    def get_preview_plain_text(self) -> str:
+        """Plain text of what Vista previa shows (legacy Convert-MarkdownToText)."""
+        return markdown_to_text(self._preview_text)
+
+    def export_pdf(self) -> dict:
+        """Legacy Export-PreviewPdf, PyMuPDF instead of headless Edge."""
+        if not self._preview_text.strip():
+            return {"ok": False, "message": MSG_PDF_EMPTY}
+        target = self._ask_save_path(
+            "Guardar Vista previa como PDF", "txt-preview.pdf",
+            ("Documento PDF (*.pdf)", "Todos los archivos (*.*)"),
+        )
+        if not target:
+            return {"ok": False, "message": ""}
+        try:
+            export_pdf_file(self._preview_text, target)
+        except RuntimeError as error:
+            return {"ok": False, "message": str(error)}
+        except Exception as error:  # keep the shell alive; report to the UI
+            return {"ok": False, "message": f"No se pudo generar el PDF: {error}"}
+        return {"ok": True, "path": target, "message": f"PDF guardado en {target}"}
+
+    def export_mp3(self) -> dict:
+        """Legacy Export-SpeechMp3 (Edge-only voices, S6)."""
+        speech_text = markdown_to_text(self._preview_text)
+        if not speech_text.strip():
+            return {"ok": False, "message": MSG_MP3_EMPTY}
+        target = self._ask_save_path(
+            "Guardar lectura como MP3", "txt-preview.mp3",
+            ("Audio MP3 (*.mp3)", "Todos los archivos (*.*)"),
+        )
+        if not target:
+            return {"ok": False, "message": ""}
+        try:
+            export_mp3_file(speech_text, target, DEFAULT_SPEECH_VOICE,
+                            self.engine.applied_speed)
+        except RuntimeError as error:
+            return {"ok": False, "message": str(error)}
+        except Exception as error:  # keep the shell alive; report to the UI
+            return {"ok": False, "message": f"No se pudo generar el MP3: {error}"}
+        return {"ok": True, "path": target, "message": f"MP3 guardado en {target}"}
+
+    def _ask_save_path(self, _title: str, suggested_name: str, file_types) -> str | None:
+        """Native save dialog (legacy Select-ExportPath); None when cancelled."""
+        window = getattr(self, "_window", None)
+        if window is None:
+            return None
+        chosen = window.create_file_dialog(
+            webview.SAVE_DIALOG, save_filename=suggested_name, file_types=file_types,
+        )
+        return chosen or None
 
     # ---- Speech (T4/S6) ----------------------------------------------------
     def _on_engine_message(self, level: str, message: str) -> None:
