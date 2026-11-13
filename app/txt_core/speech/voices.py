@@ -149,3 +149,33 @@ def save_voice_cache(voices_list: list[dict[str, str]],
         except OSError:
             pass
         return False
+
+
+# S13 rule 2: legacy default voice per language+gender (txt.ps1:2602-2607)
+# in priority order.
+LEGACY_DEFAULT_VOICES = {
+    ("es", "Male"): ("es-CR-JuanNeural", "es-AR-TomasNeural"),
+    ("es", "Female"): ("es-DO-RamonaNeural", "es-AR-ElenaNeural"),
+    ("en", "Male"): ("en-US-AndrewMultilingualNeural", "en-US-GuyNeural"),
+    ("en", "Female"): ("en-US-EmmaMultilingualNeural", "en-US-JennyNeural"),
+}
+
+
+def default_voice_for(language: str, gender: str,
+                      catalog: list[dict[str, str]] | None) -> str | None:
+    """Legacy default voice for a language+gender, resolved against the
+    catalog: the first preferred name that exists, else the first catalog
+    voice of that language+gender, else None (no voice for it)."""
+    language = (language or "").lower()
+    if gender not in ("Male", "Female") or language not in ("es", "en"):
+        return None
+    catalog = list(catalog or [])
+    names = {voice.get("name") for voice in catalog}
+    for name in LEGACY_DEFAULT_VOICES[(language, gender)]:
+        if name in names:
+            return name
+    for voice in catalog:
+        if (voice.get("culture") or "").startswith(language + "-") \
+                and voice.get("gender") == gender:
+            return voice["name"]
+    return None

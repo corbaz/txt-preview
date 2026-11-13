@@ -228,9 +228,36 @@
     } catch (_) { /* the tick is best effort */ }
   }
 
-  $("speech-play").addEventListener("click", () => {
+  // S13 rule 2: when Play switched the voice to the text language, the
+  // selector and the Hombre/Mujer + Español/Inglés toggles follow it.
+  function applyVoiceSwitch(result) {
+    if (!result || !result.ok || !result.voice_switched) return;
+    const select = $("voice-select");
+    if (select && result.voice) {
+      if (!Array.from(select.options).some((o) => o.value === result.voice)) {
+        const option = document.createElement("option");
+        option.value = result.voice;
+        option.textContent = result.voice_display || result.voice;
+        select.appendChild(option);
+      }
+      select.value = result.voice;
+    }
+    const genderId = result.voice_gender === "Male" ? "gender-male" : "gender-female";
+    for (const id of VOICE_TOGGLE_GROUPS[genderId]) {
+      $(id).setAttribute("aria-pressed", String(id === genderId));
+    }
+    const languageId = result.voice_language === "en" ? "lang-en" : "lang-es";
+    for (const id of VOICE_TOGGLE_GROUPS[languageId]) {
+      $(id).setAttribute("aria-pressed", String(id === languageId));
+    }
+    if (result.message) setStatus(result.message);
+  }
+
+  $("speech-play").addEventListener("click", async () => {
     if (!window.pywebview || !window.pywebview.api) return;
-    window.pywebview.api.start_speech($("editor").value, getSpeechWords());
+    try {
+      applyVoiceSwitch(await window.pywebview.api.start_speech($("editor").value, getSpeechWords()));
+    } catch (_) { /* start_speech reports its own errors */ }
   });
 
   $("speech-pause").addEventListener("click", () => {
@@ -964,6 +991,6 @@
     applySelectedModelCapabilities, capabilitiesFor,
     loadStartupModels, applyUpdateStatus,
     applyVoiceCatalog, refreshVoices,
-    selectVoiceByFilter, applySpeechState, speedLabel,
+    selectVoiceByFilter, applySpeechState, applyVoiceSwitch, speedLabel,
   };
 })();

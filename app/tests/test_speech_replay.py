@@ -1,11 +1,51 @@
-"""Tests for replay timings and the atempo filter chain (S6)."""
+"""Tests for replay timings and the atempo filter chain (S6), plus the
+speech Api behaviours around Repetir (S13/T20): the repetition must honor
+the speed slider current at the moment it is pressed, and Play must switch
+the voice when the text language differs from the selected voice language."""
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from txt_core.speech.replay import build_atempo_filter, get_replay_word_timings, format_replay_time
+import main
+from txt_core import settings
+from txt_core.speech import voices
+from txt_core.speech import engine as engine_module
+from txt_core.speech.engine import ReplayCache, SpeechEngine
+from txt_core.speech.replay import (
+    build_atempo_filter,
+    format_replay_time,
+    get_replay_word_timings,
+)
+
+
+class FakeProcess:
+    """Popen-like fake (same shape as the lifecycle-test double)."""
+
+    def __init__(self, args, log=None):
+        self.args = list(args)
+        self.returncode = None
+        self.pid = 5150
+        self.stderr = b""
+        self.log = log if log is not None else []
+
+    def poll(self):
+        return self.returncode
+
+
+class FakeRunner:
+    def __init__(self, log=None):
+        self.processes = []
+        self.log = log if log is not None else []
+
+    def __call__(self, args, **kwargs):
+        self.log.append("spawn")
+        process = FakeProcess(args, self.log)
+        self.processes.append(process)
+        return process
 
 
 class TestReplayWordTimings(unittest.TestCase):
@@ -63,6 +103,151 @@ class TestFormatReplayTime(unittest.TestCase):
         self.assertEqual(format_replay_time(0), "0:00")
         self.assertEqual(format_replay_time(65.4), "1:05")
         self.assertEqual(format_replay_time(599.9), "9:59")
+
+
+VOICE_CATALOG = [
+    {"name": "es-ES-ElviraNeural", "culture": "es-ES", "gender": "Female",
+     "display_name": "Edge · es-ES-ElviraNeural (Female)"},
+    {"name": "es-CR-JuanNeural", "culture": "es-CR", "gender": "Male",
+     "display_name": "Edge · es-CR-JuanNeural (Male)"},
+    {"name": "en-US-AndrewMultilingualNeural", "culture": "en-US", "gender": "Male",
+     "display_name": "Edge · en-US-AndrewMultilingualNeural (Male)"},
+    {"name": "en-US-EmmaMultilingualNeural", "culture": "en-US", "gender": "Female",
+     "display_name": "Edge · en-US-EmmaMultilingualNeural (Female)"},
+]
+
+
+class SpeechApiTestCase(unittest.TestCase):
+    """Api with a temp settings dir and a real engine on a fake runner."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.settings_dir = self._tmp.name
+        self.log = []
+        self.runner = FakeRunner(self.log)
+        self.messages = []
+        self.api = main.Api(settings_dir=self.settings_dir,
+                            legacy_dir=self._tmp.name + "-legacy")
+        self.api.engine = SpeechEngine(
+            python_command="fakepython", ffplay_command="fakeffplay",
+            ffprobe_command=None,
+            emit=lambda level, message: self.messages.append((level, message)),
+            runner=self.runner,
+        )
+
+    def save_catalog(self):
+        voices.save_voice_cache(VOICE_CATALOG, self.settings_dir)
+
+    def replay_media(self):
+        import os
+        handle = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+        handle.close()
+        self.addCleanup(lambda: os.path.exists(handle.name) and os.remove(handle.name))
+        return handle.name
+
+
+class TestReplayHonorsTheSliderSpeed(SpeechApiTestCase):
+    """S13 rule 1: Repetir must use the speed current when it is pressed
+    (or changed during the repetition), never the generation speed."""
+
+    def start_replay(self):
+        self.api.engine.replay = ReplayCache(
+            file=self.replay_media(), duration=10.0, voice_display="Elvira")
+        self.api.engine.start_replay_playback()
+        self.assertEqual(self.api.engine.provider, "Replay")
+        self.assertEqual(self.api.engine.mode, "Playing")
+
+    def af_filter(self):
+        args = self.api.engine.player_process.args
+        return args[args.index("-af") + 1]
+
+    def test_speed_change_during_replay_uses_the_new_tempo(self):
+        self.start_replay()  # audio generated at speed 100
+        self.api.set_speech_speed(50)
+        self.assertEqual(self.af_filter(), "atempo=0.5")
+        self.assertEqual(self.api._speech_speed, 50)
+
+    def test_doubling_the_speed_yields_atempo_2(self):
+        self.start_replay()
+        self.api.set_speech_speed(200)
+        self.assertEqual(self.af_filter(), "atempo=2.0")
+
+    def test_paused_replay_stays_paused_at_the_new_tempo(self):
+        self.start_replay()
+        with mock.patch.object(engine_module.SuspendResume, "suspend"), \
+                mock.patch.object(engine_module.SuspendResume, "resume"):
+            self.api.engine.pause()
+            self.assertEqual(self.api.engine.mode, "Paused")
+            self.api.set_speech_speed(150)
+        self.assertEqual(self.af_filter(), "atempo=1.5")
+        self.assertEqual(self.api.engine.mode, "Paused")
+
+
+class TestPlaySwitchesVoiceToTheTextLanguage(SpeechApiTestCase):
+    """S13 rule 2: Play detects the text language and, when it differs from
+    the selected voice language, switches to that language's default voice
+    keeping the gender; matching languages keep the chosen voice."""
+
+    def setUp(self):
+        super().setUp()
+        self.api.engine = mock.Mock()
+        self.save_catalog()
+
+    def start(self, text):
+        return self.api.start_speech(text)
+
+    def test_english_text_switches_the_spanish_voice_to_the_en_default(self):
+        result = self.start("The house was old and the garden was full of trees.")
+        self.assertTrue(result["voice_switched"])
+        self.assertEqual(result["voice"], "en-US-EmmaMultilingualNeural")
+        self.assertEqual(result["voice_language"], "en")
+        self.assertEqual(result["message"],
+                         "Texto en inglés: se usó la voz en-US-EmmaMultilingualNeural.")
+        # The reading itself uses the resolved voice.
+        self.assertEqual(self.api._speech_voice, "en-US-EmmaMultilingualNeural")
+        self.assertEqual(self.api.engine.start_edge_session.call_args[0][2],
+                         "en-US-EmmaMultilingualNeural")
+        # The switch persists like set_speech_voice does.
+        self.assertEqual(
+            settings.load_settings(self.settings_dir)["speech_voice"],
+            "en-US-EmmaMultilingualNeural")
+
+    def test_spanish_text_switches_an_english_voice_to_the_es_default(self):
+        self.api.set_speech_voice("en-US-AndrewMultilingualNeural")
+        result = self.start("El perro de Juan corre por la playa y la gente.")
+        self.assertTrue(result["voice_switched"])
+        self.assertEqual(result["voice"], "es-CR-JuanNeural")
+        self.assertEqual(result["message"],
+                         "Texto en español: se usó la voz es-CR-JuanNeural.")
+
+    def test_matching_language_keeps_the_chosen_voice(self):
+        self.api.set_speech_voice("es-CR-JuanNeural")
+        result = self.start("El perro de Juan corre por la playa y la gente.")
+        self.assertFalse(result["voice_switched"])
+        self.assertEqual(result["voice"], "es-CR-JuanNeural")
+        self.assertEqual(
+            settings.load_settings(self.settings_dir)["speech_voice"],
+            "es-CR-JuanNeural")
+
+    def test_insufficient_signal_keeps_the_chosen_voice(self):
+        result = self.start("asdf qwer zxcv 1234")
+        self.assertFalse(result["voice_switched"])
+        self.assertEqual(result["voice"], "es-ES-ElviraNeural")
+
+    def test_no_catalog_keeps_the_chosen_voice(self):
+        import os
+        os.remove(os.path.join(self.settings_dir, "edge-voices.json"))
+        result = self.start("The house was old and the garden was full of trees.")
+        self.assertFalse(result["voice_switched"])
+        self.assertEqual(result["voice"], "es-ES-ElviraNeural")
+
+    def test_result_keeps_the_voice_fields_without_a_switch(self):
+        result = self.start("El perro de Juan corre por la playa y la gente.")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["voice"], "es-ES-ElviraNeural")
+        self.assertEqual(result["voice_language"], "es")
+        self.assertFalse(result["voice_switched"])
 
 
 if __name__ == "__main__":

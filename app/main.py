@@ -22,7 +22,7 @@ APP = ROOT
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 
-from txt_core import bridges, groq, models, prompts, settings, updater
+from txt_core import bridges, groq, language, models, prompts, settings, updater
 from txt_core.attachments import (
     IMAGE_EXTENSIONS,
     TEXT_EXTENSIONS,
@@ -679,18 +679,73 @@ class Api:
         self._last_message = message
 
     def start_speech(self, text: str, raw_words: str | None = None) -> dict:
-        """Start an Edge reading of the editor text; raw_words are the preview spans."""
+        """Start an Edge reading of the editor text; raw_words are the preview
+        spans. S13 rule 2: a text whose language differs from the selected
+        voice language switches to that language's default voice (same
+        gender) before the session starts; matching languages keep the
+        chosen voice, and insufficient signal never switches."""
         try:
             self.engine.stop_voice_playback()
+            switch = self._auto_switch_voice_for_text(text)
             self._speech_words = raw_words or ""
             self.engine.initialize_alignment(self._speech_words)
             self.engine.start_edge_session(
                 text, self._speech_voice_display(), self._speech_voice,
                 rate_percent=self._speech_speed,
             )
-            return {"ok": True, "message": self._last_message}
+            record = self._voice_catalog_record(self._speech_voice)
+            return {
+                "ok": True,
+                "message": switch["message"] if switch else self._last_message,
+                "voice": self._speech_voice,
+                "voice_display": self._speech_voice_display(),
+                "voice_language": self._voice_language_of(self._speech_voice,
+                                                          record),
+                "voice_gender": record.get("gender") if record else None,
+                "voice_switched": switch is not None,
+            }
         except Exception as error:  # keep the shell alive; report to the UI
             return {"ok": False, "message": str(error)}
+
+    def _voice_catalog_record(self, name: str) -> dict | None:
+        """Catalog entry of a voice, or None when it is not cached."""
+        for voice in voices.load_voice_cache(self._settings_dir):
+            if voice["name"] == name:
+                return voice
+        return None
+
+    def _voice_language_of(self, name: str, record: dict | None) -> str | None:
+        """es/en from the catalog culture, else the voice name prefix."""
+        if record:
+            return (record.get("culture") or "")[:2].lower() or None
+        prefix = (name or "")[:3].lower()
+        return prefix[:2] if prefix in ("es-", "en-") else None
+
+    def _auto_switch_voice_for_text(self, text: str) -> dict | None:
+        """S13 rule 2: resolve the automatic voice switch on Play. A detected
+        language different from the voice language selects that language's
+        default voice (same gender, legacy priority) and persists it like
+        set_speech_voice does; None keeps the chosen voice (languages match
+        or insufficient signal)."""
+        detected = language.detect_language(text)
+        if detected is None:
+            return None
+        catalog = voices.load_voice_cache(self._settings_dir)
+        record = next((voice for voice in catalog
+                       if voice["name"] == self._speech_voice), None)
+        if self._voice_language_of(self._speech_voice, record) == detected:
+            return None
+        gender = record.get("gender") if record else None
+        voice = voices.default_voice_for(detected, gender, catalog)
+        if not voice or voice == self._speech_voice:
+            return None
+        self._speech_voice = voice
+        settings.set_speech_voice(voice, self._settings_dir)
+        return {
+            "message": (f"Texto en {'inglés' if detected == 'en' else 'español'}"
+                        f": se usó la voz {voice}."),
+            "language": detected,
+        }
 
     def stop_speech(self) -> dict:
         self.engine.stop_voice_playback()
@@ -709,9 +764,13 @@ class Api:
         self._speech_speed = speed
         if self.engine.provider == "Replay" and self.engine.mode in ("Playing", "Paused"):
             # Replay re-renders the same audio at the new tempo from the
-            # current position (legacy Set-SpeechSpeed replay branch).
+            # current position (legacy Set-SpeechSpeed replay branch). S13
+            # rule 1: the tempo is the slider speed current now, never the
+            # speed the audio was generated with, so applied_speed moves
+            # before the restart (start_replay_playback reads it).
             was_paused = self.engine.mode == "Paused"
             position = self._replay_position()
+            self.engine.applied_speed = speed
             self.engine.start_replay_playback(position)
             if was_paused:
                 self.engine.pause()

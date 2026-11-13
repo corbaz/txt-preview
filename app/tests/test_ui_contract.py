@@ -758,5 +758,51 @@ class TestMainModelSelectorStartup(UiContractTestCase):
         self.assertIn("preferredModel", body)
 
 
+class TestPlayVoiceAutoSwitch(UiContractTestCase):
+    """S13 rule 2 (T20): Play detects the text language and the UI reflects
+    the automatic voice switch (selector + Hombre/Mujer + Español/Inglés)."""
+
+    def py_function_source(self, class_name, function_name):
+        tree = ast.parse(self.py_source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == class_name:
+                for child in node.body:
+                    if isinstance(child, ast.FunctionDef) \
+                            and child.name == function_name:
+                        return ast.unparse(child)
+        raise AssertionError(f"{class_name}.{function_name} not found")
+
+    def test_start_speech_detects_the_language_and_resolves_the_default_voice(self):
+        body = self.py_function_source("Api", "start_speech")
+        self.assertIn("_auto_switch_voice_for_text(text)", body)
+        self.assertIn("voice_switched", body)
+        self.assertIn("voice_language", body)
+        self.assertIn("voice", body)
+        switch = self.py_function_source("Api", "_auto_switch_voice_for_text")
+        self.assertIn("language.detect_language(text)", switch)
+        self.assertIn("voices.default_voice_for(", switch)
+        self.assertIn("settings.set_speech_voice(", switch)
+
+    def test_play_handler_awaits_start_speech_and_applies_the_switch(self):
+        window = self.handler_window("speech-play")
+        self.assertIn('await window.pywebview.api.start_speech($("editor").value',
+                      window)
+        self.assertIn("applyVoiceSwitch(", window)
+
+    def test_apply_voice_switch_updates_the_selector_and_the_toggles(self):
+        body = js_function(self.js_source, "applyVoiceSwitch")
+        self.assertIn("voice_switched", body)
+        self.assertIn('const select = $("voice-select")', body)
+        self.assertIn("select.value = result.voice", body)
+        self.assertIn("aria-pressed", body)
+        self.assertIn("VOICE_TOGGLE_GROUPS", body)
+        self.assertIn("voice_language", body)
+
+    def test_apply_voice_switch_gates_on_ok_and_reuses_the_status_helper(self):
+        body = js_function(self.js_source, "applyVoiceSwitch")
+        self.assertIn("result.ok", body)
+        self.assertIn("setStatus(result.message)", body)
+
+
 if __name__ == "__main__":
     unittest.main()
