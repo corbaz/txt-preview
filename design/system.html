@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TXT Preview — Design System</title>
+<style>
+/* Tokens verbatim from app/www/css/app.css */
+:root {
+  --bg: #202124;
+  --panel: #2a2b30;
+  --editor: #17181b;
+  --text: #e8eaed;
+  --muted: #9aa0a6;
+  --accent: #8ab4f8;
+  --border: #3c4043;
+}
+[data-theme="light"] {
+  --bg: #ffffff;
+  --panel: #f1f3f4;
+  --editor: #ffffff;
+  --text: #202124;
+  --muted: #5f6368;
+  --accent: #1a73e8;
+  --border: #dadce0;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+.page { width: 1440px; margin: 0 auto; padding: 32px 40px 80px; }
+header.ds { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+header.ds h1 { font-size: 22px; margin: 0; }
+header.ds .spacer { flex: 1; }
+
+section { margin-bottom: 40px; }
+h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+h3 { font-size: 14px; margin: 20px 0 10px; }
+code { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+
+/* Swatches */
+.swatches { display: flex; flex-wrap: wrap; gap: 12px; }
+.swatch { width: 168px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.swatch .chip { height: 72px; }
+.swatch .meta { padding: 8px 10px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.swatch .meta b { display: block; color: var(--text); font-size: 13px; }
+
+/* Control demos — styles verbatim from app.css */
+#segmented { display: flex; gap: 4px; }
+.seg { border: none; background: transparent; color: var(--muted); padding: 8px 18px; border-radius: 999px; cursor: pointer; font-size: 14px; }
+.seg.active { background: var(--accent); color: var(--bg); }
+.ghost { border: 1px solid var(--border); background: transparent; color: var(--muted); padding: 7px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; }
+.ghost:hover { color: var(--text); border-color: var(--accent); }
+.ghost:disabled { opacity: 0.5; cursor: default; }
+
+.demo-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+
+.field { display: flex; flex-direction: column; gap: 6px; max-width: 360px; }
+.field label { font-size: 13px; color: var(--muted); }
+.field input, .field select {
+  background: var(--editor); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; font-size: 14px; outline: none;
+}
+.field input:focus, .field select:focus { border-color: var(--accent); }
+.field .row { display: flex; gap: 8px; align-items: stretch; }
+.field .row input, .field .row select { flex: 1; min-width: 0; }
+
+.pill-address { flex: 1; min-width: 320px; background: var(--editor); color: var(--text); border: 1px solid var(--border); border-radius: 999px; padding: 8px 16px; font-size: 13px; outline: none; }
+
+.editor-sample {
+  background: var(--editor); border: 1px solid var(--border);
+  padding: 18px 22px; font-size: 15px; line-height: 1.6;
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  min-height: 120px;
+}
+
+.md-demo { background: var(--editor); border: 1px solid var(--border); padding: 18px 26px; max-width: 640px; }
+.md-demo a { color: var(--accent); }
+.md-demo code { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; }
+.md-demo pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow: auto; }
+.md-demo pre code { background: none; border: none; padding: 0; }
+.md-demo table { border-collapse: collapse; }
+.md-demo th, .md-demo td { border: 1px solid var(--border); padding: 6px 10px; }
+.md-demo blockquote { border-left: 3px solid var(--accent); margin-left: 0; padding-left: 14px; color: var(--muted); }
+
+.speaking-word { padding: 0 2px; background: color-mix(in srgb, var(--accent) 35%, transparent); cursor: pointer; }
+
+.spec-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.spec-table th, .spec-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.spec-table th { background: var(--panel); color: var(--muted); font-weight: 600; }
+.spec-table td code { background: none; border: none; padding: 0; }
+</style>
+</head>
+<body data-theme="dark">
+<div class="page">
+  <header class="ds">
+    <h1>TXT Preview — Design System</h1>
+    <span class="spacer"></span>
+    <button class="ghost" id="theme-toggle" aria-label="Cambiar tema del documento">Tema: Oscuro</button>
+  </header>
+
+  <section>
+    <h2>Color tokens</h2>
+    <div class="swatches" id="swatches"></div>
+    <p style="color: var(--muted); font-size: 13px;">
+      Fuente: <code>app/www/css/app.css</code>. Oscuro por defecto en <code>:root</code>, claro en <code>body[data-theme="light"]</code>.
+    </p>
+  </section>
+
+  <section>
+    <h2>Typography</h2>
+    <table class="spec-table">
+      <tr><th>Uso</th><th>Stack / tamaño</th></tr>
+      <tr><td>Body, controles</td><td><code>system-ui, -apple-system, "Segoe UI", sans-serif</code></td></tr>
+      <tr><td>Editor, código</td><td><code>ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace</code>, 15px, line-height 1.6</td></tr>
+      <tr><td>Tabs segmentados</td><td>14px</td></tr>
+      <tr><td>Ghost buttons, labels</td><td>13px</td></tr>
+      <tr><td>Versión, status bar</td><td>12px</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>Radius &amp; spacing</h2>
+    <table class="spec-table">
+      <tr><th>Forma</th><th>Valor</th><th>Aplica a</th></tr>
+      <tr><td>Pill</td><td><code>999px</code></td><td><code>.seg</code>, <code>.ghost</code>, address bar</td></tr>
+      <tr><td>Medium</td><td><code>8px</code></td><td>inputs/selects, <code>pre</code></td></tr>
+      <tr><td>Small</td><td><code>4px</code></td><td><code>code</code> inline</td></tr>
+    </table>
+    <table class="spec-table" style="margin-top: 12px;">
+      <tr><th>Contexto</th><th>Espaciado</th></tr>
+      <tr><td>Header</td><td>padding <code>10px 16px</code>, gap <code>12px</code></td></tr>
+      <tr><td>Toolbar rows</td><td>gap <code>8px</code>, <code>flex-wrap: wrap</code>, padding <code>10px 16px 0</code></td></tr>
+      <tr><td>Editor</td><td>padding <code>18px 22px</code></td></tr>
+      <tr><td>Settings form</td><td>max-width <code>520px</code>, gap <code>6px</code>, inputs <code>10px 12px</code></td></tr>
+      <tr><td>Status bar</td><td>padding <code>6px 16px</code>, min-height <code>28px</code></td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>Controls</h2>
+    <h3>Segmented tabs</h3>
+    <div class="demo-row">
+      <div id="segmented" role="tablist">
+        <button class="seg active" data-tab="editor">Editor</button>
+        <button class="seg" data-tab="preview">Vista previa</button>
+        <button class="seg" data-tab="settings">Configuración</button>
+        <button class="seg" data-tab="browser">Navegador</button>
+      </div>
+    </div>
+    <h3>Ghost buttons (toolbar row, wraps)</h3>
+    <div class="demo-row">
+      <button class="ghost">Consultar IA</button>
+      <button class="ghost">Resumir con IA</button>
+      <button class="ghost" disabled>Deshabilitado</button>
+      <label class="ghost" style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="checkbox" checked style="accent-color: var(--accent); margin: 0;" /> Búsqueda web
+      </label>
+    </div>
+    <h3>Inputs / selects</h3>
+    <div class="field" style="margin-top: 8px;">
+      <label for="demo-api">API key de Groq</label>
+      <div class="row">
+        <input id="demo-api" type="password" placeholder="gsk_..." autocomplete="off" />
+        <button class="ghost" style="flex: 0 0 auto;">Guardar</button>
+      </div>
+    </div>
+    <div class="field" style="margin-top: 12px;">
+      <label for="demo-model">Modelo</label>
+      <select id="demo-model">
+        <option>openai/gpt-oss-120b</option>
+        <option>openai/gpt-oss-20b</option>
+      </select>
+    </div>
+    <h3>Browser address bar</h3>
+    <div class="demo-row">
+      <input class="pill-address" value="https://ejemplo.com" aria-label="Dirección del navegador" />
+      <button class="ghost">Ir</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Editor &amp; markdown preview</h2>
+    <div class="editor-sample">Escribí o pegá tu texto acá... el editor ocupa el resto de la columna, mono 15px.</div>
+    <div class="md-demo" style="margin-top: 16px;">
+      <h1 style="margin: 0 0 8px;">Título</h1>
+      <p>Texto con <a href="#">enlace</a>, <code>código inline</code> y palabra resaltada <span class="speaking-word">leyendo</span>.</p>
+      <blockquote>Cita de la respuesta.</blockquote>
+      <table><tr><th>col</th><th>col</th></tr><tr><td>a</td><td>b</td></tr></table>
+      <pre><code>bloque de código</code></pre>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var toggle = document.getElementById("theme-toggle");
+  var body = document.body;
+  toggle.addEventListener("click", function () {
+    var next = body.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    body.setAttribute("data-theme", next);
+    toggle.textContent = next === "dark" ? "Tema: Oscuro" : "Tema: Claro";
+  });
+
+  var palettes = {
+    dark: [
+      ["--bg", "#202124", "Fondo de ventana"],
+      ["--panel", "#2a2b30", "Header, status bar"],
+      ["--editor", "#17181b", "Editor, inputs"],
+      ["--text", "#e8eaed", "Texto primario"],
+      ["--muted", "#9aa0a6", "Texto secundario"],
+      ["--accent", "#8ab4f8", "Acento activo"],
+      ["--border", "#3c4043", "Bordes"]
+    ],
+    light: [
+      ["--bg", "#ffffff", "Fondo de ventana"],
+      ["--panel", "#f1f3f4", "Header, status bar"],
+      ["--editor", "#ffffff", "Editor, inputs"],
+      ["--text", "#202124", "Texto primario"],
+      ["--muted", "#5f6368", "Texto secundario"],
+      ["--accent", "#1a73e8", "Acento activo"],
+      ["--border", "#dadce0", "Bordes"]
+    ]
+  };
+  var host = document.getElementById("swatches");
+  function render() {
+    var theme = body.getAttribute("data-theme");
+    host.innerHTML = "";
+    palettes[theme].forEach(function (t) {
+      var d = document.createElement("div");
+      d.className = "swatch";
+      var chip = document.createElement("div");
+      chip.className = "chip";
+      chip.style.background = t[1];
+      chip.style.borderBottom = "1px solid var(--border)";
+      var meta = document.createElement("div");
+      meta.className = "meta";
+      var b = document.createElement("b");
+      b.textContent = t[0];
+      meta.appendChild(b);
+      meta.appendChild(document.createTextNode(t[1] + " — " + t[2]));
+      d.appendChild(chip);
+      d.appendChild(meta);
+      host.appendChild(d);
+    });
+  }
+  render();
+  toggle.addEventListener("click", render);
+
+  document.querySelectorAll(".seg").forEach(function (seg) {
+    seg.addEventListener("click", function () {
+      document.querySelectorAll(".seg").forEach(function (s) { s.classList.remove("active"); });
+      seg.classList.add("active");
+    });
+  });
+})();
+</script>
+</body>
+</html>

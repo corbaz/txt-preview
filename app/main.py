@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -75,6 +76,16 @@ MSG_ADDED_ATTACHMENTS = (
     "Los adjuntos visibles sobre el editor se enviarán en la próxima acción de IA."
 )
 MSG_CLEARED_ATTACHMENTS = "Se quitaron los archivos adjuntos del contexto."
+# Legacy Micrófono button (txt.ps1 6669-6678): Win+H toggles Windows speech
+# dictation; Esc stops it.
+MSG_DICTATION_ON = "Dictado activado. Presioná Esc para detenerlo."
+MSG_DICTATION_FAILED = "No se pudo activar el dictado: {detail}"
+MSG_DICTATION_MAC = ("El dictado es una función del sistema en macOS: activá el "
+                     "dictado en Configuración del Sistema → Teclado y presioná "
+                     "la tecla de dictado (micrófono).")
+MSG_DICTATION_UNSUPPORTED = "El dictado nativo no está disponible en esta plataforma."
+MSG_WINDOW_UNAVAILABLE = "La ventana no está disponible."
+MSG_WINDOW_CLOSE_FAILED = "No se pudo cerrar la ventana: {detail}"
 INPUT_MESSAGES = {
     "consult": "Ingresá una consulta en el Editor o adjuntá al menos un archivo.",
     "summarize": "Ingresá contenido en el Editor o adjuntá al menos un archivo.",
@@ -82,6 +93,22 @@ INPUT_MESSAGES = {
     "translate_en_es": "Ingresá texto en el Editor o adjuntá al menos un archivo.",
     "translate_es_en": "Ingresá texto en el Editor o adjuntá al menos un archivo.",
 }
+
+
+def _press_win_h() -> None:
+    """Legacy Micrófono: hold Win, tap H, release Win (txt.ps1 6670-6674)."""
+    import ctypes
+
+    VK_LWIN = 0x5B  # txt.ps1 Keyboard.VK_LWIN
+    VK_H = 0x48     # txt.ps1 Keyboard.VK_H
+    KEYEVENTF_KEYDOWN = 0x0000
+    KEYEVENTF_KEYUP = 0x0002
+    user32 = ctypes.windll.user32
+    user32.keybd_event(VK_LWIN, 0, KEYEVENTF_KEYDOWN, 0)
+    user32.keybd_event(VK_H, 0, KEYEVENTF_KEYDOWN, 0)
+    time.sleep(0.1)  # legacy Start-Sleep -Milliseconds 100
+    user32.keybd_event(VK_H, 0, KEYEVENTF_KEYUP, 0)
+    user32.keybd_event(VK_LWIN, 0, KEYEVENTF_KEYUP, 0)
 
 
 def document_extension_group(extension: str) -> str | None:
@@ -480,6 +507,44 @@ class Api:
             result["message"] = "Traducción lista en Vista previa."
         return result
 
+    # ---- Micrófono dictation (T15/S8) ---------------------------------------
+    def start_dictation(self) -> dict:
+        """Micrófono button. Windows reproduces the legacy Win+H keybd_event
+        sequence; macOS shows a clear user-facing instruction (never silently
+        pretending success); other platforms report the limitation."""
+        if sys.platform.startswith("win"):
+            try:
+                _press_win_h()
+            except Exception as error:
+                return {"ok": False,
+                        "message": MSG_DICTATION_FAILED.format(detail=error)}
+            return {"ok": True, "message": MSG_DICTATION_ON}
+        if sys.platform == "darwin":
+            try:
+                subprocess.run(
+                    ["osascript", "-e",
+                     'display dialog "' + MSG_DICTATION_MAC
+                     + '" with title "TXT Preview"'],
+                    check=False, timeout=10, capture_output=True)
+            except Exception as error:
+                return {"ok": False,
+                        "message": MSG_DICTATION_FAILED.format(detail=error)}
+            return {"ok": True, "message": MSG_DICTATION_MAC}
+        return {"ok": False, "message": MSG_DICTATION_UNSUPPORTED}
+
+    # ---- Cerrar (T15/S8) -----------------------------------------------------
+    def close_app(self) -> dict:
+        """Cerrar button: destroy the window (legacy $form.Close())."""
+        window = getattr(self, "_window", None)
+        if window is None:
+            return {"ok": False, "message": MSG_WINDOW_UNAVAILABLE}
+        try:
+            window.destroy()
+        except Exception as error:
+            return {"ok": False,
+                    "message": MSG_WINDOW_CLOSE_FAILED.format(detail=error)}
+        return {"ok": True}
+
     def open_attachment_dialog(self) -> dict:
         """Native open dialog returning real paths; used when the page's
         <input type=file> cannot hand over full paths."""
@@ -725,6 +790,7 @@ def create_app() -> None:
         width=1100,
         height=760,
         min_size=(720, 480),
+        maximized=True,  # S8: the original app always starts maximized
     )
     api._window = window
     api.initialize_settings()  # legacy migration + theme/speed/voice/model

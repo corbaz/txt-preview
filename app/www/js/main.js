@@ -1,4 +1,5 @@
-// TXT Preview frontend: tabs, theme, live markdown preview, embedded browser.
+// TXT Preview frontend: original-layout tabs, context bar, bottom control
+// deck, theme, live markdown preview, embedded browser (T15/S8 parity).
 (function () {
   "use strict";
 
@@ -10,9 +11,9 @@
     if (name === "preview") schedulePreview();
   }
 
-  document.getElementById("segmented").addEventListener("click", (e) => {
-    const btn = e.target.closest(".seg");
-    if (btn) setTab(btn.dataset.tab);
+  // Configuración is a top-bar tab like the original; every .seg is a tab.
+  document.querySelectorAll(".seg").forEach((btn) => {
+    btn.addEventListener("click", () => setTab(btn.dataset.tab));
   });
 
   // ---- Theme -------------------------------------------------------------
@@ -55,10 +56,17 @@
   }
 
   $("editor").addEventListener("input", () => {
+    // Editing the editor invalidates the AI response shown in Vista previa
+    // (legacy Copy MD/TXT rule: editor content until the preview shows an AI
+    // response again).
+    previewHasAiResponse = false;
     if (document.querySelector(".page[data-page='preview']").classList.contains("active")) {
       schedulePreview();
     }
   });
+
+  // Legacy copy rule state: true while Vista previa shows an AI response.
+  let previewHasAiResponse = false;
 
   // ---- Speech word spans (T4) ---------------------------------------------
   const TOKEN = /\S+/g;
@@ -158,8 +166,30 @@
     return parts.join("");
   }
 
-  // ---- Speech controls -----------------------------------------------------
+  // ---- Speech controls (bottom deck rows 3-4) ------------------------------
   let speechState = null;
+
+  // Legacy label format: m:ss ("0:00").
+  function fmtSeconds(totalSeconds) {
+    const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    return minutes + ":" + (rest < 10 ? "0" : "") + rest;
+  }
+
+  function paintSlider(slider) {
+    const min = Number(slider.min) || 0;
+    const max = Number(slider.max) || 0;
+    if (max <= min) return;
+    const pct = ((Number(slider.value) - min) / (max - min)) * 100;
+    slider.style.setProperty("--fill", pct + "%");
+  }
+
+  let seekDragging = false;
+
+  function updateSeekLabel(seconds, total) {
+    $("seek-time").textContent = fmtSeconds(seconds) + " / " + fmtSeconds(total);
+  }
 
   function applySpeechState(state) {
     if (!state) return;
@@ -172,6 +202,16 @@
       setSpeechWordIndex(state.highlight_word_index);
     }
     $("speech-pause").textContent = state.mode === "Paused" ? "Continuar" : "Pausar";
+    // Replay slider mirrors speech_tick: duration → max, position → value.
+    if (typeof state.replay_duration === "number") {
+      const seek = $("seek");
+      seek.max = String(Math.max(1, Math.round(state.replay_duration * 10)));
+      if (!seekDragging) {
+        seek.value = String(Math.round((state.replay_position || 0) * 10));
+      }
+      updateSeekLabel(state.replay_position || 0, state.replay_duration);
+      paintSlider(seek);
+    }
     if (state.message) setStatus(state.message);
   }
 
@@ -207,7 +247,44 @@
     setStatus("Lectura detenida.");
   });
 
-  // ---- Editor tools (legacy parity: Pegar / Copiar MD / Copiar TXT / Limpiar) ----
+  // Dragging the replay slider only shows the target position; on release
+  // the reading restarts there (legacy replaySlider scroll/scrollend).
+  $("seek").addEventListener("input", () => {
+    seekDragging = true;
+    const seek = $("seek");
+    updateSeekLabel(Number(seek.value) / 10, Number(seek.max) / 10);
+    paintSlider(seek);
+  });
+
+  $("seek").addEventListener("change", () => {
+    seekDragging = false;
+    paintSlider($("seek"));
+    if (!window.pywebview || !window.pywebview.api) return;
+    if (speechState && speechState.provider === "Replay") {
+      window.pywebview.api.replay_start(Number($("seek").value) / 10);
+    }
+  });
+
+  // ---- Speed slider (bottom deck row 4) ------------------------------------
+  const speedSlider = $("speed");
+  const speedValue = $("speed-value");
+
+  function speedLabel(percent) {
+    return (Number(percent) / 100).toFixed(2).replace(".", ",") + "x";
+  }
+
+  speedSlider.addEventListener("input", () => {
+    speedValue.textContent = speedLabel(speedSlider.value);
+    paintSlider(speedSlider);
+  });
+
+  speedSlider.addEventListener("change", () => {
+    paintSlider(speedSlider);
+    if (!window.pywebview || !window.pywebview.api) return;
+    window.pywebview.api.set_speech_speed(Number(speedSlider.value));
+  });
+
+  // ---- Editor tools (bottom deck row 2) ------------------------------------
   $("paste-editor").addEventListener("click", async () => {
     try {
       const text = await navigator.clipboard.readText();
@@ -223,40 +300,43 @@
     }
   });
 
-  $("copy-editor-md").addEventListener("click", async () => {
-    const text = $("editor").value;
-    if (!text.trim()) {
+  // Legacy Copy MD/Copy TXT: use the preview content while Vista previa
+  // shows an AI response, otherwise the editor text. fetchText picks the
+  // preview source (api.get_preview_text / api.get_preview_plain_text).
+  async function copyMain(plain, fetchText) {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api) return;
+    let text = "";
+    if (previewHasAiResponse) {
+      text = await fetchText(api);
+    }
+    if (!text || !text.trim()) text = $("editor").value;
+    if (!text || !text.trim()) {
       setStatus("No hay contenido para copiar.");
       return;
     }
     try {
       await navigator.clipboard.writeText(text);
-      setStatus("Markdown copiado al portapapeles.");
+      setStatus(plain
+        ? "Texto sin formato copiado al portapapeles."
+        : "Markdown copiado al portapapeles.");
     } catch (_) {
       setStatus("No se pudo copiar al portapapeles.");
     }
-  });
+  }
 
-  $("copy-editor-txt").addEventListener("click", async () => {
-    const text = $("editor").value;
-    if (!text.trim()) {
-      setStatus("No hay contenido para copiar.");
-      return;
-    }
-    try {
-      const api = window.pywebview.api;
-      const plain = await api.get_preview_plain_text();
-      await navigator.clipboard.writeText(plain || text);
-      setStatus("Texto sin formato copiado al portapapeles.");
-    } catch (_) {
-      setStatus("No se pudo copiar al portapapeles.");
-    }
+  $("copy-md").addEventListener("click", async () => {
+    await copyMain(false, (api) => api.get_preview_text());
+  });
+  $("copy-txt").addEventListener("click", async () => {
+    await copyMain(true, (api) => api.get_preview_plain_text());
   });
 
   $("clear-chat").addEventListener("click", () => {
     if (!window.pywebview || !window.pywebview.api) return;
     $("editor").value = "";
     $("preview").innerHTML = "";
+    previewHasAiResponse = false;
     window.pywebview.api.clear_attachments();
     $("attachment-summary").textContent = "Sin archivos adjuntos para la próxima solicitud";
     $("clear-attachments").hidden = true;
@@ -264,10 +344,26 @@
     setStatus("Editor y adjuntos limpiados.");
   });
 
-  // ---- Preview exports & clipboard (T6) -------------------------------------
-  // Legacy Export-PreviewPdf / Export-SpeechMp3 / Copy MD / Copy TXT:
-  // the Api works on the session preview text (what Vista previa shows),
-  // not on the editor.
+  // ---- Micrófono (legacy Win+H dictation) -----------------------------------
+  $("mic-button").addEventListener("click", async () => {
+    if (!window.pywebview || !window.pywebview.api) return;
+    try {
+      const result = await window.pywebview.api.start_dictation();
+      if (result && result.message) setStatus(result.message);
+    } catch (_) {
+      setStatus("No se pudo activar el dictado.");
+    }
+  });
+
+  // ---- Cerrar (legacy $form.Close) -------------------------------------------
+  $("close-app").addEventListener("click", () => {
+    if (!window.pywebview || !window.pywebview.api) return;
+    window.pywebview.api.close_app();
+  });
+
+  // ---- Preview exports (bottom deck row 2) ----------------------------------
+  // Legacy Export-PreviewPdf / Export-SpeechMp3: the Api works on the session
+  // preview text (what Vista previa shows), not on the editor.
   async function withBusy(button, busyMessage, action) {
     const api = window.pywebview && window.pywebview.api;
     if (!api || !button) return;
@@ -288,29 +384,6 @@
   $("export-mp3").addEventListener("click", () => {
     withBusy($("export-mp3"), "Generando MP3...", (api) => api.export_mp3());
   });
-
-  async function copyPreview(plain) {
-    const api = window.pywebview && window.pywebview.api;
-    if (!api) return;
-    const text = plain
-      ? await api.get_preview_plain_text()
-      : await api.get_preview_text();
-    if (!text || !text.trim()) {
-      setStatus("No hay contenido para copiar.");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(text);
-      setStatus(plain
-        ? "Texto sin formato copiado al portapapeles."
-        : "Markdown copiado al portapapeles.");
-    } catch (_) {
-      setStatus("No se pudo copiar al portapapeles.");
-    }
-  }
-
-  $("copy-md").addEventListener("click", () => copyPreview(false));
-  $("copy-txt").addEventListener("click", () => copyPreview(true));
 
   // ---- Embedded browser ---------------------------------------------------
   function normalizeAddress(raw) {
@@ -433,17 +506,20 @@
   });
 
   // ---- Voz Edge (T4/S6) -----------------------------------------------------
-  // Legacy voice catalog: es/en voices from edge-tts, grouped by language,
-  // selection persisted through Configuración.
+  // Legacy voice catalog: es/en voices from edge-tts; the Hombre/Mujer and
+  // Español/Inglés toggles filter the catalog client-side and the selection
+  // persists through set_speech_voice.
   const VOICE_GROUP_LABELS = { es: "Español", en: "English" };
+  let voiceCatalog = [];
 
   function applyVoiceCatalog(result, selectedVoice) {
     const select = $("voice-select");
     if (!select) return;
+    voiceCatalog = result.voices || [];
     const previous = selectedVoice || select.value;
     select.innerHTML = "";
     const groups = {};
-    for (const voice of result.voices || []) {
+    for (const voice of voiceCatalog) {
       const language = (voice.culture || "").slice(0, 2);
       (groups[language] = groups[language] || []).push(voice);
     }
@@ -489,6 +565,58 @@
   }
 
   $("update-voices").addEventListener("click", () => refreshVoices(true));
+
+  // Gender/language toggles (legacy radio groups): pick the first catalog
+  // voice matching gender + culture and persist it.
+  function voiceFilterActive(toggleId) {
+    return $(toggleId).getAttribute("aria-pressed") === "true";
+  }
+
+  function selectedVoiceFilter() {
+    const gender = voiceFilterActive("gender-male") ? "Male" : "Female";
+    const culture = voiceFilterActive("lang-es") ? "es" : "en";
+    return { gender, culture };
+  }
+
+  async function selectVoiceByFilter() {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || !voiceCatalog.length) return;
+    const { gender, culture } = selectedVoiceFilter();
+    const voice = voiceCatalog.find((candidate) =>
+      candidate.gender === gender
+      && String(candidate.culture || "").slice(0, 2) === culture);
+    if (!voice) return;
+    const select = $("voice-select");
+    if (!Array.from(select.options).some((o) => o.value === voice.name)) {
+      const option = document.createElement("option");
+      option.value = voice.name;
+      option.textContent = voice.display_name;
+      select.appendChild(option);
+    }
+    select.value = voice.name;
+    const result = await api.set_speech_voice(voice.name);
+    if (result && result.ok) setStatus(`Voz Edge: ${result.voice}`);
+  }
+
+  // Radio-like groups (legacy New-ToggleGroup panels): one active per group.
+  const VOICE_TOGGLE_GROUPS = {
+    "gender-male": ["gender-male", "gender-female"],
+    "gender-female": ["gender-male", "gender-female"],
+    "lang-es": ["lang-es", "lang-en"],
+    "lang-en": ["lang-es", "lang-en"],
+  };
+
+  function activateVoiceToggle(toggleId) {
+    for (const id of VOICE_TOGGLE_GROUPS[toggleId]) {
+      $(id).setAttribute("aria-pressed", String(id === toggleId));
+    }
+    selectVoiceByFilter();
+  }
+
+  $("gender-male").addEventListener("click", () => activateVoiceToggle("gender-male"));
+  $("gender-female").addEventListener("click", () => activateVoiceToggle("gender-female"));
+  $("lang-es").addEventListener("click", () => activateVoiceToggle("lang-es"));
+  $("lang-en").addEventListener("click", () => activateVoiceToggle("lang-en"));
 
   $("voice-select").addEventListener("change", async () => {
     const api = window.pywebview && window.pywebview.api;
@@ -582,7 +710,7 @@
   const AI_BUSY_LABELS = {
     consult: "Consultando a la IA",
     summarize: "Creando resumen profesional",
-    correct: "Corregiendo gramática y ortografía",
+    correct: "Corrigiendo gramática y ortografía",
     translate_en_es: "Traduciendo con IA",
     translate_es_en: "Traduciendo con IA",
   };
@@ -608,6 +736,8 @@
         try { await navigator.clipboard.writeText(result.text); } catch (_) {}
       }
       if (result.speech_language) speechLanguage = result.speech_language;
+      // Vista previa now shows the AI response (legacy Copy MD/TXT rule).
+      previewHasAiResponse = true;
       await renderPreviewNow();
       setTab("preview");
       setStatus(result.message);
@@ -661,15 +791,16 @@
     if (result.ok) setStatus(result.message);
   });
 
-  // Exposed for future steps (T2 actions) and tests.
+  // Exposed for future steps and tests.
   window.txtUI = {
     setTab, setStatus, renderPreviewNow,
     wrapSpeechWords, getSpeechWords, getSpeechTextFrom,
     setSpeechWordIndex, clearSpeechProgress,
     runAi, applyAttachments, getSpeechLanguage: () => speechLanguage,
-    copyPreview, withBusy,
+    copyMain, withBusy,
     applyTheme, applyModelCatalog, saveApiKey,
     applyUpdateStatus,
     applyVoiceCatalog, refreshVoices,
+    selectVoiceByFilter, applySpeechState, speedLabel,
   };
 })();

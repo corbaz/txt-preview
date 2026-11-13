@@ -261,6 +261,78 @@ class TestSpeechSpeedWiring(ApiSettingsTestCase):
         self.api.engine.pause.assert_called_once_with()
 
 
+class TestDictationAndClose(ApiSettingsTestCase):
+    """Micrófono (T15/S8): legacy Win+H via keybd_event on Windows, a clear
+    macOS instruction otherwise; Cerrar destroys the window. No real key
+    events, dialogs or closing happen in tests."""
+
+    def test_start_dictation_windows_sends_the_legacy_win_h_sequence(self):
+        with mock.patch("sys.platform", "win32"), \
+                mock.patch.object(main, "_press_win_h") as press:
+            result = self.api.start_dictation()
+        press.assert_called_once_with()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["message"],
+                         "Dictado activado. Presioná Esc para detenerlo.")
+
+    def test_start_dictation_windows_reports_failure(self):
+        with mock.patch("sys.platform", "win32"), \
+                mock.patch.object(main, "_press_win_h",
+                                  side_effect=OSError("sin teclado")):
+            result = self.api.start_dictation()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["message"],
+                         "No se pudo activar el dictado: sin teclado")
+
+    def test_start_dictation_macos_shows_instruction_via_osascript(self):
+        with mock.patch("sys.platform", "darwin"), \
+                mock.patch.object(main.subprocess, "run") as run:
+            result = self.api.start_dictation()
+        self.assertEqual(run.call_args.args[0][0], "osascript")
+        self.assertTrue(result["ok"])
+        self.assertIn("dictado", result["message"])
+
+    def test_start_dictation_macos_reports_osascript_failure(self):
+        with mock.patch("sys.platform", "darwin"), \
+                mock.patch.object(main.subprocess, "run",
+                                  side_effect=OSError("sin osascript")):
+            result = self.api.start_dictation()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["message"],
+                         "No se pudo activar el dictado: sin osascript")
+
+    def test_start_dictation_other_platform_never_pretends_success(self):
+        with mock.patch("sys.platform", "linux"):
+            result = self.api.start_dictation()
+        self.assertFalse(result["ok"])
+        self.assertIn("no está disponible", result["message"])
+
+    def test_close_app_destroys_the_window(self):
+        window = mock.Mock()
+        self.api._window = window
+        result = self.api.close_app()
+        window.destroy.assert_called_once_with()
+        self.assertTrue(result["ok"])
+
+    def test_close_app_without_window_refuses(self):
+        try:
+            del self.api._window
+        except AttributeError:
+            pass
+        result = self.api.close_app()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["message"], "La ventana no está disponible.")
+
+    def test_close_app_swallows_destroy_errors(self):
+        window = mock.Mock()
+        window.destroy.side_effect = RuntimeError("boom")
+        self.api._window = window
+        result = self.api.close_app()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["message"],
+                         "No se pudo cerrar la ventana: boom")
+
+
 class TestAskAiKeyOrder(ApiSettingsTestCase):
     def test_stored_settings_key_wins_over_env(self):
         self.api.set_api_key("gsk_stored_key")

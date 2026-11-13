@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>TXT Preview — Paridad UI original (1920×1000)</title>
+<!--
+  Artboard único: reproducción exacta de la UI original (txt.ps1, WinForms) en su
+  estado maximizado. Sin alternativas: S8 pide paridad exacta ("dejar botoneras
+  tal cual original… misma ui y UX siempre arrancar maximizado").
+
+  Tokens y geometría tomados de txt.ps1:
+  · $themePalettes (Window #0B0E14, Surface #11151E, Elevated #1A1F2B, Accent #8B93FF…)
+  · statusPanel 52px / contextPanel 46px / bottom panel 188px
+  · SetBounds del panel inferior (filas y=12 / 54 / 96 / 138, botones de 34px)
+  Nota: el botón de tema del original es "Modo: Dark"; este artboard usa
+  "Tema: Oscuro" según la enumeración del deck provista para T15.
+  Interacciones solo como prueba de diseño (JS plano, sin librerías).
+-->
+<style>
+/* Paleta original — $themePalettes de txt.ps1 */
+.win, .win[data-theme="dark"] {
+  --window: #0B0E14; --surface: #11151E; --elevated: #1A1F2B;
+  --hover: #242A39; --pressed: #2E3547; --border: #2A3142;
+  --text: #E7EAF3; --muted: #8E97AD; --editor: #0E121A;
+  --accent: #8B93FF; --accent-hover: #A3A9FF; --on-accent: #0B0E14;
+  --play: #34D399; --pause: #FBBF24; --stop: #FB7185;
+  --notice: #6EE7B7; --warning: #FBBF24; --danger: #F87171;
+  --heading: #F3F5FB; --link: #A3A9FF;
+}
+.win[data-theme="light"] {
+  --window: #F4F5F9; --surface: #FFFFFF; --elevated: #F0F2F7;
+  --hover: #E4E7F0; --pressed: #D7DBE7; --border: #DCE0EA;
+  --text: #161A26; --muted: #5E667A; --editor: #FFFFFF;
+  --accent: #5056E0; --accent-hover: #6369EA; --on-accent: #FFFFFF;
+  --play: #059669; --pause: #D97706; --stop: #E11D48;
+  --notice: #047857; --warning: #B45309; --danger: #DC2626;
+  --heading: #0F1220; --link: #4248D6;
+}
+
+* { box-sizing: border-box; margin: 0; }
+body { background: #000; font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+
+/* Artboard 1920x1000: ventana maximizada */
+.win {
+  width: 1920px; height: 1000px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  background: var(--window); color: var(--text);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+/* Barra de título (ventana maximizada, siempre arranca maximizada) */
+.titlebar {
+  height: 32px; flex: 0 0 32px;
+  background: var(--surface); color: var(--text);
+  display: flex; align-items: center; gap: 8px;
+  padding-left: 12px; font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.titlebar .app-icon { width: 16px; height: 16px; border-radius: 3px; background: var(--accent); color: var(--on-accent); font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.titlebar .spacer { flex: 1; }
+.wbtn { width: 46px; height: 32px; border: none; background: transparent; color: var(--text); font-size: 11px; cursor: pointer; }
+.wbtn:hover { background: var(--hover); }
+.wbtn.close:hover { background: var(--danger); color: #fff; }
+
+/* ---- Barra superior: navegación + mensaje + Configuración/Modelo (52px) ---- */
+.topbar {
+  height: 52px; flex: 0 0 52px;
+  background: var(--surface);
+  display: flex; align-items: center;
+  padding: 0 14px; gap: 16px;
+}
+.nav { display: flex; gap: 8px; }
+.navbtn {
+  height: 26px; min-width: 110px; padding: 0 14px;
+  background: var(--elevated); color: var(--text);
+  border: 1px solid var(--border); border-radius: 0;
+  font-size: 12px; cursor: pointer;
+}
+.navbtn:hover { background: var(--hover); }
+.navbtn:active { background: var(--pressed); }
+.navbtn.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+
+.status-msg {
+  flex: 1; min-width: 0;
+  color: var(--notice); font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.status-msg .state { font-weight: 600; margin-right: 6px; }
+
+.rightnav { display: flex; align-items: center; gap: 12px; }
+.model-label { color: var(--muted); font-size: 12px; }
+.combo {
+  height: 26px; padding: 0 26px 0 10px;
+  background: var(--elevated) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M1 1l4 4 4-4' stroke='%238E97AD' fill='none'/></svg>") no-repeat right 8px center;
+  border: 1px solid var(--border); color: var(--text);
+  font-size: 12px; cursor: pointer; appearance: none;
+}
+.combo:hover { background-color: var(--hover); }
+.combo:focus-visible, .navbtn:focus-visible, .btn:focus-visible, .toggle:focus-visible,
+.wbtn:focus-visible, .slider:focus-visible, .voice:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+
+/* ---- Barra de contexto IA (46px) ---- */
+.contextbar {
+  height: 46px; flex: 0 0 46px;
+  background: var(--elevated);
+  display: flex; align-items: center;
+  padding: 0 8px; gap: 8px;
+}
+.context-title { color: var(--accent); font-size: 12px; white-space: nowrap; }
+.caps { display: flex; }
+.cap {
+  width: 26px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--notice); cursor: help;
+}
+.cap svg { width: 14px; height: 14px; }
+.check { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); cursor: pointer; white-space: nowrap; }
+.check input { width: 14px; height: 14px; accent-color: var(--accent); margin: 0; cursor: pointer; }
+.attach-btn { height: 30px; padding: 0 14px; background: var(--elevated); color: var(--text); border: 1px solid var(--border); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.attach-btn:hover { background: var(--hover); }
+.attach-btn:active { background: var(--pressed); }
+.attach-status { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- Editor (resto de la ventana) ---- */
+.editor {
+  flex: 1; min-height: 0;
+  background: var(--editor); color: var(--text);
+  font-family: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  font-size: 16px; line-height: 1.55;
+  padding: 16px 20px; overflow: auto; white-space: pre-wrap;
+}
+
+/* ---- Botonera inferior original (panel de 188px, contenido centrado) ---- */
+.deck {
+  height: 188px; flex: 0 0 188px;
+  background: var(--surface); border-top: 1px solid var(--border);
+  position: relative;
+}
+.deck-inner { position: relative; width: 1252px; height: 188px; margin: 0 auto; }
+
+.btn {
+  position: absolute; height: 34px;
+  background: var(--elevated); color: var(--text);
+  border: 1px solid var(--border); border-radius: 0;
+  font-family: inherit; font-size: 12px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.btn:hover { background: var(--hover); }
+.btn:active { background: var(--pressed); }
+.btn.accent { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.btn.accent:hover { background: var(--accent-hover); }
+.btn.last-ai { background: var(--hover); color: var(--accent); border-color: var(--accent); }
+
+/* Radio-toggle groups (Hombre/Mujer, Español/Inglés): contenedores de 152x30 */
+.togglegroup { position: absolute; width: 152px; height: 30px; display: flex; }
+.toggle {
+  width: 76px; height: 30px;
+  background: var(--elevated); color: var(--muted);
+  border: 1px solid var(--border); font-size: 12px;
+  cursor: pointer; font-family: inherit;
+}
+.toggle:hover { background: var(--hover); }
+.toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+
+.deck-label { position: absolute; height: 34px; display: flex; align-items: center; color: var(--muted); font-size: 12px; }
+
+/* Sliders (ModernSlider: pista Border, relleno Accent, pulgar Surface) */
+.slider {
+  position: absolute; height: 32px; width: 250px;
+  appearance: none; -webkit-appearance: none;
+  background: transparent; cursor: pointer;
+}
+.slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--fill, 25%), var(--border) var(--fill, 25%)); }
+.slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); margin-top: -5px; }
+.slider::-moz-range-track { height: 4px; border-radius: 2px; background: var(--border); }
+.slider::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+.slider::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); }
+
+.version { position: absolute; right: 12px; top: 146px; width: 180px; height: 26px; text-align: right; color: var(--muted); font-size: 12px; }
+
+/* Select de voz */
+.voice { position: absolute; }
+.voice select { width: 100%; height: 34px; }
+
+kbd { background: var(--elevated); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-family: inherit; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="win" data-theme="dark" id="win" role="application" aria-label="Corrector de Prompt — ventana maximizada">
+
+  <!-- Barra de título -->
+  <div class="titlebar">
+    <span class="app-icon" aria-hidden="true">C</span>
+    <span id="title-text">Corrector de Prompt</span>
+    <span class="spacer"></span>
+    <button class="wbtn" aria-label="Minimizar">─</button>
+    <button class="wbtn" aria-label="Maximizar (ya maximizada)">▢</button>
+    <button class="wbtn close" aria-label="Cerrar ventana">✕</button>
+  </div>
+
+  <!-- Barra superior: Editor / Vista previa / Navegador · mensaje · Configuración · Modelo -->
+  <div class="topbar">
+    <div class="nav" role="tablist" aria-label="Navegación principal">
+      <button class="navbtn active" role="tab" aria-selected="true" data-view="editor">Editor</button>
+      <button class="navbtn" role="tab" aria-selected="false" data-view="preview">Vista previa</button>
+      <button class="navbtn" role="tab" aria-selected="false" data-view="browser">Navegador</button>
+    </div>
+    <div class="status-msg" id="status" aria-live="polite">
+      <span class="state" aria-hidden="true">✓</span>Listo — el editor tiene contenido y no hay tareas en curso.
+    </div>
+    <div class="rightnav">
+      <button class="navbtn" role="tab" aria-selected="false" data-view="settings" style="min-width: 145px;">Configuración</button>
+      <label class="model-label" for="model-combo" style="text-align: right;">Modelo</label>
+      <select class="combo" id="model-combo" aria-label="Modelo de IA">
+        <option selected>openai/gpt-oss-120b</option>
+        <option>openai/gpt-oss-20b</option>
+        <option>meta-llama/llama-4-scout-17b-16e</option>
+        <option>qwen/qwen3-32b</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Barra de contexto IA -->
+  <div class="contextbar">
+    <span class="context-title">Contexto IA</span>
+    <div class="caps" aria-label="Capacidades del modelo seleccionado">
+      <span class="cap" title="Chat de texto">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3h12v8H7l-3 3v-3H2z"/></svg>
+      </span>
+      <span class="cap" title="Razonamiento">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 2l1.4 3.6L13 7l-3.6 1.4L8 12 6.6 8.4 3 7l3.6-1.4z"/></svg>
+      </span>
+      <span class="cap" title="Navegación y búsqueda web">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2.5 2 2.5 10 0 12M8 2c-2.5 2-2.5 10 0 12"/></svg>
+      </span>
+      <span class="cap" title="Visión: entiende imágenes">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M1 8s3-4.5 7-4.5S15 8 15 8s-3 4.5-7 4.5S1 8 1 8z"/><circle cx="8" cy="8" r="2"/></svg>
+      </span>
+      <span class="cap" title="Adjuntar documentos: texto, PDF, Word y PowerPoint">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 1h5l3 3v11H4z"/><path d="M9 1v3h3"/></svg>
+      </span>
+    </div>
+    <label class="check"><input type="checkbox" id="web-search" checked /> Usar web en la próxima consulta</label>
+    <button class="attach-btn" type="button">Adjuntar archivos</button>
+    <span class="attach-status" id="attach-status">Sin archivos adjuntos para la próxima solicitud</span>
+  </div>
+
+  <!-- Lienzo del editor -->
+  <div class="editor" id="editor-canvas" contenteditable="true" spellcheck="false" aria-label="Editor de texto"># Demo de contenido — Editor
+
+Consulta original:
+
+    Revisá este texto y devolvé el Markdown corregido…
+
+El editor ocupa todo el alto entre la barra de contexto y la botonera original.
+La vista previa y el navegador se renderizan en esta misma superficie al cambiar de pestaña.</div>
+
+  <!-- Botonera inferior original: 3 filas + fila de sliders, centrada -->
+  <div class="deck">
+    <div class="deck-inner">
+
+      <!-- Fila 1 (y=12): IA -->
+      <button class="btn accent" id="btn-consultar" style="left: 0; top: 12px; width: 130px;">Consultar IA</button>
+      <button class="btn" style="left: 138px; top: 12px; width: 140px;">Resumir con IA</button>
+      <button class="btn" style="left: 286px; top: 12px; width: 240px;">Corregir Gramática y Ortografía</button>
+      <button class="btn" style="left: 534px; top: 12px; width: 210px;">Traducir Inglés a Español</button>
+      <button class="btn" style="left: 752px; top: 12px; width: 210px;">Traducir Español a Inglés</button>
+
+      <!-- Fila 2 (y=54): portapapeles, exportación, utilidades -->
+      <button class="btn" style="left: 0; top: 54px; width: 230px;">Pegar desde el portapapeles al editor</button>
+      <button class="btn" style="left: 238px; top: 54px; width: 160px;">Copiar MD</button>
+      <button class="btn" style="left: 406px; top: 54px; width: 165px;">Copiar TXT</button>
+      <button class="btn" style="left: 579px; top: 54px; width: 120px;">Micrófono</button>
+      <button class="btn" style="left: 707px; top: 54px; width: 70px;">PDF</button>
+      <button class="btn" style="left: 785px; top: 54px; width: 70px;">MP3</button>
+      <button class="btn" style="left: 863px; top: 54px; width: 120px;">Limpiar chat</button>
+
+      <!-- Fila 3 (y=96/98): voz + reproducción + tema + cerrar -->
+      <div class="togglegroup" role="group" aria-label="Voz: género" style="left: 0; top: 98px;">
+        <button class="toggle" aria-pressed="true">Hombre</button>
+        <button class="toggle" aria-pressed="false">Mujer</button>
+      </div>
+      <div class="togglegroup" role="group" aria-label="Voz: idioma" style="left: 160px; top: 98px;">
+        <button class="toggle" aria-pressed="true">Español</button>
+        <button class="toggle" aria-pressed="false">Inglés</button>
+      </div>
+      <span class="deck-label" style="left: 322px; top: 96px; width: 40px;">Voz</span>
+      <div class="voice" style="left: 364px; top: 101px; width: 280px;">
+        <select class="combo" id="voice-combo" aria-label="Voz Edge" style="width: 100%; height: 34px;">
+          <option selected>es-ES-ElviraNeural</option>
+          <option>es-ES-AlvaroNeural</option>
+          <option>es-AR-ElenaNeural</option>
+          <option>en-US-JennyNeural</option>
+        </select>
+      </div>
+      <button class="btn" id="btn-play" style="left: 654px; top: 96px; width: 80px; color: var(--play); border-color: var(--play);">Play</button>
+      <button class="btn" style="left: 742px; top: 96px; width: 100px; color: var(--pause); border-color: var(--pause);">Pausar</button>
+      <button class="btn" style="left: 850px; top: 96px; width: 100px; color: var(--stop); border-color: var(--stop);">Detener</button>
+      <button class="btn" id="btn-theme" style="left: 970px; top: 96px; width: 150px;">Tema: Oscuro</button>
+      <button class="btn" style="left: 1128px; top: 96px; width: 110px;">Cerrar</button>
+
+      <!-- Fila 4 (y=138): velocidad + repetir/seek + versión -->
+      <span class="deck-label" style="left: 0; top: 138px; width: 150px;">Velocidad de lectura</span>
+      <input type="range" class="slider" id="speed" min="50" max="200" step="5" value="100" style="left: 158px; top: 139px;" aria-label="Velocidad de lectura" />
+      <span class="deck-label" id="speed-value" style="left: 416px; top: 138px; width: 65px;">1,00x</span>
+      <button class="btn" style="left: 491px; top: 138px; width: 100px;">Repetir</button>
+      <input type="range" class="slider" id="seek" min="0" max="600" step="10" value="0" style="left: 599px; top: 139px;" aria-label="Posición de la lectura" />
+      <span class="deck-label" id="seek-time" style="left: 857px; top: 138px; width: 110px;">0:00 / 0:00</span>
+      <span class="version" id="version-label">v:26.11.13-08.51</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var win = document.getElementById("win");
+  var status = document.getElementById("status");
+  function setStatus(msg, tone) {
+    status.innerHTML = '<span class="state" aria-hidden="true">' +
+      (tone === "warning" ? "⚠" : tone === "error" ? "✕" : "✓") + "</span>" + msg;
+    status.style.color = tone === "warning" ? "var(--warning)" : tone === "error" ? "var(--danger)" : "var(--notice)";
+  }
+
+  /* Tabs: selección real entre vistas (la superficie cambia de contenido como prueba). */
+  var views = {
+    editor: "Editor — contenido markdown del usuario.",
+    preview: "Vista previa — Respuesta de la IA. Tu consulta sigue en el Editor.",
+    browser: "Navegador — Escribí una dirección arriba o hacé clic en un link de la Vista previa.",
+    settings: "Configuración — API key, modelos y voces Edge."
+  };
+  var canvas = document.getElementById("editor-canvas");
+  document.querySelectorAll(".navbtn").forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      document.querySelectorAll(".navbtn").forEach(function (t) {
+        t.classList.remove("active"); t.setAttribute("aria-selected", "false");
+      });
+      tab.classList.add("active"); tab.setAttribute("aria-selected", "true");
+      var v = tab.dataset.view;
+      if (v === "editor") { canvas.textContent = views.editor; canvas.setAttribute("contenteditable", "true"); }
+      else { canvas.textContent = views[v]; canvas.setAttribute("contenteditable", "false"); }
+      setStatus("Vista '" + tab.textContent.trim() + "' activa.");
+    });
+  });
+
+  /* Estado activo de botones IA: el último botón usado queda acentuado (paridad legacy). */
+  var aiButtons = document.querySelectorAll('[style*="top: 12px"].btn');
+  aiButtons.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      aiButtons.forEach(function (b) { b.classList.remove("last-ai"); });
+      if (!btn.classList.contains("accent")) btn.classList.add("last-ai");
+      setStatus("Solicitud '" + btn.textContent.trim() + "' enviada — Procesando…", "warning");
+    });
+  });
+
+  /* Tema claro/oscuro. */
+  var themeBtn = document.getElementById("btn-theme");
+  var titleText = document.getElementById("title-text");
+  themeBtn.addEventListener("click", function () {
+    var dark = win.getAttribute("data-theme") === "dark";
+    win.setAttribute("data-theme", dark ? "light" : "dark");
+    themeBtn.textContent = dark ? "Tema: Claro" : "Tema: Oscuro";
+    titleText.textContent = dark ? "Corrector de Prompt (Light)" : "Corrector de Prompt";
+    setStatus(dark ? "Tema claro aplicado." : "Tema oscuro aplicado.");
+  });
+
+  /* Toggle groups: sólo un activo por grupo. */
+  document.querySelectorAll(".togglegroup").forEach(function (group) {
+    var toggles = group.querySelectorAll(".toggle");
+    toggles.forEach(function (t) {
+      t.addEventListener("click", function () {
+        toggles.forEach(function (o) { o.setAttribute("aria-pressed", "false"); });
+        t.setAttribute("aria-pressed", "true");
+      });
+    });
+  });
+
+  /* Slider de velocidad: formato español con coma, rango 0,50x–2,00x. */
+  var speed = document.getElementById("speed");
+  var speedValue = document.getElementById("speed-value");
+  function paintSlider(s) {
+    var pct = ((s.value - s.min) / (s.max - s.min)) * 100;
+    s.style.setProperty("--fill", pct + "%");
+  }
+  speed.addEventListener("input", function () {
+    speedValue.textContent = (speed.value / 100).toFixed(2).replace(".", ",") + "x";
+    paintSlider(speed);
+    setStatus("Velocidad de lectura: " + speedValue.textContent);
+  });
+  paintSlider(speed);
+
+  /* Slider de repetir/seek: mm:ss sobre una lectura de ejemplo de 6:00 (max 600 décimas→ s). */
+  var seek = document.getElementById("seek");
+  var seekTime = document.getElementById("seek-time");
+  function fmt(sec) {
+    var m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+  seek.addEventListener("input", function () {
+    var total = Math.round(Number(seek.max) / 10);
+    seekTime.textContent = fmt(seek.value / 10) + " / " + fmt(total);
+    paintSlider(seek);
+  });
+  paintSlider(seek);
+
+  /* Adjuntos: estado con texto (no sólo color). */
+  document.querySelector(".attach-btn").addEventListener("click", function () {
+    document.getElementById("attach-status").textContent = "1 archivo adjunto: notas-reunion.md";
+    setStatus("Adjunto listo para la próxima consulta.");
+  });
+})();
+</script>
+</body>
+</html>

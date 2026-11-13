@@ -1,0 +1,16 @@
+{
+  "feature": "odd/tasks/txt-multiplatform.md",
+  "task": "T15",
+  "spec": "S8",
+  "artboards": [
+    {
+      "file": "01-original-layout.html",
+      "title": "TXT Preview — UI original maximizada (paridad exacta)",
+      "size": "1920x1000",
+      "notes": "Reproduces the original WinForms layout: title bar (always maximized), 52px top bar (Editor/Vista previa/Navegador left, status message center, Configuración + model selector right), 46px Contexto IA bar, dark editor canvas, and the complete 188px bottom deck (3 button rows + slider row) with every legacy control. Palette and geometry from txt.ps1 ($themePalettes, SetBounds)."
+    }
+  ],
+  "tradeoff": "Exact original UI parity; compact control density at the bottom",
+  "alternatives": "None — S8 explicitly requires the original UI/UX with no redesign, so no alternative directions were explored.",
+  "token_source": "txt.ps1 $themePalettes (navy/charcoal dark + light) for this artboard; app/www/css/app.css tokens for design/system.md"
+}
