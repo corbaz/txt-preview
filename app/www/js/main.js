@@ -134,10 +134,13 @@
       .forEach((span) => span.classList.remove("speaking"));
   }
 
-  // Clicking a word restarts the reading from that word (legacy Move-SpeechToWord).
+  // Clicking a word restarts the reading from that word (legacy Move-SpeechToWord),
+  // but only while a reading is active: once it finished (last known mode
+  // "Idle") a click must not start the audio by itself (S12).
   $("preview").addEventListener("click", (e) => {
     const span = e.target.closest(".sw");
     if (!span || !window.pywebview || !window.pywebview.api) return;
+    if (!speechState || speechState.mode === "Idle") return;
     const index = parseInt(span.dataset.i, 10);
     if (!Number.isNaN(index)) {
       window.pywebview.api.speech_click(index, getSpeechTextFrom(index));

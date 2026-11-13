@@ -556,10 +556,15 @@ class Api:
 
     # ---- Cerrar (T15/S8) -----------------------------------------------------
     def close_app(self) -> dict:
-        """Cerrar button: destroy the window (legacy $form.Close())."""
+        """Cerrar button: stop any reading first so the audio never outlives
+        the app (S12), then destroy the window (legacy $form.Close())."""
         window = getattr(self, "_window", None)
         if window is None:
             return {"ok": False, "message": MSG_WINDOW_UNAVAILABLE}
+        try:
+            self.stop_speech()
+        except Exception:  # a broken engine must not trap the app open
+            pass
         try:
             window.destroy()
         except Exception as error:
@@ -815,6 +820,15 @@ def create_app() -> None:
         maximized=True,  # S8: the original app always starts maximized
     )
     api._window = window
+
+    def _stop_speech_on_closing() -> None:
+        # S12: closing through the OS button stops the audio too.
+        try:
+            api.stop_speech()
+        except Exception:
+            pass
+
+    window.events.closing += _stop_speech_on_closing
     api.initialize_settings()  # legacy migration + theme/speed/voice/model
     # Legacy startupUpdateTimer: one non-blocking check ~3s after startup.
     threading.Thread(target=api._startup_update_check, daemon=True).start()

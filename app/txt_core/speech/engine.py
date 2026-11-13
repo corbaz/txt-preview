@@ -60,6 +60,22 @@ def _speed_label(percent: int) -> str:
 
 REPO = Path(__file__).resolve().parents[3]
 EDGE_TTS_WORDS_SCRIPT = REPO / "edge_tts_words.py"
+TERMINATE_WAIT_SECONDS = 3
+
+
+def _terminate_process(process: Any) -> None:
+    """Kill a still-running (possibly suspended) process and reap it, so a
+    restart or a close never leaves the old audio playing (S12). None or
+    already-dead processes are ignored; errors are suppressed so a half-dead
+    process cannot keep the shell from stopping the audio."""
+    if process is None:
+        return
+    try:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=TERMINATE_WAIT_SECONDS)
+    except Exception:
+        pass
 
 
 class SuspendResume:
@@ -305,15 +321,24 @@ class SpeechEngine:
             self.player_process = None
             self.player_started_at = None
             self.pause_started_at = None
-            completed = self.chunks[self.current_index]
-            if self.align_words:
-                self.sync_chunk_alignment(completed, len(completed.word_marks) - 1)
-            completed.status = "Played"
-            if exit_code != 0:
-                self.stop_voice_playback()
-                self.emit("error", "No se pudo reproducir la voz Edge: el reproductor terminó con un error.")
-                return
-            self.current_index += 1
+            if self.provider == "Replay":
+                # Legacy txt.ps1:4457: a finished repetition returns to Idle
+                # (the replay cache stays for another Repetir).
+                self.mode = "Idle"
+                if exit_code == 0:
+                    self.emit("info", "Repetición finalizada.")
+                else:
+                    self.emit("error", "No se pudo repetir el audio: el reproductor terminó con un error.")
+            else:
+                completed = self.chunks[self.current_index]
+                if self.align_words:
+                    self.sync_chunk_alignment(completed, len(completed.word_marks) - 1)
+                completed.status = "Played"
+                if exit_code != 0:
+                    self.stop_voice_playback()
+                    self.emit("error", "No se pudo reproducir la voz Edge: el reproductor terminó con un error.")
+                    return
+                self.current_index += 1
 
         self._start_current_chunk()
         self._sync_alignment_tick()
@@ -358,6 +383,7 @@ class SpeechEngine:
         if tempo_filter:
             arguments += ["-af", tempo_filter]
         arguments.append(self.replay.file)
+        _terminate_process(self.player_process)
         self.player_process = self._runner(
             arguments, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
@@ -375,6 +401,7 @@ class SpeechEngine:
         if self.mode == "Paused" or self.player_process is not None:
             return
         if self.current_index >= len(self.chunks):
+            self._finish_edge_reading()
             return
         chunk = self.chunks[self.current_index]
         if chunk.status != "Ready":
@@ -388,6 +415,25 @@ class SpeechEngine:
         self.mode = "Playing"
         chunk.status = "Playing"
         self.emit("info", f"Reproduciendo bloque {self.current_index + 1} de {len(self.chunks)} · {self.voice_display}")
+
+    def _finish_edge_reading(self) -> None:
+        """Natural end of an Edge reading (legacy Start-CurrentEdgeChunk tail):
+        save the Repetir cache exactly like a manual stop does, drop the chunk
+        audio and go back to Idle, so a later preview click never restarts the
+        reading by itself (S12)."""
+        if self.provider != "Edge" or self.mode != "Playing":
+            return
+        if self.player_process is not None or not self.chunks:
+            return
+        if self.current_index < len(self.chunks):
+            return
+        if any(chunk.status != "Played" for chunk in self.chunks):
+            return
+        self._save_replay_cache()
+        self.cache_clear_files()
+        self.cache_eligible_off()
+        self.mode = "Idle"
+        self.emit("info", "Lectura con voz Edge finalizada.")
 
     def _sync_alignment_tick(self) -> None:
         if self.provider != "Edge" or self.current_index >= len(self.chunks):
@@ -432,7 +478,10 @@ class SpeechEngine:
         self.applied_speed = percent
         if self.provider == "Replay" or self.provider is None:
             return
-        if self.mode not in ("Playing", "Paused"):
+        # Idle with leftover chunks means the reading just finished naturally:
+        # the restart path runs and reports the legacy already-finished warning.
+        finished = self.mode == "Idle" and bool(self.chunks)
+        if not finished and self.mode not in ("Playing", "Paused"):
             return
         was_paused = self.mode == "Paused"
         speed_text = _speed_label(percent)
@@ -476,7 +525,12 @@ class SpeechEngine:
 
     def stop_voice_playback(self) -> None:
         was_replay = self.provider == "Replay"
+        # The replay cache reads the chunk media files, not the processes:
+        # save it first, then terminate every live audio process (S12).
         self._save_replay_cache()
+        _terminate_process(self.player_process)
+        for chunk in self.chunks:
+            _terminate_process(chunk.process)
         self.cache_clear_files()
         self.cache_eligible_off()
         self.mode = "Idle"
