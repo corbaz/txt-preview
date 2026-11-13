@@ -15,6 +15,10 @@ from typing import Any, Mapping, Sequence
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
 
+# Cloudflare (error 1010) rejects Python's default urllib User-Agent signature;
+# the legacy .NET HttpClient was never affected. Identify the app instead.
+USER_AGENT = "txt-preview/26.11 (cross-platform desktop app)"
+
 ERR_MISSING_API_KEY = "Falta configurar la API key de Groq."
 ERR_MISSING_BRIDGE_PASSWORD = "Falta la contraseña del bridge de {label} ({env_var})."
 ERR_HTTP_STATUS = "Groq devolvió el estado HTTP {status}."
@@ -108,6 +112,7 @@ def post_chat(api_key: str, body: dict, timeout_seconds: int = 600) -> dict:
         method="POST",
     )
     request.add_header("Content-Type", "application/json")
+    request.add_header("User-Agent", USER_AGENT)
     request.add_header("Authorization", f"Bearer {api_key}")
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:

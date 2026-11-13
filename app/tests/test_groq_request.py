@@ -86,3 +86,50 @@ class TestGroqHeadersAndPost(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUserAgent(unittest.TestCase):
+    """Cloudflare (error 1010) rejects Python's default UA; every Groq call must identify the app."""
+
+    def test_post_chat_sends_user_agent(self):
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{"choices": []}'
+
+        def fake_urlopen(request, timeout=None):
+            captured["ua"] = request.get_header("User-agent")
+            return FakeResponse()
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            groq.post_chat("key", {"model": "m", "messages": []})
+        self.assertTrue(captured["ua"].startswith("txt-preview/"))
+
+    def test_fetch_models_sends_user_agent(self):
+        from txt_core import models
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{"data": []}'
+
+        def fake_urlopen(request, timeout=None):
+            captured["ua"] = request.get_header("User-agent")
+            return FakeResponse()
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            models.fetch_models("key")
+        self.assertTrue(captured["ua"].startswith("txt-preview/"))

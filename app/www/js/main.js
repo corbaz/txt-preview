@@ -201,6 +201,69 @@
     window.pywebview.api.replay_start(0);
   });
 
+  $("speech-stop").addEventListener("click", () => {
+    if (!window.pywebview || !window.pywebview.api) return;
+    window.pywebview.api.stop_speech();
+    setStatus("Lectura detenida.");
+  });
+
+  // ---- Editor tools (legacy parity: Pegar / Copiar MD / Copiar TXT / Limpiar) ----
+  $("paste-editor").addEventListener("click", async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text || !text.trim()) {
+        setStatus("El portapapeles no contiene texto.");
+        return;
+      }
+      $("editor").value = text;
+      $("editor").setSelectionRange(text.length, text.length);
+      setStatus("Texto pegado desde el portapapeles.");
+    } catch (_) {
+      setStatus("No se pudo leer el portapapeles.");
+    }
+  });
+
+  $("copy-editor-md").addEventListener("click", async () => {
+    const text = $("editor").value;
+    if (!text.trim()) {
+      setStatus("No hay contenido para copiar.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus("Markdown copiado al portapapeles.");
+    } catch (_) {
+      setStatus("No se pudo copiar al portapapeles.");
+    }
+  });
+
+  $("copy-editor-txt").addEventListener("click", async () => {
+    const text = $("editor").value;
+    if (!text.trim()) {
+      setStatus("No hay contenido para copiar.");
+      return;
+    }
+    try {
+      const api = window.pywebview.api;
+      const plain = await api.get_preview_plain_text();
+      await navigator.clipboard.writeText(plain || text);
+      setStatus("Texto sin formato copiado al portapapeles.");
+    } catch (_) {
+      setStatus("No se pudo copiar al portapapeles.");
+    }
+  });
+
+  $("clear-chat").addEventListener("click", () => {
+    if (!window.pywebview || !window.pywebview.api) return;
+    $("editor").value = "";
+    $("preview").innerHTML = "";
+    window.pywebview.api.clear_attachments();
+    $("attachment-summary").textContent = "Sin archivos adjuntos para la próxima solicitud";
+    $("clear-attachments").hidden = true;
+    setTab("editor");
+    setStatus("Editor y adjuntos limpiados.");
+  });
+
   // ---- Preview exports & clipboard (T6) -------------------------------------
   // Legacy Export-PreviewPdf / Export-SpeechMp3 / Copy MD / Copy TXT:
   // the Api works on the session preview text (what Vista previa shows),

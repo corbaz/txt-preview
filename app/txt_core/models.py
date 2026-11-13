@@ -99,6 +99,8 @@ def fetch_models(api_key: str) -> list[ModelInfo]:
     if not api_key or not api_key.strip():
         raise RuntimeError("Ingresá una API key de Groq.")
     request = urllib.request.Request(GROQ_MODELS_URL, method="GET")
+    from .groq import USER_AGENT
+    request.add_header("User-Agent", USER_AGENT)
     request.add_header("Authorization", f"Bearer {api_key}")
     try:
         with urllib.request.urlopen(request, timeout=30) as response:

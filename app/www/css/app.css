@@ -233,3 +233,5 @@ body {
   color: var(--muted);
   font-size: 12px;
 }
+
+#editor-tools-bar { display: flex; gap: 8px; padding: 8px 16px; flex-wrap: wrap; border-top: 1px solid var(--border); }
