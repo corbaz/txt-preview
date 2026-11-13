@@ -1,5 +1,26 @@
 # Historial de cambios
 
+## v:26.11.13-20.25
+
+### Paridad visual, IA y voz
+
+- Restaurada la interfaz original completa: ventana maximizada, filas inferiores centradas, selector principal de modelos y Vista previa con espaciado correcto.
+- Las acciones de IA muestran un indicador grande centrado; Consultar valida navegación web y capacidades reales del modelo sin repetir la pregunta.
+- Los modelos muestran capacidades de chat, razonamiento, búsqueda, visión y documentos; las opciones incompatibles quedan bloqueadas.
+- El motor de voz elimina procesos superpuestos al cambiar velocidad, saltar por clic, repetir, detener o cerrar la aplicación.
+- Repetir respeta la velocidad actual y vuelve a resaltar cada palabra utilizando las marcas guardadas del audio.
+- Play detecta español o inglés, mantiene el sexo elegido y aplica la voz predeterminada correspondiente cuando cambia el idioma.
+- Los controles Hombre/Mujer/Español/Inglés filtran estrictamente la lista y conservan una voz manual compatible.
+- Vista previa se prepara antes de Play para permitir resaltado y salto por palabra desde la primera lectura.
+- Los textos largos generan primero un bloque corto para comenzar a hablar más rápido y luego hasta cinco bloques equilibrados.
+- Adjuntar utiliza un único diálogo nativo moderno de pywebview; los archivos aparecen como contexto visible y se envían una sola vez a la IA.
+
+### Validación
+
+- 491 pruebas de la aplicación en verde.
+- JavaScript validado con `node --check` y Python con `compileall`.
+- Verificación real de consulta web Groq y terminación de procesos de audio.
+
 ## v:26.11.13-08.51
 
 ### TXT Preview multiplataforma (Windows + macOS)

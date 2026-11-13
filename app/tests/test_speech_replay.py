@@ -15,6 +15,7 @@ from txt_core import settings
 from txt_core.speech import voices
 from txt_core.speech import engine as engine_module
 from txt_core.speech.engine import ReplayCache, SpeechEngine
+from txt_core.speech.marks import speech_words_key
 from txt_core.speech.replay import (
     build_atempo_filter,
     format_replay_time,
@@ -306,6 +307,47 @@ class TestVoiceDefaultsMap(SpeechApiTestCase):
         self.assertTrue(result["ok"])
         self.assertIsNone(result["defaults"]["en|Female"])
         self.assertEqual(result["defaults"]["es|Male"], "es-CR-JuanNeural")
+
+
+class TestReplayHighlight(SpeechApiTestCase):
+    WORDS = "uno\ndos\ntres\ncuatro"
+
+    def setUp(self):
+        super().setUp()
+        self.api.engine.replay = ReplayCache(
+            file=self.replay_media(), duration=4.0, voice_display="Elvira",
+            words_key=speech_words_key(self.WORDS),
+            mark_seconds=[0.0, 1.0, 2.0, 3.0],
+            mark_words=[0, 1, 2, 3], eligible=False,
+        )
+        self.api.engine.provider = "Replay"
+        self.api.engine.mode = "Playing"
+
+    def test_replay_highlight_follows_the_cached_mark_at_current_position(self):
+        with mock.patch.object(self.api, "_replay_position", return_value=1.20):
+            state = self.api.speech_tick(self.WORDS)
+        self.assertEqual(state["highlight_word_index"], 1)
+        self.assertTrue(self.api.engine.replay_highlight_checked)
+        self.assertTrue(self.api.engine.replay_highlight_valid)
+
+    def test_replay_highlight_uses_the_lead_to_advance_near_a_boundary(self):
+        with mock.patch.object(self.api, "_replay_position", return_value=0.95):
+            state = self.api.speech_tick(self.WORDS)
+        self.assertEqual(state["highlight_word_index"], 1)
+
+    def test_replay_highlight_is_cleared_when_preview_words_do_not_match(self):
+        with mock.patch.object(self.api, "_replay_position", return_value=2.20):
+            state = self.api.speech_tick("texto\ndistinto")
+        self.assertIsNone(state["highlight_word_index"])
+        self.assertTrue(self.api.engine.replay_highlight_checked)
+        self.assertFalse(self.api.engine.replay_highlight_valid)
+
+    def test_replay_without_marks_has_no_highlight(self):
+        self.api.engine.replay.mark_seconds = []
+        self.api.engine.replay.mark_words = []
+        with mock.patch.object(self.api, "_replay_position", return_value=2.20):
+            state = self.api.speech_tick(self.WORDS)
+        self.assertIsNone(state["highlight_word_index"])
 
 
 if __name__ == "__main__":

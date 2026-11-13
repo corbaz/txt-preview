@@ -5,6 +5,7 @@ through pywebview. Legacy Windows-only app: ../txt.ps1.
 """
 from __future__ import annotations
 
+from bisect import bisect_right
 import json
 import os
 import socket
@@ -40,7 +41,8 @@ from txt_core.exports import (
 )
 from txt_core.markdown import render_markdown
 from txt_core.speech import voices
-from txt_core.speech.engine import SpeechEngine
+from txt_core.speech.engine import HIGHLIGHT_LEAD_SECONDS, SpeechEngine
+from txt_core.speech.marks import speech_words_key
 
 REPO = ROOT.parent
 WWW = ROOT / "www"
@@ -608,7 +610,7 @@ class Api:
             "Todos los archivos (*.*)",
         )
         chosen = window.create_file_dialog(
-            webview.OPEN_DIALOG, allow_multiple=True, file_types=file_types,
+            webview.FileDialog.OPEN, allow_multiple=True, file_types=file_types,
         ) or []
         if not chosen:
             return {"added": [], "errors": [], "summary": self.get_attachment_summary()}
@@ -667,7 +669,7 @@ class Api:
         if window is None:
             return None
         chosen = window.create_file_dialog(
-            webview.SAVE_DIALOG, save_filename=suggested_name, file_types=file_types,
+            webview.FileDialog.SAVE, save_filename=suggested_name, file_types=file_types,
         )
         return chosen or None
 
@@ -834,7 +836,7 @@ class Api:
             self._pending_click = (index, text) if index >= 0 else None
         return {"ok": True}
 
-    def speech_tick(self) -> dict:
+    def speech_tick(self, raw_words: str | None = None) -> dict:
         # The poll AND the pending-click processing share one lock hold (S14):
         # a click queued mid-tick is not dropped, and the tick can never see
         # half of another entrypoint's stop→start transition.
@@ -847,6 +849,15 @@ class Api:
             self._pending_click = None
             if click is not None:
                 self._move_speech_to_word(click[0], click[1])
+            # Legacy Update-ReplayHighlight validates once per Repetir session
+            # that the cached marks belong to the currently rendered preview.
+            # start_replay_playback resets these flags before every replay/seek.
+            if (self.engine.provider == "Replay"
+                    and not self.engine.replay_highlight_checked
+                    and raw_words is not None):
+                self.engine.replay_highlight_checked = True
+                self.engine.replay_highlight_valid = bool(raw_words) \
+                    and speech_words_key(raw_words) == self.engine.replay.words_key
             return self._speech_state()
 
     # ---- Speech internals --------------------------------------------------
@@ -862,8 +873,21 @@ class Api:
 
     def _speech_state(self) -> dict:
         engine = self.engine
-        cursor = engine.align_cursor
-        highlight = cursor if cursor > engine.align_floor else None
+        if engine.provider == "Replay":
+            highlight = None
+            if (engine.mode in ("Playing", "Paused")
+                    and engine.replay_highlight_checked
+                    and engine.replay_highlight_valid
+                    and engine.replay.mark_seconds
+                    and engine.replay.mark_words):
+                position = min(engine.replay.duration,
+                               self._replay_position() + HIGHLIGHT_LEAD_SECONDS)
+                mark_index = bisect_right(engine.replay.mark_seconds, position) - 1
+                if 0 <= mark_index < len(engine.replay.mark_words):
+                    highlight = engine.replay.mark_words[mark_index]
+        else:
+            cursor = engine.align_cursor
+            highlight = cursor if cursor > engine.align_floor else None
         return {
             "mode": engine.mode,
             "provider": engine.provider,

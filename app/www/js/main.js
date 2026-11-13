@@ -206,6 +206,10 @@
       clearSpeechProgress();
     } else if (typeof state.highlight_word_index === "number") {
       setSpeechWordIndex(state.highlight_word_index);
+    } else if (state.provider === "Replay") {
+      // The replay cache belongs to another preview (or has no valid marks):
+      // never leave a stale Edge word highlighted.
+      clearSpeechProgress();
     }
     $("speech-pause").textContent = state.mode === "Paused" ? "Continuar" : "Pausar";
     // Replay slider mirrors speech_tick: duration → max, position → value.
@@ -224,7 +228,7 @@
   async function speechTick() {
     if (!window.pywebview || !window.pywebview.api) return;
     try {
-      applySpeechState(await window.pywebview.api.speech_tick());
+      applySpeechState(await window.pywebview.api.speech_tick(getSpeechWords()));
     } catch (_) { /* the tick is best effort */ }
   }
 
@@ -980,7 +984,12 @@
     }
   }
 
-  $("attach-files").addEventListener("click", () => $("attach-input").click());
+  // Use exactly one native dialog. WebView2 file inputs do not expose full
+  // filesystem paths, which previously opened a second fallback dialog.
+  $("attach-files").addEventListener("click", async () => {
+    if (!window.pywebview || !window.pywebview.api) return;
+    applyAttachments(await window.pywebview.api.open_attachment_dialog());
+  });
 
   $("attach-input").addEventListener("change", async () => {
     const files = Array.from($("attach-input").files || []);

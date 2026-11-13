@@ -9,6 +9,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import main
 from txt_core import bridges, groq
 
 
@@ -309,6 +310,28 @@ class TestAttachmentsApi(unittest.TestCase):
             result["summary"],
             "Sin archivos adjuntos para la próxima solicitud",
         )
+
+    def test_native_dialog_adds_selected_file_and_returns_visible_summary(self):
+        path = self.path("notas.txt", "contenido del archivo")
+
+        class Window:
+            def __init__(self):
+                self.calls = []
+
+            def create_file_dialog(self, dialog_type, **kwargs):
+                self.calls.append((dialog_type, kwargs))
+                return (path,)
+
+        window = Window()
+        self.api._window = window
+        result = self.api.open_attachment_dialog()
+
+        self.assertEqual(result["added"], ["notas.txt"])
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["summary"], "Se enviarán a Groq (1): notas.txt")
+        self.assertEqual(len(window.calls), 1)
+        self.assertEqual(window.calls[0][0], main.webview.FileDialog.OPEN)
+        self.assertTrue(window.calls[0][1]["allow_multiple"])
 
     def test_image_rejected_for_non_vision_model(self):
         result = self.api.add_attachments([self.path("foto.png", b"png")])

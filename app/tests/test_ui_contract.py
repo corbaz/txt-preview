@@ -897,5 +897,27 @@ class TestVoiceSelectorFiltersByActiveToggles(UiContractTestCase):
                         body.index("renderFilteredVoiceCatalog("))
 
 
+class TestReplayHighlightAndNativeAttachments(UiContractTestCase):
+    def test_speech_tick_sends_the_current_preview_words_for_replay_validation(self):
+        body = js_function(self.js_source, "speechTick")
+        self.assertIn("speech_tick(getSpeechWords())", body)
+
+    def test_missing_replay_highlight_clears_a_stale_word(self):
+        body = js_function(self.js_source, "applySpeechState")
+        self.assertIn('state.provider === "Replay"', body)
+        self.assertIn("clearSpeechProgress()", body)
+
+    def test_attach_button_uses_one_native_dialog_directly(self):
+        window = self.handler_window("attach-files")
+        self.assertIn("open_attachment_dialog()", window)
+        self.assertNotIn('$("attach-input").click()', window)
+
+    def test_modern_pywebview_file_dialog_enums_replace_deprecated_constants(self):
+        self.assertIn("webview.FileDialog.OPEN", self.py_source)
+        self.assertIn("webview.FileDialog.SAVE", self.py_source)
+        self.assertNotIn("webview.OPEN_DIALOG", self.py_source)
+        self.assertNotIn("webview.SAVE_DIALOG", self.py_source)
+
+
 if __name__ == "__main__":
     unittest.main()
