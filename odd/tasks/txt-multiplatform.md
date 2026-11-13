@@ -22,7 +22,7 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 | T4 | S6, S2 | Edge-only TTS: chunker, playback (ffplay), pause/resume, replay, speed, per-word highlight in preview | 9e1ef2f |
 | T5 | S1 | Attachments: text/images/docx/pptx/pdf extraction (python-docx, python-pptx, PyMuPDF) | 4ba7d90 |
 | T6 | S1 | Export: PDF and MP3 | fdf2f96 |
-| T7 | S3 | Doctor + installers: `install.ps1` (Windows) and `install.sh` (macOS), detect/install/explain missing deps, AI-readable output | pending |
+| T7 | S3 | Doctor + installers: `install.ps1` (Windows) and `install.sh` (macOS), detect/install/explain missing deps, AI-readable output | ec9a7fe |
 | T8 | S4 | CI: GitHub Actions matrix (windows + macos) running doctor dry-run and test suite on every push | pending |
 | T9 | S3 | README rewrite: clone → doctor → run flow per OS, explained for a human or an AI agent | pending |
 | T10 | S2 | Settings/secrets: platform-aware paths, migrate DPAPI-encrypted settings from the PS app (Windows), Keychain-safe storage on macOS | pending |
