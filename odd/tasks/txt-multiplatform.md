@@ -36,7 +36,7 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 | T15 | S8 | Rebuild the pywebview layout to match the original UI/UX: top nav/context bar, editor canvas, complete bottom control deck, maximized startup | d3a0886 |
 | T16 | S9 | Correct bottom-row distribution, pending-request spinners, and the main model selector | 6bdcfdb |
 | T17 | S10 | Fix Preview spacing, centered work overlay, and initial slider-fill alignment | 084a02b |
-| T18 | S11 | Restore animated work feedback, researched Consultar, and model capability gates | pending |
+| T18 | S11 | Restore animated work feedback, researched Consultar, and model capability gates | 9eeb1fc |
 
 ## Log
 
