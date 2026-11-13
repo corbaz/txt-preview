@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
 _WORD_KEY_STRIP = re.compile(r"[^\w]", re.UNICODE)
+_WHITESPACE_TOKEN = re.compile(r"\S+")
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,20 @@ def edge_word_marks(text: str, word_timings: Iterable[dict[str, Any]]) -> list[E
             text=word,
         ))
     return marks
+
+
+def word_index_at_character(text: str, character: int) -> int:
+    """Index of the whitespace-separated token containing/preceding a character.
+
+    Maps an EdgeWordMark's character offset onto the preview word list for the
+    replay cache: tokens counted with \S+ finditer, 0 before the first token.
+    """
+    index = -1
+    for match in _WHITESPACE_TOKEN.finditer(text):
+        if match.start() > character:
+            break
+        index += 1
+    return index if index >= 0 else 0
 
 
 def get_mark_index_at(marks: Sequence[EdgeWordMark], elapsed: float, lead: float = 0.0) -> int:

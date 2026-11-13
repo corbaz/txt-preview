@@ -11,6 +11,7 @@ from txt_core.speech.marks import (
     get_mark_index_at,
     speech_alignment_key,
     speech_words_key,
+    word_index_at_character,
 )
 
 
@@ -44,6 +45,31 @@ class TestEdgeWordMarks(unittest.TestCase):
         timings = [{"text": "da", "start_seconds": s} for s in (0.0, 0.3, 0.6)]
         marks = edge_word_marks(text, timings)
         self.assertEqual([m.character for m in marks], [0, 3, 6])
+
+
+class TestWordIndexAtCharacter(unittest.TestCase):
+    # Legacy replay-cache character-to-word mapping: the preview word index of
+    # the token containing/preceding a character offset (\S+ tokens).
+    def test_start_of_text(self):
+        self.assertEqual(word_index_at_character("hola mundo", 0), 0)
+
+    def test_middle_of_word(self):
+        self.assertEqual(word_index_at_character("hola mundo", 2), 0)
+
+    def test_between_words_points_at_previous_token(self):
+        self.assertEqual(word_index_at_character("hola mundo", 4), 0)
+
+    def test_at_next_word_start(self):
+        self.assertEqual(word_index_at_character("hola mundo", 5), 1)
+
+    def test_past_end_points_at_last_token(self):
+        self.assertEqual(word_index_at_character("hola mundo", 99), 1)
+
+    def test_empty_text(self):
+        self.assertEqual(word_index_at_character("", 0), 0)
+
+    def test_before_first_token(self):
+        self.assertEqual(word_index_at_character("   hola", 1), 0)
 
 
 class TestKeys(unittest.TestCase):

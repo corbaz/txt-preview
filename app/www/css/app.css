@@ -117,6 +117,19 @@ body {
   color: var(--muted);
 }
 
+/* Speech reading (T4): clickable words and the active highlight. */
+.sw { cursor: pointer; }
+.speaking {
+  background: rgba(138, 180, 248, 0.35);
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+#speech-bar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px 0;
+}
+
 .settings-form {
   max-width: 520px;
   width: 100%;
