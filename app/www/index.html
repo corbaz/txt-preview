@@ -56,11 +56,22 @@
     <section class="page" data-page="settings">
       <div class="settings-form">
         <label for="api-key">API key de Groq</label>
-        <input id="api-key" type="password" placeholder="gsk_..." autocomplete="off" />
-        <p class="hint">Se guarda cifrada en Configuración (T10). Podés crear una gratis en console.groq.com/keys.</p>
+        <div class="row">
+          <input id="api-key" type="password" placeholder="gsk_..." autocomplete="off" />
+          <button id="save-api-key" class="ghost">Guardar</button>
+        </div>
+        <p class="hint">Se guarda cifrada con la API del sistema (Windows DPAPI, Keychain en macOS). Podés crear una gratis en console.groq.com/keys.</p>
         <label for="model-select">Modelo</label>
-        <select id="model-select" disabled><option>openai/gpt-oss-120b</option></select>
-        <p class="hint">T2: catálogo conectado en el siguiente paso de integración.</p>
+        <div class="row">
+          <select id="model-select" disabled><option>openai/gpt-oss-120b</option></select>
+          <button id="update-models" class="ghost">Actualizar modelos</button>
+        </div>
+        <p class="hint">Los puentes locales (Claude, Codex, Gemini) aparecen cuando están corriendo.</p>
+        <label for="theme-select">Tema</label>
+        <select id="theme-select">
+          <option value="dark">Oscuro</option>
+          <option value="light">Claro</option>
+        </select>
       </div>
     </section>
 

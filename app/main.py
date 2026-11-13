@@ -5,9 +5,12 @@ through pywebview. Legacy Windows-only app: ../txt.ps1.
 """
 from __future__ import annotations
 
+import json
 import os
+import socket
 import sys
 import threading
+import urllib.error
 from pathlib import Path
 
 import webview
@@ -17,7 +20,7 @@ APP = ROOT
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 
-from txt_core import bridges, groq, models, prompts
+from txt_core import bridges, groq, models, prompts, settings
 from txt_core.attachments import (
     IMAGE_EXTENSIONS,
     TEXT_EXTENSIONS,
@@ -46,6 +49,23 @@ DEFAULT_SPEECH_VOICE = "es-ES-ElviraNeural"
 DEFAULT_SPEECH_VOICE_DISPLAY = "Elvira (es-ES)"
 SPEECH_SPEED_MIN = 50
 SPEECH_SPEED_MAX = 200
+DEFAULT_THEME = "dark"
+
+# Legacy Update-BridgeModels status strings (txt.ps1:1721-1760).
+MSG_NEEDS_API_KEY = settings.MSG_NEEDS_API_KEY
+BRIDGE_GROUP_ORDER = ("Groq", "Claude", "Codex", "Gemini")
+
+
+def _tcp_listening(port: int, timeout_seconds: float = 0.5) -> bool:
+    """Legacy Test-BridgeListening: a short TCP probe tells a stopped bridge
+    apart without waiting for the refused-connection HTTP timeout."""
+    try:
+        with socket.socket() as probe:
+            probe.settimeout(timeout_seconds)
+            probe.connect(("127.0.0.1", int(port)))
+        return True
+    except OSError:
+        return False
 
 # Legacy Show-Message / Set-StatusText strings for the AI actions (txt.ps1 ~6340-6580).
 ERR_API_CONNECTION = "Error al conectar con la API."
@@ -83,18 +103,31 @@ def read_version() -> str:
 class Api:
     """Bridge exposed to the frontend as window.pywebview.api."""
 
-    def __init__(self) -> None:
+    def __init__(self, settings_dir: str | None = None,
+                 legacy_dir: str | None = None,
+                 api_encrypt=None, api_decrypt=None) -> None:
         self.engine = SpeechEngine(emit=self._on_engine_message)
         self._pending_click: int | None = None
         self._speech_words = ""
         self._speech_speed = 100
+        # ---- Persisted settings (T10/S2) ----------------------------------
+        # Paths and crypto are injectable so tests never touch the real
+        # settings folder nor the real DPAPI/keychain APIs.
+        self._settings_dir = settings_dir
+        self._legacy_dir = legacy_dir
+        self._api_encrypt = api_encrypt
+        self._api_decrypt = api_decrypt
+        self._theme = DEFAULT_THEME
+        self._speech_voice = DEFAULT_SPEECH_VOICE
+        self._models_cache: dict | None = None
+        self._bridge_model_vision: dict[str, bool] = {}
         self._last_message = ""
         # ---- AI actions (T5) --------------------------------------------
         self._attachments: list = []
         self._attachments_lock = threading.Lock()
         self._selected_model = models.DEFAULT_MODEL_ID
         # Session bridge passwords; get_bridge_password falls back to the
-        # process env and (later steps) the stored settings.
+        # process env, in-memory values and the bridge password file.
         self._bridge_passwords: dict[str, str] = {}
         self._speech_language = "es"
         # ---- Exports (T6) ---------------------------------------------------
@@ -110,6 +143,143 @@ class Api:
     def platform(self) -> str:
         return sys.platform
 
+    # ---- Persisted settings (T10/S2) ---------------------------------------
+    def initialize_settings(self) -> dict:
+        """Legacy Import-AppSettings: migrate the legacy DPAPI settings once,
+        then apply theme, speed, voice and selected model to the session."""
+        migrated = settings.migrate_legacy_settings(
+            self._settings_dir, legacy_dir=self._legacy_dir,
+            encrypt=self._api_encrypt, decrypt=self._api_decrypt)
+        loaded = settings.load_settings(self._settings_dir)
+        self._theme = str(loaded.get("theme") or DEFAULT_THEME)
+        self._speech_voice = str(loaded.get("speech_voice") or DEFAULT_SPEECH_VOICE)
+        self.set_speech_speed(int(loaded.get("speed") or 100))
+        self._selected_model = str(loaded.get("selected_model")
+                                   or models.DEFAULT_MODEL_ID)
+        return {
+            "migrated": migrated,
+            "theme": self._theme,
+            "speech_voice": self._speech_voice,
+            "speed": self._speech_speed,
+            "selected_model": self._selected_model,
+            "api_key_masked": self.get_api_key_masked(),
+        }
+
+    def get_settings(self) -> dict:
+        return {
+            "theme": self._theme,
+            "speech_voice": self._speech_voice,
+            "speed": self._speech_speed,
+            "selected_model": self._selected_model,
+            "api_key_masked": self.get_api_key_masked(),
+        }
+
+    def set_theme(self, theme: str) -> dict:
+        self._theme = theme if theme in ("light", "dark") else DEFAULT_THEME
+        settings.set_theme(self._theme, self._settings_dir)
+        return {"ok": True, "theme": self._theme}
+
+    def _resolve_api_key(self) -> str:
+        """Stored settings key first, GROQ_API_KEY env fallback (legacy order)."""
+        try:
+            stored = settings.get_api_key(
+                self._settings_dir, decrypt=self._api_decrypt).strip()
+        except Exception:
+            stored = ""
+        if stored:
+            return stored
+        return os.environ.get("GROQ_API_KEY", "")
+
+    def set_api_key(self, key: str) -> dict:
+        """Legacy Save-AppSettings for the Groq key: encrypt and persist."""
+        settings.set_api_key(key, self._settings_dir, encrypt=self._api_encrypt)
+        self._models_cache = None  # the model catalog depends on the key
+        return {"ok": True, "masked": self.get_api_key_masked()}
+
+    def get_api_key_masked(self) -> str:
+        key = self._resolve_api_key()
+        if not key:
+            return ""
+        return f"{key[:4]}...{key[-4:]}"
+
+    # ---- Model catalog (T10/S2) ---------------------------------------------
+    def update_models(self) -> dict:
+        """Legacy Initialize-ModelSources / Update-BridgeModels: Groq /models
+        plus a live probe of every local bridge, cached for the session."""
+        if self._models_cache is not None:
+            return self._models_cache
+        api_key = self._resolve_api_key()
+        if not api_key.strip():
+            return {"ok": False, "error": MSG_NEEDS_API_KEY,
+                    "models": [], "bridge_status": {}}
+        fetch_error: str | None = None
+        try:
+            groq_models = models.fetch_models(api_key)
+        except RuntimeError as error:
+            fetch_error = str(error)
+            groq_models = list(models.DEFAULT_GROQ_MODELS)  # static catalog
+        catalog: list[dict] = [
+            {"id": item.id, "name": item.id, "provider": "Groq",
+             "vision": models.model_capabilities(item.id).vision}
+            for item in groq_models
+        ]
+        bridge_status: dict[str, str] = {}
+        self._bridge_model_vision = {}
+        for bridge in bridges.LOCAL_BRIDGES:
+            bridge_models, status = self._probe_bridge(bridge)
+            bridge_status[bridge.key] = status
+            for entry in bridge_models:
+                self._bridge_model_vision[entry["id"]] = entry["vision"]
+            catalog.extend(bridge_models)
+        result: dict = {"ok": True, "models": catalog,
+                        "bridge_status": bridge_status}
+        if fetch_error:
+            result["error"] = fetch_error
+        self._models_cache = result
+        return result
+
+    def _probe_bridge(self, bridge: bridges.Bridge) -> tuple[list[dict], str]:
+        """Legacy Update-BridgeModels per bridge: GET /models with the resolved
+        password and the same status strings."""
+        password = bridges.get_bridge_password(bridge, self._bridge_passwords)
+        if not _tcp_listening(bridge.port):
+            return [], "Apagado"
+        try:
+            status_code, text = bridges.bridge_http(
+                bridge, "GET", "/models", None, 10, password)
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            return [], f"Sin respuesta: {error}"
+        if status_code == 401:
+            status = ("Falta la contraseña" if not password.strip()
+                      else "Contraseña incorrecta")
+            return [], status
+        if status_code != 200:
+            return [], f"Error HTTP {status_code}"
+        try:
+            model_list = json.loads(text) if text else []
+        except json.JSONDecodeError as error:
+            return [], f"Sin respuesta: {error}"
+        if not isinstance(model_list, list):
+            model_list = []
+        entries: list[dict] = []
+        for model in model_list:
+            if not isinstance(model, dict) or not model.get("id"):
+                continue
+            # Claude Code always reads images, Codex says it per model (legacy switch).
+            vision = (bridge.key == "claude"
+                      or (bridge.key == "codex" and model.get("vision") is True))
+            entries.append({
+                "id": f"{bridge.key}:{model['id']}",
+                "name": str(model.get("name") or model.get("id")),
+                "provider": bridge.label,
+                "bridge": bridge.key,
+                "vision": vision,
+            })
+        count = len(model_list)
+        status = ("Conectado (1 modelo)" if count == 1
+                  else f"Conectado ({count} modelos)")
+        return entries, status
+
     def render_preview(self, text: str) -> str:
         """Sanitized markdown HTML for Vista previa."""
         self._preview_text = text
@@ -121,6 +291,7 @@ class Api:
 
     def set_selected_model(self, model_id: str) -> dict:
         self._selected_model = model_id
+        settings.set_selected_model(model_id, self._settings_dir)
         return {"ok": True, "model": model_id}
 
     def add_attachments(self, paths) -> dict:
@@ -174,8 +345,10 @@ class Api:
     def _selected_capabilities(self) -> models.Capabilities:
         bridge = bridges.get_bridge(self._selected_model)
         if bridge:
-            # Bridge vision detection (legacy probe of GET /models) lands with T10.
-            return models.model_capabilities(self._selected_model, bridge.label, False)
+            # Vision flag comes from the live /models probe (legacy Update-BridgeModels).
+            return models.model_capabilities(
+                self._selected_model, bridge.label,
+                self._bridge_model_vision.get(self._selected_model, False))
         return models.model_capabilities(self._selected_model)
 
     def ask_ai(self, action: str, web_search: bool = False, text: str = "") -> dict:
@@ -235,7 +408,7 @@ class Api:
                 prompt, self._selected_model, bridge.key, text_attachments, image_paths,
             )
             return bridges.bridge_chat(bridge, body, password)
-        api_key = os.environ.get("GROQ_API_KEY", "")
+        api_key = self._resolve_api_key()
         if not api_key.strip():
             raise ValueError(groq.ERR_MISSING_API_KEY)
         capabilities = models.model_capabilities(self._selected_model).as_dict()
@@ -338,6 +511,7 @@ class Api:
         except Exception as error:  # keep the shell alive; report to the UI
             return {"ok": False, "message": f"No se pudo generar el MP3: {error}"}
         return {"ok": True, "path": target, "message": f"MP3 guardado en {target}"}
+        return {"ok": True, "path": target, "message": f"MP3 guardado en {target}"}
 
     def _ask_save_path(self, _title: str, suggested_name: str, file_types) -> str | None:
         """Native save dialog (legacy Select-ExportPath); None when cancelled."""
@@ -360,7 +534,7 @@ class Api:
             self._speech_words = raw_words or ""
             self.engine.initialize_alignment(self._speech_words)
             self.engine.start_edge_session(
-                text, DEFAULT_SPEECH_VOICE_DISPLAY, DEFAULT_SPEECH_VOICE,
+                text, self._speech_voice_display(), self._speech_voice,
                 rate_percent=self._speech_speed,
             )
             return {"ok": True, "message": self._last_message}
@@ -422,6 +596,12 @@ class Api:
         return self._speech_state()
 
     # ---- Speech internals --------------------------------------------------
+    def _speech_voice_display(self) -> str:
+        """Friendly display name; the id itself for non-default voices."""
+        if self._speech_voice == DEFAULT_SPEECH_VOICE:
+            return DEFAULT_SPEECH_VOICE_DISPLAY
+        return self._speech_voice
+
     def _speech_state(self) -> dict:
         engine = self.engine
         cursor = engine.align_cursor
@@ -461,7 +641,7 @@ class Api:
             engine.reset_alignment(index - 1)
             engine.initialize_alignment(self._speech_words)
             engine.start_edge_session(
-                text, DEFAULT_SPEECH_VOICE_DISPLAY, DEFAULT_SPEECH_VOICE,
+                text, self._speech_voice_display(), self._speech_voice,
                 rate_percent=self._speech_speed,
             )
             if was_paused:
@@ -481,6 +661,7 @@ def create_app() -> None:
         min_size=(720, 480),
     )
     api._window = window
+    api.initialize_settings()  # legacy migration + theme/speed/voice/model
     webview.start(private_mode=False)
 
 

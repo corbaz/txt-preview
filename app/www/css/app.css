@@ -198,6 +198,10 @@ body {
 
 .settings-form input:focus, .settings-form select:focus { border-color: var(--accent); }
 
+.settings-form .row { display: flex; gap: 8px; align-items: stretch; }
+.settings-form .row input,
+.settings-form .row select { flex: 1; min-width: 0; }
+
 .hint { color: var(--muted); font-size: 12px; margin: 2px 0 6px; }
 
 #browser-bar {

@@ -14,7 +14,10 @@ from txt_core import bridges, groq
 
 def api_with_env(test, **environ):
     import main
-    api = main.Api()
+    # Temp settings dir so persistence never touches the real user folder.
+    tmp = tempfile.TemporaryDirectory()
+    test.addCleanup(tmp.cleanup)
+    api = main.Api(settings_dir=tmp.name, legacy_dir=tmp.name + "-legacy")
     patcher = mock.patch.dict(os.environ, environ, clear=False)
     patcher.start()
     test.addCleanup(patcher.stop)

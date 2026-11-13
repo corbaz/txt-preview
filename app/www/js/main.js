@@ -17,14 +17,24 @@
 
   // ---- Theme -------------------------------------------------------------
   const themeToggle = $("theme-toggle");
-  function applyTheme(theme) {
+  const themeSelect = $("theme-select");
+  function applyTheme(theme, persist) {
     document.body.dataset.theme = theme;
     themeToggle.textContent = theme === "dark" ? "Tema: Oscuro" : "Tema: Claro";
+    if (themeSelect) themeSelect.value = theme;
     try { localStorage.setItem("txt-theme", theme); } catch (_) {}
+    if (persist && window.pywebview && window.pywebview.api) {
+      window.pywebview.api.set_theme(theme);
+    }
   }
   themeToggle.addEventListener("click", () => {
-    applyTheme(document.body.dataset.theme === "dark" ? "light" : "dark");
+    applyTheme(document.body.dataset.theme === "dark" ? "light" : "dark", true);
   });
+  if (themeSelect) {
+    themeSelect.addEventListener("change", () => {
+      applyTheme(themeSelect.value, true);
+    });
+  }
 
   // ---- Live markdown preview ---------------------------------------------
   let previewTimer = null;
@@ -264,11 +274,115 @@
     $("status-message").textContent = message;
   }
 
+  // ---- Configuración (T10/S2) ---------------------------------------------
+  const BRIDGE_GROUP_LABELS = ["Groq", "Claude", "Codex", "Gemini"];
+
+  function applyModelCatalog(result) {
+    const select = $("model-select");
+    const previous = select.value || (select.options[0] && select.options[0].value) || "";
+    select.innerHTML = "";
+    const groups = {};
+    for (const model of result.models || []) {
+      const label = BRIDGE_GROUP_LABELS.includes(model.provider) ? model.provider : "Groq";
+      (groups[label] = groups[label] || []).push(model);
+    }
+    for (const label of BRIDGE_GROUP_LABELS) {
+      const models = groups[label];
+      if (!models || !models.length) continue;
+      const group = document.createElement("optgroup");
+      if (label === "Groq") {
+        group.label = "Groq";
+      } else {
+        const key = models[0].bridge;
+        group.label = `${label} · ${result.bridge_status[key] || ""}`;
+      }
+      for (const model of models) {
+        const option = document.createElement("option");
+        option.value = model.id;
+        option.textContent = model.name || model.id;
+        option.dataset.provider = label;
+        group.appendChild(option);
+      }
+      select.appendChild(group);
+    }
+    const hasPrevious = Array.from(select.options).some((o) => o.value === previous);
+    if (hasPrevious) select.value = previous;
+    select.disabled = false;
+  }
+
+  async function saveApiKey() {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api) return;
+    const key = $("api-key").value.trim();
+    if (!key) {
+      setStatus("Ingresá una API key de Groq.");
+      $("api-key").focus();
+      return;
+    }
+    const button = $("save-api-key");
+    button.disabled = true;
+    try {
+      const result = await api.set_api_key(key);
+      $("api-key").value = "";
+      setStatus(result.masked ? `API key guardada (${result.masked}).` : "API key guardada.");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  $("save-api-key").addEventListener("click", saveApiKey);
+  $("api-key").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveApiKey();
+    }
+  });
+
+  $("update-models").addEventListener("click", async () => {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api) return;
+    const button = $("update-models");
+    button.disabled = true;
+    setStatus("Buscando modelos disponibles...");
+    try {
+      const result = await api.update_models();
+      if (!result.ok) {
+        setStatus(result.error || "Ingresá una API key de Groq.");
+        return;
+      }
+      applyModelCatalog(result);
+      setStatus(result.error || "Modelos actualizados.");
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  $("model-select").addEventListener("change", async () => {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api) return;
+    const select = $("model-select");
+    const result = await api.set_selected_model(select.value);
+    try {
+      $("attachment-summary").textContent = await api.get_attachment_summary();
+    } catch (_) { /* the summary is best effort */ }
+    const option = select.selectedOptions[0];
+    const provider = (option && option.dataset.provider) || "Groq";
+    setStatus(`Modelo: ${provider === "Groq" ? "Groq · " + select.value : (option ? option.textContent : select.value)}`);
+  });
+
   window.addEventListener("pywebviewready", async () => {
     let theme = "dark";
     try { theme = localStorage.getItem("txt-theme") || "dark"; } catch (_) {}
     applyTheme(theme);
-    const version = await window.pywebview.api.app_version();
+    const api = window.pywebview && window.pywebview.api;
+    if (api) {
+      // Persisted settings win over localStorage (legacy Import-AppSettings).
+      try {
+        const config = await api.get_settings();
+        if (config && config.theme) applyTheme(config.theme);
+      } catch (_) { /* settings are best effort */ }
+    }
+    const version = await api.app_version();
     $("version-badge").textContent = "v" + version;
     setStatus("Listo.");
     setInterval(speechTick, 120);
@@ -366,5 +480,6 @@
     setSpeechWordIndex, clearSpeechProgress,
     runAi, applyAttachments, getSpeechLanguage: () => speechLanguage,
     copyPreview, withBusy,
+    applyTheme, applyModelCatalog, saveApiKey,
   };
 })();
