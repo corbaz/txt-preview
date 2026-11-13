@@ -20,7 +20,7 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 | T2 | S1 | Port portable logic to Python: markdown render, citation stripping, AI prompts, Groq/bridge HTTP, model catalog | 3d073aa |
 | T3 | S1, S2 | UI shell: Editor/Vista previa/Configuración/Navegador tabs, themes light/dark | 45dd5fd |
 | T4 | S6, S2 | Edge-only TTS: chunker, playback (ffplay), pause/resume, replay, speed, per-word highlight in preview | 9e1ef2f |
-| T5 | S1 | Attachments: text/images/docx/pptx/pdf extraction (python-docx, python-pptx, PyMuPDF) | pending |
+| T5 | S1 | Attachments: text/images/docx/pptx/pdf extraction (python-docx, python-pptx, PyMuPDF) | 4ba7d90 |
 | T6 | S1 | Export: PDF and MP3 | pending |
 | T7 | S3 | Doctor + installers: `install.ps1` (Windows) and `install.sh` (macOS), detect/install/explain missing deps, AI-readable output | pending |
 | T8 | S4 | CI: GitHub Actions matrix (windows + macos) running doctor dry-run and test suite on every push | pending |
@@ -36,3 +36,4 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 - L2: "lo de tauri me confundi talvez pyton sea mejor cual es tu mejor opcion" → user confirmed Python + pywebview (S5) and Edge-only TTS (S6). Branch renamed to `feat/cross-platform`.
 - L3: T2 delivered citations/prompts/groq/bridges/models; the Markdown renderer (listed in T2) is implemented inside T3 where the preview consumes it.
 - L4: T4 parity gaps to close before cutover: speed change during an Edge reading does not restart/re-synthesize remaining text (legacy Restart-ActiveSpeechPlayback applies immediately); replay mark words map directly by character position instead of re-running Get-ReplayWordTimings; voice catalog (edge-tts list-voices) is still hardcoded to es-ES-ElviraNeural. Commit 9e1ef2f; prior parts d3f9f53 (chunker+marks) and 6909078 (alignment+replay+atempo).
+- L5: T5 decisions: legacy .doc/.ppt (Office COM) support dropped on BOTH platforms for cross-platform parity — users get a conversion message; PDF now via PyMuPDF; bridge vision flag defaults False until /models probing lands; API key/bridge passwords read from env only until T10 persisted settings.
