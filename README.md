@@ -1,57 +1,111 @@
 # TXT Preview
 
-Aplicación de escritorio para Windows que reúne en una sola ventana un editor de texto, una vista previa Markdown, herramientas de IA (consultar, resumir, corregir y traducir con [Groq](https://groq.com) o con tus suscripciones de Claude, OpenAI y Gemini mediante bridges locales) y lectura en voz alta.
+Aplicación de escritorio para **Windows y macOS**, con una sola base de código (Python + pywebview) que en ambas plataformas ofrece lo mismo: un editor de texto, una vista previa Markdown, herramientas de IA (consultar, resumir, corregir y traducir con [Groq](https://groq.com) o con tus suscripciones de Claude, OpenAI y Gemini mediante bridges locales), lectura en voz alta con voces neuronales de Edge y resaltado de la palabra que se lee, y exportación a PDF y MP3.
 
 Las mejoras publicadas en cada versión se detallan en [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Qué podés hacer
 
 - Escribir o pegar texto y verlo formateado en **Vista previa**.
-- **Consultar IA**: tu consulta queda en el Editor y la respuesta aparece en **Vista previa**. Desde ahí podés usar **Llevar al editor** para seguir trabajando sobre la respuesta, o **Ver el editor** para volver a ver tu texto.
-- **Resumir**, **Corregir gramática y ortografía** y **Traducir** inglés ↔ español reemplazan el texto del Editor; **Ctrl+Z** recupera el original.
-- En la barra **Contexto IA**, arriba del Editor: búsqueda web (activada por defecto en los modelos que navegan) y **Adjuntar archivos**: texto, PDF, Word (.docx, .doc) y PowerPoint (.pptx, .ppt), e imágenes en los modelos con visión. Groq solo recibe texto, así que la app extrae el texto de cada documento antes de enviarlo. Los .doc y .ppt antiguos necesitan Microsoft Office; para PDF, la primera vez se descarga la librería PdfPig (verificada por huella SHA-256). Los íconos verdes muestran qué puede hacer el modelo actual.
-- Abrir los links de las respuestas en la pestaña **Navegador**, con barra de direcciones, atrás y adelante, o en tu navegador predeterminado. La primera vez la app descarga el componente WebView2 de Microsoft (~10 MB, verificado por firma digital).
-- Escuchar el resultado con voces de Windows o voces neuronales de Edge, con pausa, velocidad y resaltado de la palabra que se lee.
-- Al pedir algo a la IA (Preguntar, Resumir, Corregir o Traducir) se detiene cualquier lectura o repetición y se descarta el audio de **Repetir**, porque la respuesta nueva reemplaza la Vista previa. Las marcas de cita de búsqueda web que a veces trae la respuesta (como `【2†L58-L62】`) se quitan antes de mostrarla, leerla, exportarla o llevarla al editor.
-- Si seleccionás un fragmento en la Vista previa, **Play** lee solo esa selección; si en cambio hacés clic en una palabra, lee desde ahí hasta el final. Mientras lee, un clic en otra palabra hace saltar la voz y el resaltado (rosa chicle) a esa palabra. **Repetir** vuelve a reproducir el último audio generado sin sintetizarlo de nuevo, y la barra de al lado te deja adelantar o retroceder; durante la repetición también se resalta la palabra que suena, y sigue a la barra cuando la movés Ese audio pertenece al texto con el que se generó: si la Vista previa pasa a mostrar otro texto (una respuesta nueva, otro contenido del Editor), se descarta y Repetir queda deshabilitado; si solo se redibuja el mismo texto (por ejemplo al cambiar el tema), se conserva.
-- Exportar a **PDF** (A4 con márgenes de imprenta, numeración de páginas y saltos prolijos, siempre en fondo blanco) y **MP3**, copiar como Markdown o texto plano. Estas acciones y **Play** usan lo que muestra la Vista previa: la respuesta de la IA si hay una, o el texto del Editor.
+- **Consultar IA**: tu consulta queda en el Editor y la respuesta aparece en **Vista previa**.
+- **Resumir**, **Corregir gramática y ortografía** y **Traducir** inglés ↔ español reemplazan el texto del Editor.
+- En la barra de IA, arriba del Editor: **Consultar IA**, **Resumir**, **Corregir Gramática y Ortografía**, **Traducir EN→ES** y **ES→EN**, búsqueda web (en los modelos que navegan, activada por defecto) y **Adjuntar archivos**: texto, PDF, Word (.docx), PowerPoint (.pptx) e imágenes (hasta 3, en los modelos con visión). Los formatos antiguos .doc y .ppt **no están soportados**: guardalos primero como .docx o .pptx.
+- Abrir los links de las respuestas en la pestaña **Navegador**, dentro de la misma ventana.
+- Las marcas de cita de búsqueda web que a veces trae la respuesta (como `【2†L58-L62】`) se quitan antes de mostrarla, leerla, exportarla o llevarla al editor.
+- Escuchar el resultado con **voces neuronales de Edge**, con pausa, **Repetir** del último audio, control de velocidad y resaltado de la palabra que se lee. Si seleccionás un fragmento en la Vista previa, **Play** lee solo esa selección; si hacés clic en una palabra, lee desde ahí hasta el final.
+- Exportar a **PDF** y **MP3**, copiar como Markdown o texto plano. Estas acciones y **Play** usan lo que muestra la Vista previa: la respuesta de la IA si hay una, o el texto del Editor.
 - Elegir tema claro u oscuro.
 
 ## Instalación
 
-Necesitás Windows 10 u 11 y [Git](https://git-scm.com/download/win). Si no tenés Git, instalalo primero:
+Necesitás [Git](https://git-scm.com/downloads), Python 3.10 o superior, FFmpeg y algunos paquetes de Python (`pywebview`, `markdown`, `pymupdf`, `edge-tts`). El instalador de cada sistema se encarga de todo lo que falte; en macOS la ventana usa el WKWebView que ya trae el sistema, y en Windows el doctor verifica que esté el runtime WebView2.
 
-```powershell
-winget install --id Git.Git -e --source winget
+### macOS
+
+```bash
+git clone https://github.com/corbaz/txt-preview.git
+cd txt-preview
+./install.sh
+./run.sh
 ```
 
-Después abrí **PowerShell** (no hace falta como administrador) y pegá este comando:
+Si ya lo tenías clonado, en vez del clone hacé `git pull` y volvé a correr `./install.sh`. Si el clone no conserva el permiso de ejecución, corré una vez `chmod +x run.sh install.sh`.
+
+`install.sh` hace esto:
+
+1. Pide Homebrew: si no lo tenés, te muestra el comando para instalarlo y te pide volver a ejecutar el script.
+2. Instala Python y FFmpeg con `brew install python` y `brew install ffmpeg` (solo si faltan).
+3. Instala los paquetes de la app: `pip install --user -r app/requirements.txt edge-tts`.
+4. Corre el doctor de dependencias y te muestra cómo abrir la app.
+
+### Windows
+
+Abrí **PowerShell** (no hace falta como administrador) y pegá este comando:
 
 ```powershell
 $d = "$env:LOCALAPPDATA\txt-preview"; if (Test-Path "$d\.git") { git -C $d pull --ff-only } else { git clone https://github.com/corbaz/txt-preview.git $d }; powershell -NoProfile -ExecutionPolicy Bypass -File "$d\install.ps1"
 ```
 
-El mismo comando sirve para reinstalar o reparar una instalación existente.
+El mismo comando sirve para reinstalar o reparar una instalación existente. `install.ps1` hace esto:
 
-El instalador:
+1. Clona la app en `%LOCALAPPDATA%\txt-preview` (o la actualiza si ya estaba).
+2. Instala lo que falte: Python 3.12, los paquetes de la app (`app\requirements.txt` y `edge-tts`) y FFmpeg, todo vía `winget`.
+3. Corre el doctor de dependencias.
+4. Crea el acceso directo **TXT Preview** en el escritorio y abre la aplicación.
 
-1. Descarga la app en `%LOCALAPPDATA%\txt-preview` (o la actualiza si ya estaba).
-2. Instala lo que falte: PowerShell 7 (si winget no está, descarga la versión portable), Python con `edge-tts` y FFmpeg.
-3. Crea el acceso directo **TXT Preview** en el escritorio.
-4. Abre la aplicación.
+Después podés abrirla desde el acceso directo del escritorio o ejecutando `run.cmd` desde el clone.
 
-Si algo opcional no se puede instalar, avisa en amarillo y sigue: las voces de Windows funcionan igual.
+### Doctor
+
+El doctor comprueba que todo esté instalado y explica cómo arreglar lo que falte:
+
+```bash
+python app/doctor.py            # en macOS puede ser: python3 app/doctor.py
+```
+
+Imprime una tabla con un check por dependencia (`git`, `python`, `pip`, `pywebview`, `markdown`, `pymupdf`, `edge-tts`, `ffmpeg`, `webview-runtime`), el detalle de cada una y, si falta algo, la **Solución** con el comando exacto.
+
+Para una IA o un script hay tres modos:
+
+- `--json`: salida en JSON, pensada para que un agente la lea sin ambigüedad.
+- `--fix`: intenta instalar lo que falta. Puede instalar con `pip` los paquetes de Python (`pywebview`, `markdown`, `pymupdf`, `edge-tts`); el resto (git, Python, FFmpeg, WebView2) recibe la sugerencia con su comando de `brew`/`winget`.
+- Códigos de salida: `0` todo OK, `1` falta algo (sin `--fix`), `2` corrió `--fix` y sigue faltando algo.
+
+Un agente de IA puede correr el doctor, parsear el `--json` y ejecutar el campo `fix` de cada check que salga con `"ok": false`. Ejemplo de ese JSON:
+
+```json
+{
+  "ok": false,
+  "platform": "macos",
+  "checks": [
+    { "id": "edge-tts", "ok": false,
+      "detail": "Falta el paquete de Python edge-tts (voces Edge en línea).",
+      "fix": "python -m pip install --user edge-tts" },
+    { "id": "python", "ok": true,
+      "detail": "Python 3.12.1 (python3)", "fix": null }
+  ]
+}
+```
+
+### Resumen de requisitos
+
+| Requisito | Detalle | Quién lo instala |
+|-----------|---------|------------------|
+| Git | Lo usa clonar y actualizar con `git pull`. | Vos (una vez): `brew install git` / `winget install --id Git.Git -e` |
+| Python 3.10+ | Corre la app y sus pruebas. | El instalador de tu sistema |
+| FFmpeg | Reproduce las voces Edge y exporta MP3. | El instalador: `brew install ffmpeg` / `winget install --id Gyan.FFmpeg -e` |
+| Paquetes de Python | `pywebview`, `markdown`, `pymupdf`, `edge-tts`. | El instalador, o `python app/doctor.py --fix` |
+| Runtime de web | macOS trae WKWebView integrado (nada que instalar); en Windows el doctor verifica el WebView2 runtime y sugiere `winget install --id Microsoft.EdgeWebView -e` si falta. | Automático / doctor |
 
 ## Primeros pasos
 
 1. Creá una API key gratuita en [console.groq.com/keys](https://console.groq.com/keys).
-2. En la app, abrí **Configuración**, pegá la API key y tocá **Guardar**.
-3. Tocá **Actualizar modelos** y elegí uno en el selector de la parte superior. La app siempre abre con `openai/gpt-oss-120b`, una buena opción general; el modelo que elijas vale solo para esa sesión. `qwen/qwen3.8-27b` entiende imágenes.
-4. Volvé al **Editor**, escribí algo y probá **Consultar IA**.
+2. Definila en la variable de entorno `GROQ_API_KEY` antes de abrir la app: en esta versión es de ahí que la app la lee. El campo **API key de Groq** de la pestaña **Configuración** va a guardarla cifrada cuando se complete la integración de configuración; en la misma pestaña está el selector de modelos, que hoy se conecta al catálogo en el siguiente paso de integración.
+3. La app abre con `openai/gpt-oss-120b`, una buena opción general.
+4. En el **Editor**, escribí algo y probá **Consultar IA**: la respuesta aparece en **Vista previa**.
+5. Con la respuesta en Vista previa podés tocar **Play** para escucharla con una voz Edge, adjuntar archivos en el Editor para la próxima consulta, o exportar el resultado a **PDF** o **MP3**.
 
-La API key se guarda cifrada para tu usuario de Windows en `%LOCALAPPDATA%\TXT Preview\settings.json`. Nunca se sube al repositorio.
-
-## Modelos por suscripción (bridges locales)
+### Modelos por suscripción (bridges locales)
 
 Además de Groq, la app puede usar tus suscripciones de Claude, OpenAI (Codex) y Gemini a través de los bridges del repo `web-chat`. Cada bridge escucha solo en `127.0.0.1`, así que nadie de la red puede usarlo, y pide usuario y contraseña.
 
@@ -61,103 +115,35 @@ Además de Groq, la app puede usar tus suscripciones de Claude, OpenAI (Codex) y
 | Codex (OpenAI) | 4094 | `CODEX_BRIDGE_PASSWORD` |
 | Gemini | 4092 | `GEMINI_BRIDGE_PASSWORD` |
 
-1. Arrancá los bridges que quieras usar.
-2. Abrí la app. Al iniciar, y cada vez que tocás **Actualizar modelos**, busca los bridges. En **Configuración**, al lado de cada uno, ves si está **Apagado**, si le **Falta la contraseña**, si tiene una **Contraseña incorrecta** o si está **Conectado** y con cuántos modelos. Al tocar **Guardar** o al salir del campo después de cambiar una contraseña, la app vuelve a probar los bridges y sus modelos aparecen en el selector. No hace falta una API key de Groq para usarlos.
-3. Sus modelos aparecen en el mismo selector, agrupados por proveedor (`Claude · Claude Sonnet`, `Groq · openai/gpt-oss-120b`, etc.). Todas las acciones de IA funcionan igual, y el aviso de espera indica qué proveedor y modelo está respondiendo. En la lista de Configuración, cada modelo muestra en columnas si sirve para chat y si admite visión, búsqueda web y adjuntos.
+1. Arrancá los bridges que quieras usar y definí sus contraseñas en las variables de entorno (`CLAUDE_BRIDGE_PASSWORD`, `CODEX_BRIDGE_PASSWORD`, `GEMINI_BRIDGE_PASSWORD`) o dejá que la app lea el `password.txt` que genera cada bridge cuando no le pasás ninguna (en Windows, en `%LOCALAPPDATA%\prompting\<bridge>\`; en macOS, en `~/Library/Application Support/prompting/<bridge>/`). No hace falta una API key de Groq para usarlos.
+2. El ruteo de los modelos de los bridges ya está integrado en la lógica de la app; que sus modelos aparezcan en el selector, agrupados por proveedor, es parte de los próximos pasos de integración.
 
-La app busca la contraseña de cada bridge en este orden:
+## Actualizar
 
-1. La variable de entorno del proceso (o de tu usuario de Windows).
-2. El campo **Contraseña (opcional)** de Configuración, que se guarda cifrado igual que la API key.
-3. El `password.txt` que genera el bridge en `%LOCALAPPDATA%\prompting\<bridge>\` cuando no le pasás ninguna.
-
-Si definís las contraseñas en tu perfil de PowerShell, ponelas **fuera** de las funciones que arrancan los servers. Así las ve también la app cuando la abrís desde ese perfil:
-
-```powershell
-$env:CLAUDE_BRIDGE_PASSWORD = '...'
-$env:CODEX_BRIDGE_PASSWORD  = '...'
-$env:GEMINI_BRIDGE_PASSWORD = '...'
-```
-
-Los modelos de Claude y los de Codex que lo declaran entienden imágenes; Gemini no. Los documentos adjuntos se envían como texto, igual que a Groq. La búsqueda web es solo de Groq.
-
-## Voces y audio (opcional)
-
-| Para | Necesitás | Cómo instalarlo |
-|------|-----------|-----------------|
-| Voces de Windows | Nada extra | — |
-| Voces neuronales de Edge | Python y `edge-tts` | Los instala `install.ps1`; a mano: `winget install Python.Python.3.12` |
-| Reproducir voces de Edge, **Repetir** y exportar MP3 | FFmpeg (`ffplay`, `ffprobe`, `ffmpeg`) | Lo instala `install.ps1`; a mano: `winget install Gyan.FFmpeg` |
-
-Después de instalar Python o FFmpeg, cerrá y volvé a abrir la app.
-
-TXT consulta el catálogo Edge al iniciar. Si el servicio falla temporalmente, reintenta y usa el último catálogo válido guardado en `%LOCALAPPDATA%\TXT Preview\edge-voices.json`, por lo que las voces no desaparecen de la lista. La interfaz avisa cuando está usando esa copia; la síntesis sigue necesitando conexión a Internet. Si falta Python o `edge-tts`, no usa la copia porque esas voces no podrían reproducirse.
-
-## Actualizaciones
-
-Al abrir la app, si hay una versión nueva aparece un aviso que pregunta si querés actualizar; si aceptás, se actualiza y se reinicia sola. También podés tocar **Buscar actualización** en **Configuración**. La actualización nunca pisa cambios que hayas hecho en los archivos de la app: si los hay, te avisa y no actualiza.
-
-## Problemas frecuentes
-
-| Mensaje o síntoma | Solución |
-|-------------------|----------|
-| `git` no se reconoce | Instalá Git con el comando de arriba y abrí una ventana nueva de PowerShell. |
-| `destination path ... already exists` | Usaste el comando viejo. Pegá el comando de instalación de arriba: actualiza y reinstala sin borrar nada. |
-| Acentos rotos o "No se encuentra el tipo [Net.Http.HttpClient]" | La app se abrió con Windows PowerShell 5.1. Volvé a ejecutar el instalador y abrila desde el acceso directo. |
-| Mensaje rojo "Error al conectar con la API" | Revisá la API key en **Configuración** y tu conexión a internet. |
-| Solo aparece una voz y faltan las voces Edge | TXT muestra la causa en la barra inferior. Si indica que falta `edge-tts`, volvé a ejecutar `install.ps1`, o ejecutá `python -m pip install --user --upgrade edge-tts`, y reabrí TXT. Si la consulta en línea falla, TXT reintenta y recupera automáticamente el último catálogo guardado. |
-| `No se encontró ffplay para reproducir la voz Edge` | El directorio que contiene `ffplay.exe` debe estar en `PATH`; por ejemplo, si está en `C:\FFmpeg\bin\ffplay.exe`, agregá `C:\FFmpeg\bin` (no solo `C:\FFmpeg`). Cerrá TXT y, si lo abrís desde una terminal, abrí también una terminal nueva. |
-| Las voces Edge aparecen pero no suenan | Comprobá que `ffplay.exe` y `ffprobe.exe` estén disponibles desde una PowerShell nueva y revisá la tabla de voces. |
-| "El PDF no tiene texto seleccionable" | Es un PDF escaneado (imágenes). Pasalo por un OCR o adjuntá las páginas como imágenes en un modelo con visión. |
-| "Hace falta Microsoft Office" al adjuntar .doc o .ppt | Abrilo y guardalo como .docx o .pptx; esos formatos se leen sin Office. |
-
-Los mensajes de la app usan colores: verde para información, amarillo para advertencias y rojo para errores.
-
-## Desinstalación
-
-Cerrá la app y ejecutá en PowerShell:
-
-```powershell
-Remove-Item "$env:LOCALAPPDATA\txt-preview" -Recurse -Force
-Remove-Item "$env:LOCALAPPDATA\TXT Preview" -Recurse -Force
-Remove-Item "$([Environment]::GetFolderPath('Desktop'))\TXT Preview.lnk"
-```
-
-La segunda línea borra tu configuración, la API key guardada y los componentes descargados (WebView2 y PdfPig).
-
----
+Como la app corre directo del clone en los dos sistemas, actualizar es un `git pull` en la carpeta `txt-preview` — nada más. Después de una actualización grande, si el doctor detecta una dependencia nueva que falta, corré `./install.sh` (macOS) o `install.ps1` (Windows) de nuevo y listo. La app también va a incorporar un chequeo de actualizaciones dentro de la ventana (en desarrollo).
 
 ## Para desarrolladores
 
-La app es un único script de PowerShell 7 con WinForms ([`txt.ps1`](txt.ps1)). Para ejecutarla desde un clon:
+La app vive en [`app/`](app/): `main.py` arranca la ventana con pywebview, `txt_core/` tiene la lógica compartida y `www/` la interfaz (HTML/CSS/JS). Las pruebas corren igual en los dos sistemas:
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\txt.ps1
+```bash
+python -m unittest discover -s app/tests
 ```
 
-### Pruebas
+Cada push pasa por la matriz de CI de Windows y macOS ([`.github/workflows/cross-platform.yml`](.github/workflows/cross-platform.yml)), que corre el doctor y la suite de pruebas en los dos sistemas: así un cambio hecho en Windows no rompe la Mac del otro usuario.
 
-```powershell
-python -m unittest discover -s tests -v
-```
+[![cross-platform](https://github.com/corbaz/txt-preview/actions/workflows/cross-platform.yml/badge.svg)](https://github.com/corbaz/txt-preview/actions/workflows/cross-platform.yml)
 
-La sintaxis del script principal puede comprobarse sin abrir la interfaz:
-
-```powershell
-$tokens = $null
-$errors = $null
-[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path .\txt.ps1), [ref]$tokens, [ref]$errors) > $null
-$errors
-```
-
-### Publicar una versión
-
-La actualización automática compara el archivo [`VERSION`](VERSION) (formato `v:yy.mm.dd-HH.mm`) con el de `origin/main`. Cada cambio en la app publicado en `main` tiene que actualizar `VERSION`; si no, los usuarios no reciben el aviso. Los cambios solo de documentación no lo necesitan.
+La versión anterior de PowerShell está documentada al final de este README. Las decisiones y tareas de diseño se guardan en [`docs/sdd/`](docs/sdd/) y [`odd/tasks/`](odd/tasks/).
 
 ### Seguridad
 
-Las credenciales no forman parte del código ni del repositorio. No agregues archivos `.env`, `settings.json`, `.rdp` ni API keys al control de versiones.
+Las credenciales no forman parte del código ni del repositorio. No agregues archivos `.env`, API keys ni contraseñas al control de versiones.
 
-### Documentación
+---
 
-Las decisiones y tareas de diseño se guardan en [`docs/sdd/`](docs/sdd/) y [`odd/tasks/`](odd/tasks/).
+## Versión anterior (solo Windows)
+
+Antes de la versión multiplataforma, TXT Preview era un único script de PowerShell 7 con WinForms: [`txt.ps1`](txt.ps1). Esa versión **sigue siendo funcional en Windows** (se ejecuta con `powershell -NoProfile -ExecutionPolicy Bypass -File .\txt.ps1` desde un clon) y desaparecerá cuando se complete el cambio a la app Python; en macOS nunca corrió.
+
+Su instalación usaba el mismo comando de clonación de arriba, pero terminaba instalando ese script y sus componentes de Windows (PowerShell 7, WebView2, PdfPig). Desde que la app es multiplataforma, el mismo `install.ps1` instala la versión Python, que es la documentada en las secciones de arriba. La documentación completa de la versión anterior está en el historial de este archivo ([`CHANGELOG.md`](CHANGELOG.md) detalla los cambios de ambas).

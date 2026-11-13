@@ -24,7 +24,7 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 | T6 | S1 | Export: PDF and MP3 | fdf2f96 |
 | T7 | S3 | Doctor + installers: `install.ps1` (Windows) and `install.sh` (macOS), detect/install/explain missing deps, AI-readable output | ec9a7fe |
 | T8 | S4 | CI: GitHub Actions matrix (windows + macos) running doctor dry-run and test suite on every push | 0a3f191 |
-| T9 | S3 | README rewrite: clone → doctor → run flow per OS, explained for a human or an AI agent | pending |
+| T9 | S3 | README rewrite: clone → doctor → run flow per OS, explained for a human or an AI agent | README in this commit |
 | T10 | S2 | Settings/secrets: platform-aware paths, migrate DPAPI-encrypted settings from the PS app (Windows), Keychain-safe storage on macOS | pending |
 | T11 | S4 | In-app update: VERSION check + `git pull --ff-only` on both OS | pending |
 | T12 | S4 | Cross-platform test suite: port Windows-gated tests, cover shared logic | pending |
