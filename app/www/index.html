@@ -20,6 +20,21 @@
 
   <main id="pages">
     <section class="page active" data-page="editor">
+      <div id="ai-bar">
+        <button class="ghost" data-ai-action="consult" title="Ctrl+Enter">Consultar IA</button>
+        <button class="ghost" data-ai-action="summarize">Resumir con IA</button>
+        <button class="ghost" data-ai-action="correct">Corregir Gramática y Ortografía</button>
+        <button class="ghost" data-ai-action="translate_en_es">Traducir EN→ES</button>
+        <button class="ghost" data-ai-action="translate_es_en">Traducir ES→EN</button>
+        <label id="web-search-label" class="ghost" title="Usar la búsqueda web si el modelo la admite">
+          <input id="web-search" type="checkbox" checked /> Búsqueda web
+        </label>
+        <button id="attach-files" class="ghost">Adjuntar archivos</button>
+        <input id="attach-input" type="file" multiple
+               accept=".txt,.md,.pdf,.docx,.pptx,.png,.jpg,.jpeg,.webp,.gif" hidden />
+        <button id="clear-attachments" class="ghost" hidden>Quitar adjuntos</button>
+      </div>
+      <div id="attachment-summary">Sin archivos adjuntos para la próxima solicitud</div>
       <div id="speech-bar">
         <button id="speech-play" class="ghost">Play</button>
         <button id="speech-pause" class="ghost">Pausar</button>

@@ -130,6 +130,38 @@ body {
   padding: 10px 16px 0;
 }
 
+/* AI toolbar (T5): .seg/.ghost look, wraps on narrow widths. */
+#ai-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 0;
+}
+
+#ai-bar .ghost { white-space: nowrap; }
+#ai-bar .ghost:disabled { opacity: 0.5; cursor: default; }
+
+#web-search-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+#web-search-label:hover { color: var(--text); border-color: var(--accent); }
+#web-search-label input { accent-color: var(--accent); margin: 0; }
+
+#attachment-summary {
+  padding: 6px 16px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#editor { min-height: 0; }
+
 .settings-form {
   max-width: 520px;
   width: 100%;

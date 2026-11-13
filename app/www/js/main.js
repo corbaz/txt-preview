@@ -225,10 +225,96 @@
     setInterval(speechTick, 120);
   });
 
+  // ---- AI actions (T5) ------------------------------------------------------
+  let speechLanguage = "es";
+
+  const AI_BUSY_LABELS = {
+    consult: "Consultando a la IA",
+    summarize: "Creando resumen profesional",
+    correct: "Corregiendo gramática y ortografía",
+    translate_en_es: "Traduciendo con IA",
+    translate_es_en: "Traduciendo con IA",
+  };
+
+  async function runAi(action) {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api) return;
+    const button = document.querySelector(`[data-ai-action="${action}"]`);
+    if (button) button.disabled = true;
+    try {
+      const model = await api.get_selected_model();
+      setStatus(`${AI_BUSY_LABELS[action] || "Consultando a la IA"} · ${model}...`);
+      const result = await api.ask_ai(action, $("web-search").checked, $("editor").value);
+      if (!result.ok) {
+        setStatus(result.error);
+        return;
+      }
+      if (result.editor_action === "replace") {
+        $("editor").value = result.text;
+      }
+      if (result.clipboard && navigator.clipboard) {
+        // Legacy Corregir copies the result; the browser clipboard is best effort.
+        try { await navigator.clipboard.writeText(result.text); } catch (_) {}
+      }
+      if (result.speech_language) speechLanguage = result.speech_language;
+      await renderPreviewNow();
+      setTab("preview");
+      setStatus(result.message);
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  document.querySelectorAll("[data-ai-action]").forEach((button) => {
+    button.addEventListener("click", () => runAi(button.dataset.aiAction));
+  });
+
+  $("editor").addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      runAi("consult");
+    }
+  });
+
+  // ---- Attachments (T5) ------------------------------------------------------
+  function applyAttachments(result) {
+    if (!result) return;
+    if (result.summary) $("attachment-summary").textContent = result.summary;
+    $("clear-attachments").hidden = result.summary.startsWith("Sin archivos");
+    if (result.errors && result.errors.length) {
+      setStatus(result.errors[0]);
+    } else if (result.added && result.added.length) {
+      setStatus("Los adjuntos visibles sobre el editor se enviarán en la próxima acción de IA.");
+    }
+  }
+
+  $("attach-files").addEventListener("click", () => $("attach-input").click());
+
+  $("attach-input").addEventListener("change", async () => {
+    const files = Array.from($("attach-input").files || []);
+    $("attach-input").value = "";
+    const paths = files.map((file) => file.pywebviewFullPath).filter(Boolean);
+    if (!window.pywebview || !window.pywebview.api) return;
+    if (paths.length) {
+      applyAttachments(await window.pywebview.api.add_attachments(paths));
+    } else {
+      // WebView flavors that hide full paths: resolve through the native dialog.
+      applyAttachments(await window.pywebview.api.open_attachment_dialog());
+    }
+  });
+
+  $("clear-attachments").addEventListener("click", async () => {
+    if (!window.pywebview || !window.pywebview.api) return;
+    const result = await window.pywebview.api.clear_attachments();
+    applyAttachments(result);
+    if (result.ok) setStatus(result.message);
+  });
+
   // Exposed for future steps (T2 actions) and tests.
   window.txtUI = {
     setTab, setStatus, renderPreviewNow,
     wrapSpeechWords, getSpeechWords, getSpeechTextFrom,
     setSpeechWordIndex, clearSpeechProgress,
+    runAi, applyAttachments, getSpeechLanguage: () => speechLanguage,
   };
 })();
