@@ -42,7 +42,7 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 | T18 | S11 | Restore animated work feedback, researched Consultar, and model capability gates | 9eeb1fc |
 | T19 | S12 | Stop overlap on speed change, audio on close, click-start gating | 859cf3d |
 | T20 | S13 | Replay honors the current speed; Play auto-switches the voice to the text language | 6f044ec |
-| T21 | S14 | Make click-to-jump atomic, restore live highlighting, and shorten the first speech chunk | pending |
+| T21 | S14 | Make click-to-jump atomic, restore live highlighting, and shorten the first speech chunk | aecd1c1 |
 
 ## Log
 
