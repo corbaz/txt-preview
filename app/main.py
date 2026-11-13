@@ -10,6 +10,7 @@ import os
 import socket
 import sys
 import threading
+import time
 import urllib.error
 from pathlib import Path
 
@@ -20,7 +21,7 @@ APP = ROOT
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 
-from txt_core import bridges, groq, models, prompts, settings
+from txt_core import bridges, groq, models, prompts, settings, updater
 from txt_core.attachments import (
     IMAGE_EXTENSIONS,
     TEXT_EXTENSIONS,
@@ -130,6 +131,8 @@ class Api:
         # process env, in-memory values and the bridge password file.
         self._bridge_passwords: dict[str, str] = {}
         self._speech_language = "es"
+        # ---- In-app update (T11/S4) -----------------------------------------
+        self._update_status: updater.UpdateStatus | None = None
         # ---- Exports (T6) ---------------------------------------------------
         # The markdown text last rendered in Vista previa: exports and the
         # clipboard buttons work on this, not on the editor (legacy
@@ -523,6 +526,34 @@ class Api:
         )
         return chosen or None
 
+    # ---- In-app update (T11/S4) ---------------------------------------------
+    def check_for_updates(self) -> dict:
+        """Legacy Update-AppUpdateControls check: origin/main VERSION vs local."""
+        self._update_status = updater.check_update(REPO)
+        return self._update_status.as_dict()
+
+    def apply_update(self) -> dict:
+        """Legacy Install-AppUpdate: verify, then git pull --ff-only."""
+        self._update_status = updater.apply_update(REPO)
+        return self._update_status.as_dict()
+
+    def _startup_update_check(self, delay: float = 3.0) -> None:
+        """Legacy Invoke-StartupUpdateCheck: runs once off the UI thread,
+        stays silent unless an update is available (the UI notice is the
+        only signal; offline or non-Git installs stay quiet)."""
+        time.sleep(delay)
+        try:
+            status = self.check_for_updates()
+        except Exception:
+            return
+        if status.get("state") != updater.STATE_AVAILABLE:
+            return
+        window = getattr(self, "_window", None)
+        if window is not None:
+            window.evaluate_js(
+                "window.txtUI && window.txtUI.applyUpdateStatus("
+                + json.dumps(status) + ")")
+
     # ---- Speech (T4/S6) ----------------------------------------------------
     def _on_engine_message(self, level: str, message: str) -> None:
         self._last_message = message
@@ -662,6 +693,8 @@ def create_app() -> None:
     )
     api._window = window
     api.initialize_settings()  # legacy migration + theme/speed/voice/model
+    # Legacy startupUpdateTimer: one non-blocking check ~3s after startup.
+    threading.Thread(target=api._startup_update_check, daemon=True).start()
     webview.start(private_mode=False)
 
 

@@ -370,6 +370,64 @@
     setStatus(`Modelo: ${provider === "Groq" ? "Groq · " + select.value : (option ? option.textContent : select.value)}`);
   });
 
+  // ---- In-app update (T11/S4) ---------------------------------------------
+  // Legacy Update-AppUpdateControls / Install-AppUpdate messages: the three
+  // task-worded states plus the legacy refusal details from txt.ps1.
+  function updateStatusMessage(status) {
+    if (status.updated) return status.detail; // "Actualizado a X. Reiniciá la aplicación."
+    switch (status.state) {
+      case "up_to_date": return "Estás en la última versión.";
+      case "available":
+        return `Nueva versión disponible: ${status.remote_version}. Tocá Actualizar.`;
+      case "dirty":
+        return "Hay cambios locales: la app no se actualiza sola.";
+      default:
+        return status.detail || "No se pudo comprobar si hay una versión nueva.";
+    }
+  }
+
+  function applyUpdateStatus(status) {
+    if (!status) return;
+    const message = updateStatusMessage(status);
+    $("update-status").textContent = message;
+    $("apply-update").hidden = status.state !== "available";
+    // The notice is also visible from other tabs (legacy startup MessageBox).
+    if (status.state === "available" || status.updated) setStatus(message);
+  }
+
+  $("check-update").addEventListener("click", async () => {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api) return;
+    const button = $("check-update");
+    button.disabled = true;
+    $("apply-update").hidden = true;
+    $("update-status").textContent = "Buscando una versión nueva en origin/main...";
+    try {
+      applyUpdateStatus(await api.check_for_updates());
+    } catch (_) {
+      $("update-status").textContent = "No se pudo comprobar si hay una versión nueva.";
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  $("apply-update").addEventListener("click", async () => {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api) return;
+    const button = $("apply-update");
+    button.disabled = true;
+    $("check-update").disabled = true;
+    $("update-status").textContent = "Aplicando la actualización..."; // legacy
+    try {
+      applyUpdateStatus(await api.apply_update());
+    } catch (_) {
+      $("update-status").textContent = "No se pudo aplicar la actualización.";
+    } finally {
+      button.disabled = false;
+      $("check-update").disabled = false;
+    }
+  });
+
   window.addEventListener("pywebviewready", async () => {
     let theme = "dark";
     try { theme = localStorage.getItem("txt-theme") || "dark"; } catch (_) {}
@@ -383,7 +441,8 @@
       } catch (_) { /* settings are best effort */ }
     }
     const version = await api.app_version();
-    $("version-badge").textContent = "v" + version;
+    // VERSION already carries the "v:" prefix (legacy $appVersion).
+    $("version-badge").textContent = version;
     setStatus("Listo.");
     setInterval(speechTick, 120);
   });
@@ -481,5 +540,6 @@
     runAi, applyAttachments, getSpeechLanguage: () => speechLanguage,
     copyPreview, withBusy,
     applyTheme, applyModelCatalog, saveApiKey,
+    applyUpdateStatus,
   };
 })();
