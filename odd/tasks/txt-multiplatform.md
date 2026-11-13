@@ -28,7 +28,7 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 | T10 | S2 | Settings/secrets: platform-aware paths, migrate DPAPI-encrypted settings from the PS app (Windows), Keychain-safe storage on macOS | cecbff6 |
 | T11 | S4 | In-app update: VERSION check + `git pull --ff-only` on both OS | 7e6a5de |
 | T12 | S4 | Cross-platform test suite: port Windows-gated tests, cover shared logic | 8972bc6 |
-| T13 | S1, S7 | Cutover: default install path points to the new app; PS app kept as legacy | pending |
+| T13 | S1, S7 | Cutover: default install path points to the new app; PS app kept as legacy | VERSION/CHANGELOG in this commit (install default since T7) |
 
 ## Log
 
@@ -40,3 +40,4 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 - L7: T11: updater refuses dirty worktrees and non-main branches (legacy parity); UpdateStatus carries an extra `updated` flag so the UI distinguishes applied updates.
 - L8: T4 parity gaps from L4 CLOSED in ffad99c: voice catalog (edge-voices.json cache + selector), speed restart during Edge reading (Restart-ActiveSpeechPlayback port), replay marks re-run the live aligner (CacheStartCursor parity). Replay-cache eligibility pinned: only Play-started readings feed Repetir (legacy CacheEligible).
 - L6: T10 notes: legacy EncryptedBridgePasswords are NOT imported (env/password.txt resolution stays); the real legacy settings.json on the dev machine was migrated in place (api_key_enc added, legacy fields intact, legacy app still compatible); keyring>=25 added to requirements by the orchestrator after the worker stopped for the out-of-surface approval.
+- L9: T13 cutover: VERSION bumped to v:26.11.13-08.51; CHANGELOG notes published; legacy app (txt.ps1) kept in repo; default install path has targeted the Python app since T7. Final validation: 301/301 app tests green; legacy suite 122/123 (pre-existing pwsh-lock flake); GUI smoke + live doctor OK.
