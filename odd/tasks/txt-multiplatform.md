@@ -44,7 +44,7 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 | T19 | S12 | Stop overlap on speed change, audio on close, click-start gating | 859cf3d |
 | T20 | S13 | Replay honors the current speed; Play auto-switches the voice to the text language | 6f044ec |
 | T21 | S14 | Make click-to-jump atomic, restore live highlighting, and shorten the first speech chunk | aecd1c1 |
-| T22 | S15 | Enforce voice language/gender filters and the confirmed Play truth table | pending |
+| T22 | S15 | Enforce voice language/gender filters and the confirmed Play truth table | f2c0c9b |
 
 ## Log
 
