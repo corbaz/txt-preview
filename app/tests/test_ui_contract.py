@@ -447,9 +447,61 @@ class TestBottomRowDistribution(UiContractTestCase):
         self.assertNotIn("margin-left: auto", version)
 
 
-class TestAiActionSpinner(UiContractTestCase):
-    """S9: every [data-ai-action] button shows an in-button spinner until the
-    AI answer arrives (setAiBusy true before ask_ai, false in finally)."""
+class TestPreviewTypography(UiContractTestCase):
+    """S10/T17 (A): Vista previa keeps the editor's line/paragraph rhythm —
+    single breaks stay as <br>, blank lines visibly separate paragraphs."""
+
+    def setUp(self):
+        super().setUp()
+        self.css_source = APP_CSS.read_text(encoding="utf-8")
+
+    def test_markdown_body_line_height_matches_or_exceeds_the_editor(self):
+        body = css_block(self.css_source, ".markdown-body")
+        self.assertIsNotNone(body, ".markdown-body rule missing")
+        match = re.search(r"line-height:\s*([0-9.]+)", body)
+        self.assertIsNotNone(match, "line-height missing in .markdown-body")
+        self.assertGreaterEqual(float(match.group(1)), 1.55)
+
+    def test_paragraphs_are_visibly_separated(self):
+        p = css_block(self.css_source, ".markdown-body p")
+        self.assertIsNotNone(p, ".markdown-body p rule missing")
+        self.assertIn("margin: 0 0 1em", p)
+
+    def test_br_keeps_the_default_line_break_height(self):
+        br = css_block(self.css_source, ".markdown-body br")
+        self.assertIsNotNone(br, "explicit .markdown-body br rule missing")
+
+    def test_headings_and_lists_are_spaced(self):
+        for selector in (".markdown-body h1, .markdown-body h2, .markdown-body h3",
+                         ".markdown-body ul, .markdown-body ol"):
+            block = css_block(self.css_source, selector)
+            self.assertIsNotNone(block, f"{selector} rule missing")
+            self.assertIn("margin:", block)
+
+    def test_no_double_spacing_inside_list_items_and_code_blocks(self):
+        li_p = css_block(self.css_source, ".markdown-body li p")
+        self.assertIsNotNone(li_p, ".markdown-body li p rule missing")
+        self.assertIn("margin: 0", li_p)
+        pre = css_block(self.css_source, ".markdown-body pre")
+        self.assertIn("padding:", pre)
+
+    def test_speech_word_walker_resets_the_global_token_before_each_test(self):
+        body = js_function(self.js_source, "wrapSpeechWords")
+        # TOKEN is /\S+/g: without resetting lastIndex, acceptNode results
+        # depend on the walker's previous calls (nondeterministic acceptance).
+        self.assertLess(body.index("TOKEN.lastIndex = 0;"),
+                        body.index("TOKEN.test(node.nodeValue)"))
+
+    def test_whitespace_text_nodes_are_preserved_exactly(self):
+        body = js_function(self.js_source, "wrapSpeechWords")
+        # One text node for the gap before each match and one for the
+        # trailing remainder: whitespace is never dropped.
+        self.assertEqual(body.count("document.createTextNode("), 2)
+
+
+class TestWorkOverlay(UiContractTestCase):
+    """S10/T17 (B): pending AI work shows one large centered overlay over the
+    canvas, never a spinner inside a button."""
 
     def setUp(self):
         super().setUp()
@@ -464,34 +516,123 @@ class TestAiActionSpinner(UiContractTestCase):
                        for button in row.find_all("button")]
             self.assertIn(action, actions)
 
-    def test_set_ai_busy_toggles_class_and_aria_busy(self):
-        body = js_function(self.js_source, "setAiBusy")
-        self.assertIn("ai-busy", body)
-        self.assertIn('setAttribute("aria-busy", "true")', body)
-        self.assertIn('removeAttribute("aria-busy")', body)
+    def test_overlay_lives_inside_pages_with_status_semantics(self):
+        pages = self.tree.find(node_id="pages")
+        overlay = pages.find(node_id="work-overlay")
+        self.assertIsNotNone(overlay)
+        self.assertIn(overlay, pages.children)
+        self.assertIn("hidden", overlay.attrs)
+        self.assertEqual(overlay.attrs.get("role"), "status")
+        self.assertEqual(overlay.attrs.get("aria-live"), "polite")
 
-    def test_run_ai_shows_spinner_until_the_response_arrives(self):
-        body = js_function(self.js_source, "runAi")
-        self.assertLess(body.index("setAiBusy(button, true)"),
-                        body.index("ask_ai("))
-        self.assertGreater(body.index("setAiBusy(button, false)"),
-                           body.index("finally"))
+    def test_overlay_holds_a_large_spinner_and_a_message_label(self):
+        overlay = self.tree.find(node_id="work-overlay")
+        self.assertIsNotNone(overlay.find(cls="work-spinner"))
+        self.assertIsNotNone(overlay.find(node_id="work-message"))
 
-    def test_spinner_css_is_visible_and_keeps_the_button_width(self):
-        spinner = css_block(self.css_source, ".btn.ai-busy::before")
-        self.assertIsNotNone(spinner, ".btn.ai-busy::before rule missing")
-        self.assertIn("width: 12px", spinner)
+    def test_no_spinner_remains_inside_any_button(self):
+        self.assertIsNone(css_block(self.css_source, ".btn.ai-busy::before"))
+        self.assertNotIn("ai-busy", self.css_source)
+        self.assertNotIn("ai-busy", self.js_source)
+        self.assertNotIn("ai-busy", INDEX.read_text(encoding="utf-8"))
+        self.assertNotIn("setAiBusy", self.js_source)
+
+    def test_overlay_css_covers_the_canvas_and_centers_the_spinner(self):
+        pages = css_block(self.css_source, "#pages")
+        self.assertIn("position: relative", pages)
+        overlay = css_block(self.css_source, "#work-overlay")
+        self.assertIsNotNone(overlay, "#work-overlay rule missing")
+        self.assertIn("position: absolute", overlay)
+        self.assertIn("inset: 0", overlay)
+        self.assertIn("align-items: center", overlay)
+        self.assertIn("justify-content: center", overlay)
+        self.assertIn("rgba(", overlay)  # dark translucent backdrop
+        self.assertIn("z-index:", overlay)  # over editor/preview
+
+    def test_spinner_is_large_and_the_label_sits_below(self):
+        spinner = css_block(self.css_source, ".work-spinner")
+        self.assertIsNotNone(spinner, ".work-spinner rule missing")
+        self.assertIn("width: 60px", spinner)   # 56-64px, large work look
+        self.assertIn("height: 60px", spinner)
         self.assertIn("border-radius: 50%", spinner)
-        self.assertIn("animation: ai-spin", spinner)
-        # Absolutely positioned inside the padding: the original button width
-        # (text label) stays stable while it spins.
-        self.assertIn("position: absolute", spinner)
-        self.assertIn("@keyframes ai-spin", self.css_source)
+        self.assertIn("animation:", spinner)
+        message = css_block(self.css_source, ".work-message")
+        self.assertIsNotNone(message, ".work-message rule missing")
+        self.assertIn("margin-top:", message)
 
-    def test_spinner_respects_prefers_reduced_motion(self):
+    def test_reduced_motion_keeps_the_visible_ring_without_rotation(self):
         index = self.css_source.index("prefers-reduced-motion: reduce")
         segment = self.css_source[index:index + 300]
+        self.assertIn(".work-spinner", segment)
         self.assertIn("animation: none", segment)
+        spinner = css_block(self.css_source, ".work-spinner")
+        self.assertIn("border:", spinner)  # the ring stays visible
+
+    def test_overlay_hidden_state_hides_it(self):
+        hidden = css_block(self.css_source, "#work-overlay[hidden]")
+        self.assertIsNotNone(hidden, "#work-overlay[hidden] rule missing")
+        self.assertIn("display: none", hidden)
+
+    def test_show_and_hide_functions_exist(self):
+        self.assertIn("function showWorkOverlay(", self.js_source)
+        self.assertIn("function hideWorkOverlay(", self.js_source)
+        show = js_function(self.js_source, "showWorkOverlay")
+        self.assertIn("work-message", show)
+        self.assertIn("work-overlay", show)
+        hide = js_function(self.js_source, "hideWorkOverlay")
+        self.assertIn("work-overlay", hide)
+
+    def test_run_ai_shows_the_overlay_before_ask_ai_and_hides_it_in_finally(self):
+        body = js_function(self.js_source, "runAi")
+        self.assertLess(body.index("showWorkOverlay("), body.index("ask_ai("))
+        self.assertGreater(body.index("hideWorkOverlay("), body.index("finally"))
+
+    def test_button_may_stay_disabled_but_carries_no_busy_state(self):
+        body = js_function(self.js_source, "runAi")
+        self.assertIn("button.disabled = true", body)
+        self.assertNotIn("aria-busy", body)
+
+
+class TestSliderFillAlignment(UiContractTestCase):
+    """S10/T17 (C): the slider fill always agrees with its thumb — painted at
+    startup (after the persisted speed is applied) and on every programmatic
+    value change. JS paint is authoritative; the CSS fallback only matches
+    the named mismatch (speed=100 over 50–200 → 33.33%)."""
+
+    def setUp(self):
+        super().setUp()
+        self.css_source = APP_CSS.read_text(encoding="utf-8")
+
+    def _ready_handler(self):
+        start = self.js_source.index('"pywebviewready"')
+        end = self.js_source.index("});", start)
+        return self.js_source[start:end]
+
+    def test_track_fallback_matches_speed_100_over_50_200(self):
+        track = css_block(
+            self.css_source,
+            'input[type="range"]::-webkit-slider-runnable-track')
+        self.assertIsNotNone(track, "webkit track rule missing")
+        self.assertIn("var(--fill, 33.33%)", track)
+        self.assertNotIn("var(--fill, 25%)", track)
+
+    def test_startup_applies_the_persisted_speed_before_the_first_paint(self):
+        handler = self._ready_handler()
+        self.assertIn("config.speed", handler)
+        self.assertIn("speedSlider.value", handler)
+        self.assertIn("speedLabel(", handler)
+        self.assertLess(handler.index("speedSlider.value"),
+                        handler.index("paintSlider(speedSlider)"))
+
+    def test_startup_paints_both_sliders(self):
+        handler = self._ready_handler()
+        self.assertIn("paintSlider(speedSlider)", handler)
+        self.assertIn('paintSlider($("seek"))', handler)
+
+    def test_apply_speech_state_paints_the_seek_slider_after_value_and_max(self):
+        body = js_function(self.js_source, "applySpeechState")
+        self.assertLess(body.index("seek.max ="), body.index("paintSlider(seek)"))
+        self.assertLess(body.index("seek.value ="), body.index("paintSlider(seek)"))
 
 
 class TestMainModelSelectorStartup(UiContractTestCase):

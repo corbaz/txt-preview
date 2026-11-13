@@ -101,6 +101,13 @@
       </div>
       <iframe id="browser-frame" title="Navegador"></iframe>
     </section>
+
+    <!-- S10: espera de trabajo IA — overlay grande centrado sobre el lienzo
+         (nunca un spinner dentro de un botón). -->
+    <div id="work-overlay" hidden role="status" aria-live="polite">
+      <div class="work-spinner" aria-hidden="true"></div>
+      <div id="work-message" class="work-message">Procesando...</div>
+    </div>
   </main>
 
   <!-- Botonera inferior original: 4 filas fijas al pie, centradas -->

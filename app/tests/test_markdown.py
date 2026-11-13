@@ -62,5 +62,29 @@ class TestRenderMarkdown(unittest.TestCase):
         self.assertEqual(render_markdown(""), "")
 
 
+class TestPreviewLineAndParagraphSpacing(unittest.TestCase):
+    """T17/S10: the editor's single line breaks and blank-line paragraph
+    separation must survive rendering AND sanitizing into Vista previa."""
+
+    EDITOR_TEXT = "Línea uno\nLínea dos\n\nPárrafo dos\n\n\nPárrafo tres"
+
+    def test_consecutive_single_lines_keep_their_break(self):
+        html = render_markdown(self.EDITOR_TEXT)
+        self.assertIn("<p>Línea uno<br/>", html)
+        # The newline after <br/> is a real text node, not collapsed.
+        self.assertIn("<br/>\nLínea dos</p>", html)
+
+    def test_blank_lines_separate_paragraph_blocks(self):
+        html = render_markdown(self.EDITOR_TEXT)
+        self.assertEqual(html.count("<p>"), 3)
+        self.assertIn("<p>Párrafo dos</p>", html)
+        self.assertIn("<p>Párrafo tres</p>", html)
+
+    def test_sanitizer_does_not_collapse_br(self):
+        html = render_markdown("Línea uno\nLínea dos")
+        self.assertIn("<br/>", html)
+        self.assertNotIn("&lt;br", html)
+
+
 if __name__ == "__main__":
     unittest.main()

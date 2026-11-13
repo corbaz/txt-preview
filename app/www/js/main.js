@@ -78,6 +78,9 @@
       acceptNode: (node) => {
         const parent = node.parentElement;
         if (!parent || /^(script|style)$/i.test(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        // TOKEN is /\S+/g: reset lastIndex so .test() is deterministic and
+        // does not depend on the walker's previous calls (S10).
+        TOKEN.lastIndex = 0;
         return TOKEN.test(node.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
       },
     });
@@ -744,6 +747,15 @@
         config = await api.get_settings();
       } catch (_) { /* settings are best effort */ }
       if (config && config.theme) applyTheme(config.theme);
+      // S10: apply the persisted speed to the slider before the first paint,
+      // then paint both sliders so fill and thumb agree from the first
+      // render (not only after the first input event).
+      if (config && typeof config.speed === "number") {
+        speedSlider.value = String(config.speed);
+        speedValue.textContent = speedLabel(config.speed);
+      }
+      paintSlider(speedSlider);
+      paintSlider($("seek"));
       // Legacy voice catalog load: cache first, edge-tts on a miss.
       refreshVoices(false, config && config.speech_voice);
     }
@@ -761,17 +773,15 @@
   // ---- AI actions (T5/S9) ---------------------------------------------------
   let speechLanguage = "es";
 
-  // S9: in-button spinner while the AI request is pending. The class and
-  // aria-busy go on the active button only; the label text never changes, so
-  // the original button width stays stable.
-  function setAiBusy(button, busy) {
-    if (!button) return;
-    button.classList.toggle("ai-busy", busy);
-    if (busy) {
-      button.setAttribute("aria-busy", "true");
-    } else {
-      button.removeAttribute("aria-busy");
-    }
+  // S10: pending AI work shows one large centered overlay over the canvas —
+  // "apariencia de trabajo" — never a spinner inside a button.
+  function showWorkOverlay(message) {
+    $("work-message").textContent = message || "Procesando...";
+    $("work-overlay").hidden = false;
+  }
+
+  function hideWorkOverlay() {
+    $("work-overlay").hidden = true;
   }
 
   const AI_BUSY_LABELS = {
@@ -787,7 +797,7 @@
     if (!api) return;
     const button = document.querySelector(`[data-ai-action="${action}"]`);
     if (button) button.disabled = true;
-    setAiBusy(button, true);
+    showWorkOverlay(`${AI_BUSY_LABELS[action] || "Consultando a la IA"}...`);
     try {
       const model = await api.get_selected_model();
       setStatus(`${AI_BUSY_LABELS[action] || "Consultando a la IA"} · ${model}...`);
@@ -810,7 +820,7 @@
       setTab("preview");
       setStatus(result.message);
     } finally {
-      setAiBusy(button, false);
+      hideWorkOverlay();
       if (button) button.disabled = false;
     }
   }
@@ -867,8 +877,8 @@
     setSpeechWordIndex, clearSpeechProgress,
     runAi, applyAttachments, getSpeechLanguage: () => speechLanguage,
     copyMain, withBusy,
-    applyTheme, applyModelCatalog, saveApiKey, setAiBusy, loadStartupModels,
-    applyUpdateStatus,
+    applyTheme, applyModelCatalog, saveApiKey, showWorkOverlay, hideWorkOverlay,
+    loadStartupModels, applyUpdateStatus,
     applyVoiceCatalog, refreshVoices,
     selectVoiceByFilter, applySpeechState, speedLabel,
   };

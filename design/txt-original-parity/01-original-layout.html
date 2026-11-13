@@ -154,18 +154,40 @@ body { background: #000; font-family: "Segoe UI Variable Text", "Segoe UI", syst
 .btn.accent:hover { background: var(--accent-hover); }
 .btn.last-ai { background: var(--hover); color: var(--accent); border-color: var(--accent); }
 
-/* Spinner en Consultar IA (S9): igual que la producción — girando dentro del
-   padding izquierdo, sin cambiar el ancho del botón ni reemplazar el texto. */
-.btn.ai-busy { position: relative; cursor: progress; }
-.btn.ai-busy::before {
-  content: ""; position: absolute; left: 1px; top: 50%;
-  width: 12px; height: 12px; margin-top: -6px;
-  border: 2px solid currentColor; border-right-color: transparent;
-  border-radius: 50%;
-  animation: ai-spin 0.8s linear infinite;
+/* Overlay de trabajo (S10): espera grande y centrada sobre el lienzo,
+   nunca un spinner dentro de un botón. Igual que la producción. */
+.canvas-wrap {
+  position: relative; flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
 }
-@keyframes ai-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .btn.ai-busy::before { animation: none; } }
+.work-overlay {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: rgba(11, 14, 20, 0.72);
+}
+.work-overlay[hidden] { display: none; }
+.work-spinner {
+  width: 60px; height: 60px;
+  border: 5px solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: work-spin 0.9s linear infinite;
+}
+@keyframes work-spin { to { transform: rotate(360deg); } }
+.work-message { margin-top: 14px; color: var(--text); font-size: 15px; }
+@media (prefers-reduced-motion: reduce) {
+  .work-spinner { animation: none; } /* el aro sigue visible, sin giro */
+}
+
+/* Vista previa (S10): tipografía legible como la producción — párrafos
+   separados, saltos de línea del editor conservados. */
+.preview-body { line-height: 1.6; font-size: 15px; }
+.preview-body p { margin: 0 0 1em; }
+.preview-body h2 { margin: 0 0 0.6em; }
+.preview-body code {
+  background: var(--elevated); border: 1px solid var(--border);
+  border-radius: 4px; padding: 1px 5px;
+}
 
 /* Radio-toggle groups (Hombre/Mujer, Español/Inglés): contenedores de 152x30 */
 .togglegroup { position: absolute; width: 152px; height: 30px; display: flex; }
@@ -186,7 +208,9 @@ body { background: #000; font-family: "Segoe UI Variable Text", "Segoe UI", syst
   appearance: none; -webkit-appearance: none;
   background: transparent; cursor: pointer;
 }
-.slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--fill, 25%), var(--border) var(--fill, 25%)); }
+/* Fallback del relleno = 33,33% (velocidad 100 sobre 50–200, S10); el JS
+   paintSlider() fija --fill y es la autoridad. */
+.slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--fill, 33.33%), var(--border) var(--fill, 33.33%)); }
 .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); margin-top: -5px; }
 .slider::-moz-range-track { height: 4px; border-radius: 2px; background: var(--border); }
 .slider::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
@@ -261,8 +285,9 @@ kbd { background: var(--elevated); border: 1px solid var(--border); border-radiu
     <span class="attach-status" id="attach-status">Sin archivos adjuntos para la próxima solicitud</span>
   </div>
 
-  <!-- Lienzo del editor -->
-  <div class="editor" id="editor-canvas" contenteditable="true" spellcheck="false" aria-label="Editor de texto"># Demo de contenido — Editor
+  <!-- Lienzo del editor (+ overlay de trabajo S10) -->
+  <div class="canvas-wrap">
+    <div class="editor" id="editor-canvas" contenteditable="true" spellcheck="false" aria-label="Editor de texto"># Demo de contenido — Editor
 
 Consulta original:
 
@@ -270,6 +295,11 @@ Consulta original:
 
 El editor ocupa todo el alto entre la barra de contexto y la botonera original.
 La vista previa y el navegador se renderizan en esta misma superficie al cambiar de pestaña.</div>
+    <div class="work-overlay" id="work-overlay" hidden role="status" aria-live="polite">
+      <div class="work-spinner" aria-hidden="true"></div>
+      <div class="work-message">Consultando a la IA...</div>
+    </div>
+  </div>
 
   <!-- Botonera inferior original: 3 filas + fila de sliders, centrada -->
   <div class="deck">
@@ -343,10 +373,18 @@ La vista previa y el navegador se renderizan en esta misma superficie al cambiar
   /* Tabs: selección real entre vistas (la superficie cambia de contenido como prueba). */
   var views = {
     editor: "Editor — contenido markdown del usuario.",
-    preview: "Vista previa — Respuesta de la IA. Tu consulta sigue en el Editor.",
     browser: "Navegador — Escribí una dirección arriba o hacé clic en un link de la Vista previa.",
     settings: "Configuración — API key, modelos y voces Edge."
   };
+  /* Vista previa (S10): muestra real de la tipografía corregida — párrafos
+     separados por líneas en blanco y saltos de línea del editor con <br>. */
+  var previewSample =
+    '<div class="preview-body">' +
+    '<h2>Respuesta de la IA</h2>' +
+    '<p>Párrafo uno: la vista previa conserva los saltos de línea del editor<br>como acá, sin pegar las líneas contralíneas.</p>' +
+    '<p>Párrafo dos: las líneas en blanco separan los párrafos con margen visible, igual que en el editor.</p>' +
+    '<p><strong>Negrita</strong>, <em>cursiva</em> y <code>código</code> siguen legibles con interlineado 1,6.</p>' +
+    '</div>';
   var canvas = document.getElementById("editor-canvas");
   document.querySelectorAll(".navbtn").forEach(function (tab) {
     tab.addEventListener("click", function () {
@@ -356,6 +394,7 @@ La vista previa y el navegador se renderizan en esta misma superficie al cambiar
       tab.classList.add("active"); tab.setAttribute("aria-selected", "true");
       var v = tab.dataset.view;
       if (v === "editor") { canvas.textContent = views.editor; canvas.setAttribute("contenteditable", "true"); }
+      else if (v === "preview") { canvas.innerHTML = previewSample; canvas.setAttribute("contenteditable", "false"); }
       else { canvas.textContent = views[v]; canvas.setAttribute("contenteditable", "false"); }
       setStatus("Vista '" + tab.textContent.trim() + "' activa.");
     });
@@ -371,16 +410,18 @@ La vista previa y el navegador se renderizan en esta misma superficie al cambiar
     });
   });
 
-  /* Prueba de diseño (S9): Consultar IA muestra el spinner hasta "recibir" la
-     respuesta. Igual que la producción: clase ai-busy + aria-busy, quita en
-     finally; acá se simula con un timeout de 1,2 s. */
+  /* Prueba de diseño (S10): Consultar IA muestra el overlay de trabajo grande
+     y centrado hasta "recibir" la respuesta. Igual que la producción:
+     showWorkOverlay antes de la llamada, hideWorkOverlay al terminar; acá se
+     simula con un timeout de 1,2 s. El botón puede quedar deshabilitado pero
+     nunca lleva spinner ni aria-busy. */
   var consultar = document.getElementById("btn-consultar");
+  var workOverlay = document.getElementById("work-overlay");
   consultar.addEventListener("click", function () {
-    consultar.classList.add("ai-busy");
-    consultar.setAttribute("aria-busy", "true");
+    workOverlay.hidden = false;
+    setStatus("Solicitud 'Consultar IA' enviada — Procesando…", "warning");
     setTimeout(function () {
-      consultar.classList.remove("ai-busy");
-      consultar.removeAttribute("aria-busy");
+      workOverlay.hidden = true;
       setStatus("Respuesta de la IA recibida — Vista previa actualizada.");
     }, 1200);
   });
