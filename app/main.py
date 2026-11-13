@@ -140,6 +140,11 @@ class Api:
                  api_encrypt=None, api_decrypt=None) -> None:
         self.engine = SpeechEngine(emit=self._on_engine_message)
         self._pending_click: int | None = None
+        # S14/T21: pywebview dispatches JS API calls on different threads, so
+        # every speech lifecycle entrypoint (and the poll tick) runs inside
+        # this re-entrant lock: a stale poll inside a stop→start window used
+        # to respawn old Ready audio and leave an orphan second voice.
+        self._speech_lock = threading.RLock()
         self._speech_words = ""
         self._speech_speed = 100
         # ---- Persisted settings (T10/S2) ----------------------------------
@@ -557,20 +562,23 @@ class Api:
     # ---- Cerrar (T15/S8) -----------------------------------------------------
     def close_app(self) -> dict:
         """Cerrar button: stop any reading first so the audio never outlives
-        the app (S12), then destroy the window (legacy $form.Close())."""
+        the app (S12), then destroy the window (legacy $form.Close()). The
+        stop→destroy sequence holds the speech lock (S14): the window is
+        never destroyed while another thread is mid-stop."""
         window = getattr(self, "_window", None)
         if window is None:
             return {"ok": False, "message": MSG_WINDOW_UNAVAILABLE}
-        try:
-            self.stop_speech()
-        except Exception:  # a broken engine must not trap the app open
-            pass
-        try:
-            window.destroy()
-        except Exception as error:
-            return {"ok": False,
-                    "message": MSG_WINDOW_CLOSE_FAILED.format(detail=error)}
-        return {"ok": True}
+        with self._speech_lock:
+            try:
+                self.stop_speech()
+            except Exception:  # a broken engine must not trap the app open
+                pass
+            try:
+                window.destroy()
+            except Exception as error:
+                return {"ok": False,
+                        "message": MSG_WINDOW_CLOSE_FAILED.format(detail=error)}
+            return {"ok": True}
 
     def open_attachment_dialog(self) -> dict:
         """Native open dialog returning real paths; used when the page's
@@ -683,29 +691,33 @@ class Api:
         spans. S13 rule 2: a text whose language differs from the selected
         voice language switches to that language's default voice (same
         gender) before the session starts; matching languages keep the
-        chosen voice, and insufficient signal never switches."""
-        try:
-            self.engine.stop_voice_playback()
-            switch = self._auto_switch_voice_for_text(text)
-            self._speech_words = raw_words or ""
-            self.engine.initialize_alignment(self._speech_words)
-            self.engine.start_edge_session(
-                text, self._speech_voice_display(), self._speech_voice,
-                rate_percent=self._speech_speed,
-            )
-            record = self._voice_catalog_record(self._speech_voice)
-            return {
-                "ok": True,
-                "message": switch["message"] if switch else self._last_message,
-                "voice": self._speech_voice,
-                "voice_display": self._speech_voice_display(),
-                "voice_language": self._voice_language_of(self._speech_voice,
-                                                          record),
-                "voice_gender": record.get("gender") if record else None,
-                "voice_switched": switch is not None,
-            }
-        except Exception as error:  # keep the shell alive; report to the UI
-            return {"ok": False, "message": str(error)}
+        chosen voice, and insufficient signal never switches. The whole
+        stop→align→start transition runs under the speech lock (S14): a
+        concurrent tick poll inside this window used to respawn old Ready
+        audio behind the stop's back."""
+        with self._speech_lock:
+            try:
+                self.engine.stop_voice_playback()
+                switch = self._auto_switch_voice_for_text(text)
+                self._speech_words = raw_words or ""
+                self.engine.initialize_alignment(self._speech_words)
+                self.engine.start_edge_session(
+                    text, self._speech_voice_display(), self._speech_voice,
+                    rate_percent=self._speech_speed,
+                )
+                record = self._voice_catalog_record(self._speech_voice)
+                return {
+                    "ok": True,
+                    "message": switch["message"] if switch else self._last_message,
+                    "voice": self._speech_voice,
+                    "voice_display": self._speech_voice_display(),
+                    "voice_language": self._voice_language_of(self._speech_voice,
+                                                              record),
+                    "voice_gender": record.get("gender") if record else None,
+                    "voice_switched": switch is not None,
+                }
+            except Exception as error:  # keep the shell alive; report to the UI
+                return {"ok": False, "message": str(error)}
 
     def _voice_catalog_record(self, name: str) -> dict | None:
         """Catalog entry of a voice, or None when it is not cached."""
@@ -748,64 +760,77 @@ class Api:
         }
 
     def stop_speech(self) -> dict:
-        self.engine.stop_voice_playback()
-        return {"ok": True, "message": self._last_message}
+        with self._speech_lock:
+            self.engine.stop_voice_playback()
+            return {"ok": True, "message": self._last_message}
 
     def pause_speech(self) -> dict:
-        self.engine.pause()
-        return {"ok": True, "message": self._last_message}
+        with self._speech_lock:
+            self.engine.pause()
+            return {"ok": True, "message": self._last_message}
 
     def resume_speech(self) -> dict:
-        self.engine.resume()
-        return {"ok": True, "message": self._last_message}
+        with self._speech_lock:
+            self.engine.resume()
+            return {"ok": True, "message": self._last_message}
 
     def set_speech_speed(self, percent: int) -> dict:
         speed = max(SPEECH_SPEED_MIN, min(SPEECH_SPEED_MAX, int(percent)))
-        self._speech_speed = speed
-        if self.engine.provider == "Replay" and self.engine.mode in ("Playing", "Paused"):
-            # Replay re-renders the same audio at the new tempo from the
-            # current position (legacy Set-SpeechSpeed replay branch). S13
-            # rule 1: the tempo is the slider speed current now, never the
-            # speed the audio was generated with, so applied_speed moves
-            # before the restart (start_replay_playback reads it).
-            was_paused = self.engine.mode == "Paused"
-            position = self._replay_position()
-            self.engine.applied_speed = speed
-            self.engine.start_replay_playback(position)
-            if was_paused:
-                self.engine.pause()
-        else:
-            # Legacy Restart-ActiveSpeechPlayback: an Edge reading restarts
-            # from the current position with the remaining text (engine).
-            self.engine.set_speed(speed)
-        return {"ok": True, "message": self._last_message}
+        with self._speech_lock:
+            self._speech_speed = speed
+            if self.engine.provider == "Replay" and self.engine.mode in ("Playing", "Paused"):
+                # Replay re-renders the same audio at the new tempo from the
+                # current position (legacy Set-SpeechSpeed replay branch). S13
+                # rule 1: the tempo is the slider speed current now, never the
+                # speed the audio was generated with, so applied_speed moves
+                # before the restart (start_replay_playback reads it).
+                was_paused = self.engine.mode == "Paused"
+                position = self._replay_position()
+                self.engine.applied_speed = speed
+                self.engine.start_replay_playback(position)
+                if was_paused:
+                    self.engine.pause()
+            else:
+                # Legacy Restart-ActiveSpeechPlayback: an Edge reading restarts
+                # from the current position with the remaining text (engine).
+                self.engine.set_speed(speed)
+            return {"ok": True, "message": self._last_message}
 
     def replay_start(self, offset_seconds: float = 0.0) -> dict:
-        try:
-            self.engine.start_replay_playback(float(offset_seconds))
-            return {"ok": True, "message": self._last_message}
-        except Exception as error:
-            return {"ok": False, "message": str(error)}
+        with self._speech_lock:
+            try:
+                self.engine.start_replay_playback(float(offset_seconds))
+                return {"ok": True, "message": self._last_message}
+            except Exception as error:
+                return {"ok": False, "message": str(error)}
 
     def speech_click(self, word_index: int, text: str | None = None) -> dict:
-        """Queue a preview-word click; text is the block-aware tail (legacy getSpeechTextFrom)."""
+        """Queue a preview-word click; text is the block-aware tail (legacy
+        getSpeechTextFrom). Queued under the speech lock and consumed by the
+        next speech_tick atomically; a newer click overwrites an older one
+        (latest wins, S14)."""
         try:
             index = int(word_index)
         except (TypeError, ValueError):
             index = -1
-        self._pending_click = (index, text) if index >= 0 else None
+        with self._speech_lock:
+            self._pending_click = (index, text) if index >= 0 else None
         return {"ok": True}
 
     def speech_tick(self) -> dict:
-        try:
-            self.engine.poll()
-        except Exception as error:
-            self._last_message = str(error)
-        click = self._pending_click
-        self._pending_click = None
-        if click is not None:
-            self._move_speech_to_word(click[0], click[1])
-        return self._speech_state()
+        # The poll AND the pending-click processing share one lock hold (S14):
+        # a click queued mid-tick is not dropped, and the tick can never see
+        # half of another entrypoint's stop→start transition.
+        with self._speech_lock:
+            try:
+                self.engine.poll()
+            except Exception as error:
+                self._last_message = str(error)
+            click = self._pending_click
+            self._pending_click = None
+            if click is not None:
+                self._move_speech_to_word(click[0], click[1])
+            return self._speech_state()
 
     # ---- Speech internals --------------------------------------------------
     def _speech_voice_display(self) -> str:

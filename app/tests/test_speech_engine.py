@@ -132,7 +132,9 @@ class TestPoll(SpeechEngineFixture, unittest.TestCase):
         self.assertEqual(ffplay[-1], chunk.media_file)
 
     def test_player_exit_zero_advances_to_next_chunk(self):
-        self.start_session("uno\n\ndos")
+        # S14 keeps short text in one fast chunk; use a genuinely long
+        # two-paragraph fixture so this test still exercises chunk advance.
+        self.start_session(("uno " * 25).strip() + "\n\n" + ("dos " * 25).strip())
         for chunk in self.engine.chunks:
             self.ready_chunk(chunk)
         self.engine.poll()
@@ -199,21 +201,32 @@ class TestPauseResume(SpeechEngineFixture, unittest.TestCase):
 
 class TestReplayCache(SpeechEngineFixture, unittest.TestCase):
     def test_save_builds_concatenated_mp3_and_cumulative_marks(self):
-        self.start_session("hola mundo\n\nchau", words="hola\nmundo\nchau")
+        # S14 keeps short text in one chunk, so use 26 words across two
+        # paragraphs while retaining the same three-word alignment contract.
+        text = ("hola mundo " * 13).strip() + "\n\n" + ("chau " * 24).strip()
+        self.start_session(text, words="hola\nmundo\nchau")
+        expected_chunk_count = len(self.engine.chunks)
+        expected_duration = 0.0
         for chunk in self.engine.chunks:
-            self.ready_chunk(chunk)
+            chunk_words = chunk.text.split()
+            timings = [{"text": word, "start_seconds": i * 0.25}
+                       for i, word in enumerate(chunk_words)]
+            expected_duration += max(1.0, len(chunk_words) / 2.5)
+            self.ready_chunk(chunk, timings)
         self.engine.poll()
         self.engine.replay.eligible = True
         self.engine.stop_voice_playback()
         cache = self.engine.replay
         self.assertTrue(os.path.isfile(cache.file))
         with open(cache.file, "rb") as handle:
-            # Both chunk MP3 bytes concatenated in order.
-            self.assertEqual(handle.read(), b"ID3fake" * 2)
-        # ffprobe unavailable -> word-count estimate per chunk (both 1.0s).
-        self.assertAlmostEqual(cache.duration, 2.0)
+            # Every generated chunk MP3 is concatenated in order.
+            self.assertEqual(handle.read(), b"ID3fake" * expected_chunk_count)
+        # ffprobe unavailable -> sum of each chunk's word-count estimate.
+        self.assertAlmostEqual(cache.duration, expected_duration)
         self.assertEqual(cache.mark_words, [0, 1, 2])
-        self.assertEqual(cache.mark_seconds, [0.0, 0.5, 1.0])
+        self.assertEqual(cache.mark_seconds[:2], [0.0, 0.25])
+        self.assertGreater(cache.mark_seconds[2], cache.mark_seconds[1])
+        self.assertLessEqual(cache.mark_seconds[2], cache.duration)
         self.assertEqual(cache.voice_display, "Elvira (es-ES)")
         self.assertFalse(self.engine.replay.eligible)
 

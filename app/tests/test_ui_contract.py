@@ -789,6 +789,19 @@ class TestPlayVoiceAutoSwitch(UiContractTestCase):
                       window)
         self.assertIn("applyVoiceSwitch(", window)
 
+    def test_play_handler_prepares_the_preview_before_reading_the_words(self):
+        # S14 rule 2: the default tab is Editor, so pressing Play before ever
+        # opening Vista previa used to read alignment words from an unwrapped
+        # preview (empty getSpeechWords → no highlight and no click targets).
+        window = self.handler_window("speech-play")
+        render = window.index("await renderPreviewNow()")
+        start = window.index("api.start_speech")
+        self.assertLess(render, start)
+        # The wrapped words are read as start_speech's argument, i.e. strictly
+        # after the awaited render (render → wrap → getSpeechWords → start).
+        self.assertIn(
+            'api.start_speech($("editor").value, getSpeechWords())', window)
+
     def test_apply_voice_switch_updates_the_selector_and_the_toggles(self):
         body = js_function(self.js_source, "applyVoiceSwitch")
         self.assertIn("voice_switched", body)

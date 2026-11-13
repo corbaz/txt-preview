@@ -118,7 +118,9 @@ class TestTerminateProcess(EngineFixture):
 
 class TestStopTerminatesProcesses(EngineFixture):
     def test_stop_kills_the_live_player_and_live_generators(self):
-        self.start_session("uno\n\ndos", words="uno\ndos")
+        # Two long paragraphs: the S14 lead keeps the first, the rest the second.
+        self.start_session("palabra " * 10 + "\n\n" + "palabra " * 16,
+                           words="\n".join(["palabra"] * 26))
         self.ready_chunk(self.engine.chunks[0])
         self.engine.poll()
         player = self.engine.player_process
@@ -321,6 +323,37 @@ class TestReplayCompletion(EngineFixture):
 
         self.assertEqual(self.engine.mode, "Idle")
         self.assertEqual(self.messages[-1][0], "error")
+
+
+class TestPlayPreparesHighlight(ApiFixture):
+    """S14 rule 2 (backend half): raw_words captured from the wrapped preview
+    feed the aligner, so speech_tick reports a moving highlight index while
+    the reading plays."""
+
+    def test_nonempty_raw_words_progress_the_highlight(self):
+        result = self.api.start_speech("hola mundo", raw_words="hola\nmundo")
+        self.assertTrue(result["ok"])
+        import json
+        chunk = self.engine.chunks[0]
+        with open(chunk.media_file, "wb") as handle:
+            handle.write(b"ID3fake")
+        with open(chunk.timing_file, "w", encoding="utf-8") as handle:
+            json.dump([{"text": "hola", "start_seconds": 0.0},
+                       {"text": "mundo", "start_seconds": 0.5}], handle)
+        chunk.process.finish(0)
+        self.engine.poll()  # chunk Ready → the ffplay player starts
+
+        state = self.api.speech_tick()
+        self.assertEqual(state["highlight_word_index"], 0)
+
+        self.engine.player_started_at -= 1.0  # a second of audio went by
+        state = self.api.speech_tick()
+        self.assertEqual(state["highlight_word_index"], 1)
+
+        self.addCleanup(
+            lambda: os.path.exists(self.engine.replay.file)
+            and os.remove(self.engine.replay.file))
+        self.api.stop_speech()
 
 
 class TestClickAfterCompletion(ApiFixture):

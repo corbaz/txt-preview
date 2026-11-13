@@ -256,6 +256,11 @@
   $("speech-play").addEventListener("click", async () => {
     if (!window.pywebview || !window.pywebview.api) return;
     try {
+      // S14: render the preview (and wrap the .sw spans) before reading the
+      // alignment words, even when the Editor tab is the visible one — the
+      // default tab is Editor, so the first Play used to send empty words
+      // (no live highlight, no click targets). No tab switch happens.
+      await renderPreviewNow();
       applyVoiceSwitch(await window.pywebview.api.start_speech($("editor").value, getSpeechWords()));
     } catch (_) { /* start_speech reports its own errors */ }
   });
