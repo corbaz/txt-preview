@@ -1,23 +1,27 @@
-﻿# Installs TXT Preview from this clone: dependencies, desktop shortcut and first launch.
+﻿# Installs the cross-platform TXT Preview (Python + pywebview) from this clone:
+# Python 3.12, the app dependencies, FFmpeg, a desktop shortcut and first launch.
 # Usage after cloning:
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
+#   powershell -ExecutionPolicy Bypass -File .\install.ps1 -SkipInstalls -NoLaunch   # solo doctor
+# The legacy PowerShell app keeps its own flow in txt.ps1 (see git history).
 param(
     [string]$ShortcutDirectory = [Environment]::GetFolderPath("Desktop"),
     [switch]$NoLaunch,
+    # -SkipInstalls: no instala nada ni crea el acceso directo; solo revisa y
+    # muestra el doctor. Útil para validar el instalador sin tocar el sistema.
+    [switch]$SkipInstalls,
     [switch]$SkipPython,
     [switch]$SkipFfmpeg
 )
 
 $ErrorActionPreference = "Stop"
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-$appDirectory = $PSScriptRoot
-$appScript = Join-Path $appDirectory "txt.ps1"
+$appDirectory = Join-Path $PSScriptRoot "app"
+$appScript = Join-Path $appDirectory "main.py"
 if (-not (Test-Path -LiteralPath $appScript)) {
-    throw "No se encontró txt.ps1 en $appDirectory."
+    throw "No se encontró app\main.py en $PSScriptRoot."
 }
-
-$portablePwshDirectory = Join-Path $env:LOCALAPPDATA "Programs\PowerShell\7"
+$doctorScript = Join-Path $appDirectory "doctor.py"
 
 # Windows PowerShell 5.1 turns stderr from native commands into terminating errors when
 # ErrorActionPreference is Stop, so native tools run through this helper.
@@ -27,6 +31,22 @@ function Invoke-Native {
     $ErrorActionPreference = "Continue"
     try {
         & $FilePath @Arguments 2>&1 | Out-Null
+        return $LASTEXITCODE
+    } catch {
+        return 1
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
+# Runs a native command showing its output (used for the doctor report); the
+# caller needs only the exit code, so the output goes straight to the console.
+function Invoke-NativeShown {
+    param([string]$FilePath, [string[]]$Arguments)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $FilePath @Arguments | Out-Host
         return $LASTEXITCODE
     } catch {
         return 1
@@ -55,66 +75,6 @@ function Install-WingetPackage {
     Update-SessionPath
 }
 
-# The app needs PowerShell 7 (pwsh): it uses .NET APIs that Windows PowerShell 5.1 lacks.
-function Find-Pwsh {
-    $command = Get-Command pwsh.exe -ErrorAction SilentlyContinue
-    if ($command) {
-        return $command.Source
-    }
-    foreach ($candidate in @(
-        (Join-Path $env:ProgramFiles "PowerShell\7\pwsh.exe"),
-        (Join-Path $portablePwshDirectory "pwsh.exe")
-    )) {
-        if (Test-Path -LiteralPath $candidate) {
-            return $candidate
-        }
-    }
-    return $null
-}
-
-# Fallback without winget or admin rights: unpack the official portable zip per user.
-function Install-PortablePwsh {
-    Write-Host "Descargando PowerShell 7 portable..."
-    try {
-        $release = Invoke-RestMethod -UseBasicParsing "https://api.github.com/repos/PowerShell/PowerShell/releases/latest"
-        $architecture = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
-        $asset = $release.assets | Where-Object { $_.name -like "PowerShell-*-win-$architecture.zip" } | Select-Object -First 1
-        if (-not $asset) {
-            return
-        }
-        $zipPath = Join-Path $env:TEMP $asset.name
-        Invoke-WebRequest -UseBasicParsing -Uri $asset.browser_download_url -OutFile $zipPath
-        try {
-            Install-PwshFromZip $zipPath
-        } finally {
-            Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
-        }
-    } catch {
-        Write-Host "No se pudo descargar PowerShell 7: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-}
-
-# Extracts into a staging folder and swaps it in only after pwsh.exe runs, so an
-# interrupted download or extraction never leaves a broken pwsh.exe in place.
-function Install-PwshFromZip {
-    param([string]$ZipPath)
-    $stagingDirectory = "$portablePwshDirectory.staging"
-    Remove-Item -LiteralPath $stagingDirectory -Recurse -Force -ErrorAction SilentlyContinue
-    try {
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $stagingDirectory)
-        $stagedPwsh = Join-Path $stagingDirectory "pwsh.exe"
-        if ((Invoke-Native $stagedPwsh @("-NoProfile", "-Command", "exit 0")) -ne 0) {
-            throw "El PowerShell 7 descargado no arranca."
-        }
-        Remove-Item -LiteralPath $portablePwshDirectory -Recurse -Force -ErrorAction SilentlyContinue
-        New-Item -ItemType Directory -Path (Split-Path $portablePwshDirectory) -Force | Out-Null
-        Move-Item -LiteralPath $stagingDirectory -Destination $portablePwshDirectory
-    } finally {
-        Remove-Item -LiteralPath $stagingDirectory -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
-
 # Ignores the Microsoft Store stub in WindowsApps, which opens the Store instead of running Python.
 function Find-Python {
     $candidates = @(Get-Command python.exe -All -ErrorAction SilentlyContinue |
@@ -136,60 +96,87 @@ if ($env:TXT_PREVIEW_INSTALL_TEST_MODE -eq "1") {
     return
 }
 
-$powershellPath = Find-Pwsh
-if (-not $powershellPath) {
-    Install-WingetPackage "Microsoft.PowerShell" "PowerShell 7"
-    $powershellPath = Find-Pwsh
-}
-if (-not $powershellPath) {
-    Install-PortablePwsh
-    $powershellPath = Find-Pwsh
-}
-if (-not $powershellPath) {
-    throw "No se pudo instalar PowerShell 7. Instalalo con 'winget install Microsoft.PowerShell' y volvé a ejecutar install.ps1."
-}
+$python = Find-Python
+if (-not $SkipInstalls) {
+    if (-not $SkipPython) {
+        if (-not $python) {
+            if (Get-Command winget.exe -ErrorAction SilentlyContinue) {
+                Install-WingetPackage "Python.Python.3.12" "Python"
+                $python = Find-Python
+            } else {
+                throw ("winget no está disponible. Instalá Python 3.12 manualmente desde " +
+                    "https://www.python.org/downloads/ (marcá 'Add python.exe to PATH') " +
+                    "y volvé a ejecutar install.ps1.")
+            }
+        }
+        if (-not $python) {
+            throw "No se pudo instalar Python. Instalalo desde https://www.python.org/downloads/ y volvé a ejecutar install.ps1."
+        }
 
-if (-not $SkipPython) {
-    # Online voices need Python with the edge-tts package; Windows voices work without them.
-    $python = Find-Python
-    if (-not $python) {
-        Install-WingetPackage "Python.Python.3.12" "Python"
-        $python = Find-Python
-    }
-    if (-not $python) {
-        Write-Host "No se pudo instalar Python: las voces en línea quedan desactivadas (las de Windows funcionan igual)." -ForegroundColor Yellow
-    } else {
+        # Same packages the doctor checks: the app, PDF/MP3 exports and Edge voices.
+        Write-Host "Instalando las dependencias de Python (app\requirements.txt)..."
+        if ((Invoke-Native $python @(
+                "-m", "pip", "install", "--user", "--quiet", "--upgrade",
+                "-r", (Join-Path $appDirectory "requirements.txt")
+            )) -ne 0) {
+            Write-Host "No se pudieron instalar las dependencias de Python; mirá el mensaje de pip." -ForegroundColor Yellow
+        }
         # Always the latest: Microsoft changes the voice service and an old edge-tts gets HTTP 403.
         Write-Host "Instalando o actualizando edge-tts para las voces en línea..."
         if ((Invoke-Native $python @("-m", "pip", "install", "--user", "--quiet", "--upgrade", "edge-tts")) -ne 0) {
-            Write-Host "No se pudo instalar edge-tts; las voces de Windows funcionan igual." -ForegroundColor Yellow
+            Write-Host "No se pudo instalar edge-tts; las voces de Edge no van a sonar." -ForegroundColor Yellow
+        }
+    }
+
+    if (-not $SkipFfmpeg -and -not (Get-Command ffplay.exe -ErrorAction SilentlyContinue)) {
+        # FFmpeg plays Edge voices, powers Repetir and exports MP3.
+        Install-WingetPackage "Gyan.FFmpeg" "FFmpeg"
+        if (-not (Get-Command ffplay.exe -ErrorAction SilentlyContinue)) {
+            Write-Host "No se pudo instalar FFmpeg: las voces de Edge no van a sonar." -ForegroundColor Yellow
         }
     }
 }
 
-if (-not $SkipFfmpeg -and -not (Get-Command ffplay.exe -ErrorAction SilentlyContinue)) {
-    # FFmpeg plays Edge voices, powers Repetir and exports MP3.
-    Install-WingetPackage "Gyan.FFmpeg" "FFmpeg"
-    if (-not (Get-Command ffplay.exe -ErrorAction SilentlyContinue)) {
-        Write-Host "No se pudo instalar FFmpeg: las voces de Edge no van a sonar." -ForegroundColor Yellow
+# Always end with the doctor: the same report a human or an AI agent can act on.
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+if ($python -or ($python = Find-Python)) {
+    Write-Host ""
+    Write-Host "Doctor de dependencias de TXT Preview:"
+    $doctorExit = Invoke-NativeShown $python @($doctorScript)
+    if ($doctorExit -ne 0) {
+        Write-Host "El doctor detectó algo pendiente: seguí las 'Solución' de arriba y volvé a correr install.ps1." -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "No hay Python disponible para correr el doctor; instalalo y volvé a ejecutar install.ps1." -ForegroundColor Yellow
+}
+
+if (-not $SkipInstalls) {
+    if ($python) {
+        $pythonw = Join-Path (Split-Path $python) "pythonw.exe"
+        if (-not (Test-Path -LiteralPath $pythonw)) {
+            $pythonw = $python
+        }
+        New-Item -ItemType Directory -Path $ShortcutDirectory -Force | Out-Null
+        $shortcutPath = Join-Path $ShortcutDirectory "TXT Preview.lnk"
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $pythonw
+        $shortcut.Arguments = "`"$appScript`""
+        $shortcut.WorkingDirectory = $appDirectory
+        $shortcut.IconLocation = "$pythonw,0"
+        $shortcut.Description = "TXT Preview"
+        $shortcut.Save()
+        Write-Host "Acceso directo creado: $shortcutPath" -ForegroundColor Green
+    } else {
+        Write-Host "Sin Python no se creó el acceso directo; instalalo y volvé a ejecutar install.ps1." -ForegroundColor Yellow
     }
 }
 
-$launchArguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$appScript`""
-
-New-Item -ItemType Directory -Path $ShortcutDirectory -Force | Out-Null
-$shortcutPath = Join-Path $ShortcutDirectory "TXT Preview.lnk"
-$shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $powershellPath
-$shortcut.Arguments = $launchArguments
-$shortcut.WorkingDirectory = $appDirectory
-$shortcut.IconLocation = "$powershellPath,0"
-$shortcut.Description = "TXT Preview"
-$shortcut.Save()
-Write-Host "Acceso directo creado: $shortcutPath" -ForegroundColor Green
-
 Write-Host "Listo. Al abrir la app, cargá tu API key de Groq en Configuración." -ForegroundColor Green
-if (-not $NoLaunch) {
-    Start-Process -FilePath $powershellPath -ArgumentList $launchArguments -WorkingDirectory $appDirectory
+if (-not $NoLaunch -and -not $SkipInstalls -and $python) {
+    $pythonw = Join-Path (Split-Path $python) "pythonw.exe"
+    if (-not (Test-Path -LiteralPath $pythonw)) {
+        $pythonw = $python
+    }
+    Start-Process -FilePath $pythonw -ArgumentList "`"$appScript`"" -WorkingDirectory $appDirectory
 }

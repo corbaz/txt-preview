@@ -41,11 +41,11 @@ class InstallScriptTests(unittest.TestCase):
                 capture_output=True, text=True, timeout=60,
             )
             target, arguments, working_dir = read.stdout.strip().splitlines()
-            # The app targets PowerShell 7: Windows PowerShell 5.1 misreads its UTF-8 source.
-            self.assertTrue(target.lower().endswith("pwsh.exe"), target)
-            self.assertIn("-ExecutionPolicy Bypass", arguments)
-            self.assertIn(str(ROOT / "txt.ps1"), arguments)
-            self.assertEqual(Path(working_dir), ROOT)
+            # The installer now targets the cross-platform Python app (T13 cutover):
+            # pythonw.exe runs app\main.py without a console window.
+            self.assertTrue(target.lower().endswith("pythonw.exe"), target)
+            self.assertIn(str(ROOT / "app" / "main.py"), arguments)
+            self.assertEqual(Path(working_dir), ROOT / "app")
 
 
 def run_powershell(executable: str, command: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
