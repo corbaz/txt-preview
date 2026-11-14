@@ -222,6 +222,19 @@ class TestMainCanvas(UiContractTestCase):
         body = js_function(MAIN_JS.read_text(encoding="utf-8"), "setTab")
         self.assertIn('$("context-bar").hidden = name !== "editor";', body)
 
+    def test_microphone_button_follows_the_legacy_app(self):
+        js = MAIN_JS.read_text(encoding="utf-8")
+        handler = js.split('$("mic-button").addEventListener("click"', 1)[1][:900]
+        self.assertIn('$("mic-button").textContent = "Mic <Esc>";', handler)
+        self.assertIn("editor.setSelectionRange(editor.value.length, editor.value.length)",
+                      handler)
+
+    def test_double_click_on_a_model_row_selects_that_model(self):
+        js = MAIN_JS.read_text(encoding="utf-8")
+        handler = js.split('"#models-list tbody").addEventListener("dblclick"', 1)[1][:700]
+        self.assertIn("no es un modelo de chat para las acciones del editor.", handler)
+        self.assertIn('select.dispatchEvent(new Event("change"))', handler)
+
     def test_pages_keep_the_four_views(self):
         pages = {page.attrs.get("data-page") for page in self.tree.find_all(cls="page")}
         self.assertEqual(pages, {"editor", "preview", "settings", "browser"})

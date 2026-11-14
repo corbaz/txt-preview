@@ -497,6 +497,15 @@
     if (!requireBridge()) return;
     try {
       const result = await window.pywebview.api.start_dictation();
+      if (result && result.ok) {
+        // txt.ps1: the button reads "Mic <Esc>" and the caret goes to the
+        // end of the editor, where the dictated text lands.
+        $("mic-button").textContent = "Mic <Esc>";
+        setTab("editor");
+        const editor = $("editor");
+        editor.focus();
+        editor.setSelectionRange(editor.value.length, editor.value.length);
+      }
       if (result && result.message) setStatus(result.message);
     } catch (_) {
       setStatus("No se pudo activar el dictado.");
@@ -775,6 +784,21 @@
     }
     markSelectedModelRow();
   }
+
+  // Legacy modelsList.Add_DoubleClick.
+  document.querySelector("#models-list tbody").addEventListener("dblclick", (e) => {
+    const row = e.target.closest("tr");
+    if (!row) return;
+    const modelId = row.dataset.model;
+    const select = $("model-select");
+    if (!Array.from(select.options).some((option) => option.value === modelId)) {
+      setSettingsStatus(`${modelId} no es un modelo de chat para las acciones del editor.`,
+        "warning");
+      return;
+    }
+    select.value = modelId;
+    select.dispatchEvent(new Event("change"));
+  });
 
   function markSelectedModelRow() {
     const current = $("model-select").value;

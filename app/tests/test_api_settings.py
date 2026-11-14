@@ -752,3 +752,31 @@ class TestAttachmentLinksAndPreview(ApiSettingsTestCase):
         self.assertIn("*.json", without)
         self.assertTrue(with_vision.startswith("Documentos e imágenes ("))
         self.assertIn("*.png", with_vision)
+
+
+class TestSpeedMessages(ApiSettingsTestCase):
+    """txt.ps1 Set-SpeechSpeed status texts."""
+
+    def setUp(self):
+        super().setUp()
+        self.api = main.Api(settings_dir=self.settings_dir)
+
+    def test_idle_change_reports_the_reading_speed(self):
+        self.assertEqual(self.api.set_speech_speed(150),
+                         {"ok": True, "message": "Velocidad de lectura: 1,50x."})
+
+    def test_same_speed_reports_nothing(self):
+        self.assertEqual(self.api.set_speech_speed(100), {"ok": True, "message": ""})
+
+    def test_startup_default_is_silent(self):
+        self.api.set_speech_speed(150, announce=False)
+        self.assertEqual(self.api._speech_state()["message"], "")
+
+    def test_change_during_repetir_reports_the_new_speed(self):
+        engine = mock.Mock()
+        engine.provider, engine.mode, engine.applied_speed = "Replay", "Playing", 100
+        self.api.engine = engine
+        with mock.patch.object(self.api, "_replay_position", return_value=2.0):
+            result = self.api.set_speech_speed(125)
+        self.assertEqual(result, {"ok": True, "message": "Velocidad cambiada a 1,25x."})
+        engine.start_replay_playback.assert_called_once_with(2.0)

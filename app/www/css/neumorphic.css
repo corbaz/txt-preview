@@ -213,3 +213,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
   outline-offset: 2px;
 }
 #editor:focus-visible { outline: none; box-shadow: var(--nm-well), 0 0 0 2px var(--accent); }
+
+/* txt.ps1 disables the whole window while the AI works: the busy overlay
+   covers every control, not only the editor canvas. */
+#work-overlay { position: fixed; z-index: 30; }

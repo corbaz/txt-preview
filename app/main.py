@@ -214,7 +214,7 @@ class Api:
         # on Tema: Oscuro, 1,00x and the default Hombre · Español voice.
         self._theme = DEFAULT_THEME
         self._speech_voice = DEFAULT_SPEECH_VOICE
-        self.set_speech_speed(100)
+        self.set_speech_speed(100, announce=False)
         # The saved model is ignored on purpose, as in txt.ps1: every launch
         # starts on openai/gpt-oss-120b.
         self._selected_model = models.DEFAULT_MODEL_ID
@@ -1115,10 +1115,14 @@ class Api:
             self.engine.resume()
             return {"ok": True, "message": self._last_message}
 
-    def set_speech_speed(self, percent: int) -> dict:
+    def set_speech_speed(self, percent: int, announce: bool = True) -> dict:
+        """Legacy Set-SpeechSpeed. `announce` is False for the startup default,
+        which txt.ps1 applies without a status message."""
         speed = max(SPEECH_SPEED_MIN, min(SPEECH_SPEED_MAX, int(percent)))
         with self._speech_lock:
+            changed = speed != self.engine.applied_speed
             self._speech_speed = speed
+            speed_text = f"{speed / 100:.2f}".replace(".", ",") + "x"
             if self.engine.provider == "Replay" and self.engine.mode in ("Playing", "Paused"):
                 # Replay re-renders the same audio at the new tempo from the
                 # current position (legacy Set-SpeechSpeed replay branch). S13
@@ -1131,11 +1135,16 @@ class Api:
                 self.engine.start_replay_playback(position)
                 if was_paused:
                     self.engine.pause()
+                if changed and announce:
+                    self._last_message = f"Velocidad cambiada a {speed_text}."
             else:
+                idle = self.engine.mode == "Idle" and not self.engine.chunks
                 # Legacy Restart-ActiveSpeechPlayback: an Edge reading restarts
                 # from the current position with the remaining text (engine).
                 self.engine.set_speed(speed)
-            return {"ok": True, "message": self._last_message}
+                if idle and changed and announce:
+                    self._last_message = f"Velocidad de lectura: {speed_text}."
+            return {"ok": True, "message": self._take_message()}
 
     def replay_start(self, offset_seconds: float = 0.0) -> dict:
         with self._speech_lock:
