@@ -142,6 +142,17 @@
 
     <!-- S10: espera de trabajo IA — overlay grande centrado sobre el lienzo
          (nunca un spinner dentro de un botón). -->
+    <!-- Preview of one attached file (image or the text that will be sent). -->
+    <div id="attachment-modal" hidden role="dialog" aria-modal="true" aria-labelledby="attachment-modal-title">
+      <div class="attachment-dialog">
+        <div class="attachment-dialog-head">
+          <span id="attachment-modal-title"></span>
+          <button id="attachment-modal-close" class="ghost" aria-label="Cerrar">Cerrar</button>
+        </div>
+        <div id="attachment-modal-body"></div>
+      </div>
+    </div>
+
     <div id="work-overlay" hidden role="status" aria-live="polite">
       <div class="work-spinner" aria-hidden="true"></div>
       <div id="work-message" class="work-message">Procesando...</div>

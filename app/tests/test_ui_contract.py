@@ -217,6 +217,11 @@ class TestMainCanvas(UiContractTestCase):
             self.assertIsNone(self.tree.find(node_id=toolbar),
                               f"toolbar #{toolbar} must move to the bottom deck")
 
+    def test_context_bar_is_shown_only_on_the_editor_tab(self):
+        """txt.ps1 hosts the Contexto IA panel inside the Editor tab."""
+        body = js_function(MAIN_JS.read_text(encoding="utf-8"), "setTab")
+        self.assertIn('$("context-bar").hidden = name !== "editor";', body)
+
     def test_pages_keep_the_four_views(self):
         pages = {page.attrs.get("data-page") for page in self.tree.find_all(cls="page")}
         self.assertEqual(pages, {"editor", "preview", "settings", "browser"})
@@ -679,7 +684,7 @@ class TestModelCapabilityIcons(UiContractTestCase):
         body = js_function(self.js_source, "applySelectedModelCapabilities")
         self.assertIn('$("attach-files")', body)
         window = self.handler_window("model-select")
-        self.assertIn("get_attachment_summary", window)
+        self.assertIn("refreshAttachmentSummary()", window)
 
     def test_rejected_selection_reverts_and_shows_the_error(self):
         window = self.handler_window("model-select")

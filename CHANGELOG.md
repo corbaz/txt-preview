@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## v:26.11.14-18.30
+
+### Adjuntos: nombres como links con vista previa
+
+- Cada nombre de archivo adjunto es un link: al tocarlo se abre una ventana modal que muestra la imagen, o el texto que se enviará a la IA si es un documento. Se cierra con Esc o con Cerrar. Disponible en `txt.ps1` y en la app Python.
+- App Python: el diálogo de Adjuntar archivos solo ofrece imágenes cuando el modelo elegido tiene visión, y lista los mismos tipos de documento que la versión PowerShell.
+- App Python: la barra «Contexto IA» se muestra solo en la pestaña Editor, como en la versión PowerShell; ya no aparece en Navegador, Vista previa ni Configuración.
+
 ## v:26.11.14-12.44
 
 ### Actualizaciones como en la versión PowerShell

@@ -701,3 +701,54 @@ class TestSpeechMessagesAreDeliveredOnce(ApiSettingsTestCase):
         self.assertEqual(self.api.stop_speech(),
                          {"ok": True, "message": "Lectura detenida."})
         self.assertEqual(self.api._speech_state()["message"], "")
+
+
+class TestAttachmentLinksAndPreview(ApiSettingsTestCase):
+    def _attach(self):
+        from txt_core.attachments import Attachment, Kind
+        image = Path(self.settings_dir) / "foto.png"
+        image.write_bytes(b"PNGDATA")
+        self.api._attachments = [
+            Attachment(Kind.TEXT, "nota.txt", "/x/nota.txt", "hola\nmundo"),
+            Attachment(Kind.IMAGE, "foto.png", str(image)),
+        ]
+
+    def test_get_attachments_lists_names_for_the_links(self):
+        self.assertEqual(self.api.get_attachments(), {
+            "summary": "Sin archivos adjuntos para la próxima solicitud", "items": []})
+        self._attach()
+        self.assertEqual(self.api.get_attachments(), {
+            "summary": "Se enviarán a Groq (2): nota.txt, foto.png",
+            "items": [{"name": "nota.txt", "kind": "text"},
+                      {"name": "foto.png", "kind": "image"}]})
+
+    def test_preview_of_a_document_is_the_text_that_will_be_sent(self):
+        self._attach()
+        self.assertEqual(self.api.get_attachment_preview(0), {
+            "ok": True, "name": "nota.txt", "kind": "text", "text": "hola\nmundo"})
+
+    def test_preview_of_an_image_is_a_data_url(self):
+        self._attach()
+        preview = self.api.get_attachment_preview(1)
+        self.assertEqual(preview["kind"], "image")
+        self.assertEqual(preview["data_url"], "data:image/png;base64,UE5HREFUQQ==")
+
+    def test_preview_of_a_missing_attachment_is_refused(self):
+        self.assertEqual(self.api.get_attachment_preview(3), {
+            "ok": False, "message": "El adjunto ya no está en la lista."})
+
+    def test_dialog_offers_images_only_to_vision_models(self):
+        calls = []
+        window = mock.Mock()
+        window.create_file_dialog.side_effect = lambda *a, **k: calls.append(k) or None
+        self.api._window = window
+        self.api._selected_model = "openai/gpt-oss-120b"  # no vision
+        self.api.open_attachment_dialog()
+        self.api._selected_model = "qwen/qwen3.8-27b"  # vision
+        self.api.open_attachment_dialog()
+        without, with_vision = (call["file_types"][0] for call in calls)
+        self.assertTrue(without.startswith("Documentos (*.pdf;"))
+        self.assertNotIn("*.png", without)
+        self.assertIn("*.json", without)
+        self.assertTrue(with_vision.startswith("Documentos e imágenes ("))
+        self.assertIn("*.png", with_vision)

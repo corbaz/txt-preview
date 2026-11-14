@@ -576,6 +576,33 @@ class Api:
             names = [attachment.name for attachment in self._attachments]
         return attachment_summary(names, self._provider_label())
 
+    def get_attachments(self) -> dict:
+        """Summary plus the attached files, so the UI can show every file
+        name as a link to its preview."""
+        with self._attachments_lock:
+            items = [{"name": attachment.name,
+                      "kind": "image" if attachment.kind == Kind.IMAGE else "text"}
+                     for attachment in self._attachments]
+        return {"summary": attachment_summary([item["name"] for item in items],
+                                              self._provider_label()),
+                "items": items}
+
+    def get_attachment_preview(self, index: int) -> dict:
+        """Content of one attachment for the preview modal: a data URL for an
+        image, the extracted text that will be sent for a document."""
+        with self._attachments_lock:
+            if not isinstance(index, int) or not 0 <= index < len(self._attachments):
+                return {"ok": False, "message": "El adjunto ya no está en la lista."}
+            attachment = self._attachments[index]
+        if attachment.kind != Kind.IMAGE:
+            return {"ok": True, "name": attachment.name, "kind": "text",
+                    "text": attachment.content}
+        try:
+            return {"ok": True, "name": attachment.name, "kind": "image",
+                    "data_url": groq._image_data_url(attachment.path)}
+        except OSError as error:
+            return {"ok": False, "message": f"No se pudo mostrar el adjunto: {error}"}
+
     def _provider_label(self) -> str:
         bridge = bridges.get_bridge(self._selected_model)
         return bridge.label if bridge else "Groq"
@@ -831,10 +858,15 @@ class Api:
         window = getattr(self, "_window", None)
         if window is None:
             return {"added": [], "errors": [], "summary": self.get_attachment_summary()}
-        file_types = (
-            "Documentos e imágenes (*.txt;*.md;*.pdf;*.docx;*.pptx;*.png;*.jpg;*.jpeg;*.webp;*.gif)",
-            "Todos los archivos (*.*)",
-        )
+        # txt.ps1: images are only offered when the selected model has vision.
+        documents = ";".join(
+            f"*{extension}" for extension in (*DOCUMENT_EXTENSIONS, *TEXT_EXTENSIONS))
+        if self._selected_capabilities().vision:
+            images = ";".join(f"*{extension}" for extension in IMAGE_EXTENSIONS)
+            first = f"Documentos e imágenes ({documents};{images})"
+        else:
+            first = f"Documentos ({documents})"
+        file_types = (first, "Todos los archivos (*.*)")
         chosen = window.create_file_dialog(
             webview.FileDialog.OPEN, allow_multiple=True, file_types=file_types,
         ) or []

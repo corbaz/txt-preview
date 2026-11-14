@@ -30,6 +30,17 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn('"selected_model", "theme", "speech_voice", "speed"', save)
         self.assertNotIn("api_key_enc", save)
 
+    def test_attachment_names_are_links_that_open_a_preview(self) -> None:
+        self.assertIn("$lblAttachments = New-Object Windows.Forms.LinkLabel", SCRIPT)
+        self.assertIn("[void]$lblAttachments.Links.Add($position, $attachment.Name.Length, $attachment)",
+                      SCRIPT)
+        handler = SCRIPT.split("$lblAttachments.Add_LinkClicked({", 1)[1][:300]
+        self.assertIn("Show-AttachmentPreview $attachment", handler)
+        preview = SCRIPT.split("function Show-AttachmentPreview {", 1)[1][:2600]
+        self.assertIn("PictureBox", preview)
+        self.assertIn("$viewer.ReadOnly = $true", preview)
+        self.assertIn("ShowDialog($form)", preview)
+
     def test_web_and_vision_payloads_are_supported(self) -> None:
         self.assertIn('type = "browser_search"', SCRIPT)
         self.assertIn('type      = "image_url"', SCRIPT)

@@ -130,3 +130,26 @@ class ModernControlsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
+class AttachmentLinkTests(unittest.TestCase):
+    def test_every_attached_file_name_is_a_link_to_its_attachment(self) -> None:
+        results = run_app_snippet(
+            "$script:attachedFiles.Add([pscustomobject]@{ Name = 'a.txt'; Kind = 'Text'; Content = 'x' }); "
+            "$script:attachedFiles.Add([pscustomobject]@{ Name = 'informe final.pdf'; Kind = 'Pdf'; Content = 'y' }); "
+            "Update-AttachmentSummary; "
+            "'RESULT=' + $lblAttachments.Text; "
+            "'RESULT=' + $lblAttachments.Links.Count; "
+            "foreach ($link in $lblAttachments.Links) { "
+            "'RESULT=' + $lblAttachments.Text.Substring($link.Start, $link.Length) + '|' + $link.LinkData.Name }; "
+            "$script:attachedFiles.Clear(); Update-AttachmentSummary; "
+            "'RESULT=' + $lblAttachments.Links.Count"
+        )
+        self.assertEqual(results, [
+            "Se enviarán a Groq (2): a.txt, informe final.pdf",
+            "2",
+            "a.txt|a.txt",
+            "informe final.pdf|informe final.pdf",
+            "0",
+        ])

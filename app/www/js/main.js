@@ -39,6 +39,8 @@
   function setTab(name) {
     document.querySelectorAll(".seg").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
     document.querySelectorAll(".page").forEach((p) => p.classList.toggle("active", p.dataset.page === name));
+    // txt.ps1: the Contexto IA bar belongs to the Editor tab only.
+    $("context-bar").hidden = name !== "editor";
     if (name === "preview") schedulePreview();
     placeBrowser();
   }
@@ -484,7 +486,7 @@
     clearAiResult();
     safeCall((api) => api.clear_attachments(),
       "No se pudieron quitar los adjuntos.");
-    $("attachment-summary").textContent = "Sin archivos adjuntos para la próxima solicitud";
+    renderAttachmentSummary({ summary: "Sin archivos adjuntos para la próxima solicitud", items: [] });
     $("clear-attachments").hidden = true;
     setTab("editor");
     setStatus("Editor y adjuntos limpiados.");
@@ -559,7 +561,8 @@
     const api = bridgeApi();
     if (!api || !browserOpened) return;
     const overlay = $("work-overlay");
-    const visible = browserTabActive() && !(overlay && !overlay.hidden);
+    const visible = browserTabActive() && !(overlay && !overlay.hidden)
+      && $("attachment-modal").hidden;
     api.browser_place(browserRect(), visible).catch(() => {});
     if (visible && !browserPollTimer) {
       browserPollTimer = setInterval(pollBrowser, 400);
@@ -957,7 +960,7 @@
     applySelectedModelCapabilities(select.value);
     showSelectedModelSummary();
     try {
-      $("attachment-summary").textContent = await bridgeApi().get_attachment_summary();
+      await refreshAttachmentSummary(); // a model without vision drops the images
     } catch (_) { /* the summary is best effort */ }
   });
 
@@ -1375,10 +1378,80 @@
   });
 
   // ---- Attachments (T5) ------------------------------------------------------
+  // The summary keeps the legacy text; every file name in it is a link that
+  // opens a preview of that attachment.
+  function renderAttachmentSummary(data) {
+    const summary = $("attachment-summary");
+    const items = data.items || [];
+    summary.textContent = "";
+    if (!items.length) {
+      summary.textContent = data.summary;
+    } else {
+      summary.appendChild(document.createTextNode(
+        data.summary.slice(0, data.summary.indexOf(": ") + 2)));
+      items.forEach((item, index) => {
+        if (index) summary.appendChild(document.createTextNode(", "));
+        const link = document.createElement("button");
+        link.type = "button";
+        link.className = "attachment-link";
+        link.textContent = item.name;
+        link.title = "Ver el archivo adjunto";
+        link.addEventListener("click", () => showAttachmentPreview(index));
+        summary.appendChild(link);
+      });
+    }
+    $("clear-attachments").hidden = !items.length;
+  }
+
+  async function refreshAttachmentSummary() {
+    const data = await safeCall((api) => api.get_attachments(),
+      "No se pudieron leer los adjuntos.");
+    if (data) renderAttachmentSummary(data);
+  }
+
+  async function showAttachmentPreview(index) {
+    const preview = await safeCall((api) => api.get_attachment_preview(index),
+      "No se pudo mostrar el adjunto.");
+    if (!preview) return;
+    if (!preview.ok) {
+      setStatus(preview.message, "error");
+      return;
+    }
+    const body = $("attachment-modal-body");
+    body.textContent = "";
+    if (preview.kind === "image") {
+      const image = document.createElement("img");
+      image.src = preview.data_url;
+      image.alt = preview.name;
+      body.appendChild(image);
+    } else {
+      const text = document.createElement("pre");
+      text.textContent = preview.text;
+      body.appendChild(text);
+    }
+    $("attachment-modal-title").textContent = `Adjunto: ${preview.name}`;
+    $("attachment-modal").hidden = false;
+    placeBrowser(); // the native browser view must not cover the modal
+    $("attachment-modal-close").focus();
+  }
+
+  function closeAttachmentPreview() {
+    $("attachment-modal").hidden = true;
+    $("attachment-modal-body").textContent = "";
+    placeBrowser();
+  }
+
+  $("attachment-modal-close").addEventListener("click", closeAttachmentPreview);
+  $("attachment-modal").addEventListener("click", (e) => {
+    if (e.target === $("attachment-modal")) closeAttachmentPreview();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("attachment-modal").hidden) closeAttachmentPreview();
+  });
+
   function applyAttachments(result) {
     if (!result) return;
-    if (result.summary) $("attachment-summary").textContent = result.summary;
-    $("clear-attachments").hidden = result.summary.startsWith("Sin archivos");
+    refreshAttachmentSummary();
     if (result.errors && result.errors.length) {
       setStatus(result.errors[0]);
     } else if (result.added && result.added.length) {

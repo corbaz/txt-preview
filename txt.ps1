@@ -1489,7 +1489,10 @@ $capabilityBadgeHost.SetBounds(113, 8, 0, 28)
 $contextPanel.Controls.Add($capabilityBadgeHost)
 $capabilityIconFontName = if ($installedFontNames -contains "Segoe Fluent Icons") { "Segoe Fluent Icons" } else { "Segoe MDL2 Assets" }
 
-$lblAttachments = New-Object Windows.Forms.Label
+# Each attached file name is a link that opens a preview of that file.
+$lblAttachments = New-Object Windows.Forms.LinkLabel
+$lblAttachments.LinkBehavior = [Windows.Forms.LinkBehavior]::HoverUnderline
+$lblAttachments.LinkArea = New-Object Windows.Forms.LinkArea(0, 0)
 $lblAttachments.Text = "Sin archivos adjuntos para la próxima solicitud"
 $lblAttachments.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
 $lblAttachments.AutoEllipsis = $true
@@ -1835,17 +1838,94 @@ function Test-GroqInputAvailable {
 function Update-AttachmentSummary {
     if ($script:attachedFiles.Count -eq 0) {
         $lblAttachments.Text = "Sin archivos adjuntos para la próxima solicitud"
+        $lblAttachments.Links.Clear()
         $contextToolTip.SetToolTip($lblAttachments, "")
         $btnClearAttachments.Visible = $false
     } else {
         $names = @($script:attachedFiles | ForEach-Object { $_.Name })
-        $attachmentText = "Se enviarán a $(Get-SelectedProviderLabel) ($($names.Count)): " + ($names -join ", ")
+        $prefix = "Se enviarán a $(Get-SelectedProviderLabel) ($($names.Count)): "
+        $attachmentText = $prefix + ($names -join ", ")
         $lblAttachments.Text = $attachmentText
-        $contextToolTip.SetToolTip($lblAttachments, $attachmentText)
+        # One link per file name; the link carries its attachment.
+        $lblAttachments.Links.Clear()
+        $linkColor = Get-ThemeColor "Accent"
+        $lblAttachments.LinkColor = $linkColor
+        $lblAttachments.ActiveLinkColor = $linkColor
+        $lblAttachments.VisitedLinkColor = $linkColor
+        $position = $prefix.Length
+        foreach ($attachment in $script:attachedFiles) {
+            [void]$lblAttachments.Links.Add($position, $attachment.Name.Length, $attachment)
+            $position += $attachment.Name.Length + 2
+        }
+        $contextToolTip.SetToolTip($lblAttachments, "$attachmentText`nHacé clic en un nombre para ver el archivo.")
         $btnClearAttachments.Visible = $true
     }
     Update-ContextLayout
 }
+
+# Modal preview of one attachment: the picture for images, the text that will be
+# sent for documents.
+function Show-AttachmentPreview {
+    param($attachment)
+
+    $dialog = New-Object Windows.Forms.Form
+    $dialog.Text = "Adjunto: $($attachment.Name)"
+    $dialog.StartPosition = [Windows.Forms.FormStartPosition]::CenterParent
+    $dialog.Size = New-Object Drawing.Size(960, 700)
+    $dialog.MinimumSize = New-Object Drawing.Size(480, 320)
+    $dialog.ShowInTaskbar = $false
+    $dialog.MinimizeBox = $false
+    $dialog.KeyPreview = $true
+    $dialog.BackColor = Get-ThemeColor "Surface"
+    $dialog.Add_KeyDown({
+        param($source, $keyArgs)
+        if ($keyArgs.KeyCode -eq [Windows.Forms.Keys]::Escape) {
+            $source.Close()
+        }
+    })
+    $image = $null
+    try {
+        if ($attachment.Kind -eq "Image") {
+            # Loaded from memory so the file stays unlocked.
+            $stream = [IO.MemoryStream]::new([IO.File]::ReadAllBytes($attachment.Path))
+            $image = [Drawing.Image]::FromStream($stream)
+            $picture = New-Object Windows.Forms.PictureBox
+            $picture.Dock = "Fill"
+            $picture.SizeMode = [Windows.Forms.PictureBoxSizeMode]::Zoom
+            $picture.BackColor = Get-ThemeColor "Editor"
+            $picture.Image = $image
+            $dialog.Controls.Add($picture)
+        } else {
+            $viewer = New-Object Windows.Forms.TextBox
+            $viewer.Multiline = $true
+            $viewer.ReadOnly = $true
+            $viewer.ScrollBars = [Windows.Forms.ScrollBars]::Both
+            $viewer.WordWrap = $true
+            $viewer.Dock = "Fill"
+            $viewer.BorderStyle = [Windows.Forms.BorderStyle]::None
+            $viewer.BackColor = Get-ThemeColor "Editor"
+            $viewer.ForeColor = Get-ThemeColor "Text"
+            $viewer.Font = New-Object Drawing.Font($editorFontName, 10.5)
+            $viewer.Text = ([string]$attachment.Content) -replace "(?<!`r)`n", "`r`n"
+            $viewer.Select(0, 0)
+            $dialog.Controls.Add($viewer)
+        }
+        [void]$dialog.ShowDialog($form)
+    } catch {
+        Show-Message "No se pudo mostrar el adjunto: $($_.Exception.Message)" -Level Error
+    } finally {
+        if ($null -ne $image) { $image.Dispose() }
+        $dialog.Dispose()
+    }
+}
+
+$lblAttachments.Add_LinkClicked({
+    param($source, $linkArgs)
+    $attachment = $linkArgs.Link.LinkData
+    if ($null -ne $attachment) {
+        Show-AttachmentPreview $attachment
+    }
+})
 
 function Update-ContextLayout {
     $gap = 8
