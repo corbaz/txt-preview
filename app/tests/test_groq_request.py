@@ -22,11 +22,12 @@ class TestGroqBody(unittest.TestCase):
 
     def test_web_request_guarantees_research_semantics(self):
         """T25/S18: a web request on a web-capable model always carries the
-        official Groq browser_search semantics — server-side tool, forced
-        tool_choice, citations enabled and low reasoning effort."""
+        official Groq browser_search semantics — server-side tool, tool_choice
+        "auto" like txt.ps1 (Groq rejects "required" with 400 tool_use_failed
+        when the model answers without searching) and low reasoning effort."""
         body = groq.build_groq_body("hola", "openai/gpt-oss-120b", True, CAPS_WEB)
         self.assertEqual(body["tools"], [{"type": "browser_search"}])
-        self.assertEqual(body["tool_choice"], "required")
+        self.assertEqual(body["tool_choice"], "auto")
         self.assertEqual(body["reasoning_effort"], "low")
         self.assertNotIn("citation_options", body)
 
@@ -91,6 +92,27 @@ class TestGroqHeadersAndPost(unittest.TestCase):
         with mock.patch("urllib.request.urlopen", side_effect=error):
             with self.assertRaisesRegex(RuntimeError, "Groq devolvió el estado HTTP 401."):
                 groq.post_chat("key", {"model": "m", "messages": []})
+
+    def _http_error(self, status, payload):
+        import io
+        import json
+        import urllib.error
+        return urllib.error.HTTPError(
+            groq.GROQ_CHAT_URL, status, "Error", {},
+            io.BytesIO(json.dumps(payload).encode("utf-8")))
+
+    def test_post_chat_http_error_includes_groq_message(self):
+        """A Groq error body (rate limit, invalid request) reaches the UI
+        instead of a bare status code."""
+        error = self._http_error(429, {"error": {
+            "message": "Rate limit reached for model `openai/gpt-oss-20b`",
+            "code": "rate_limit_exceeded"}})
+        with mock.patch("urllib.request.urlopen", side_effect=error):
+            with self.assertRaises(RuntimeError) as caught:
+                groq.post_chat("key", {"model": "m", "messages": []})
+        self.assertEqual(
+            str(caught.exception),
+            "Groq devolvió el estado HTTP 429: Rate limit reached for model `openai/gpt-oss-20b`")
 
     def test_post_chat_tls_error_raises_controlled_message(self):
         """S17/T24: a TLS verification failure (Mac incident) becomes a controlled

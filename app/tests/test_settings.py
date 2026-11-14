@@ -173,6 +173,41 @@ class TestWindowsSecretStorage(unittest.TestCase):
             self.assertEqual(settings.get_api_key(directory, decrypt=decrypt), "")
 
 
+class TestKeySharedWithPowerShellApp(unittest.TestCase):
+    """txt.ps1 and the Python app share %LOCALAPPDATA%\TXT Preview\settings.json:
+    the key saved in either Configuración is the one both apps use."""
+
+    def test_set_api_key_also_writes_legacy_encrypted_api_key(self):
+        encrypt, _ = fake_crypto_pair()
+        with tempfile.TemporaryDirectory() as directory:
+            settings.set_api_key(TEST_KEY, directory, encrypt=encrypt)
+            with open(Path(directory) / "settings.json", encoding="utf-8") as handle:
+                stored = json.load(handle)
+            self.assertEqual(
+                binascii.unhexlify(stored["EncryptedApiKey"]),
+                b"ENC:" + TEST_KEY.encode("utf-16-le"))
+
+    def test_key_saved_by_powershell_app_wins_over_stale_python_blob(self):
+        encrypt, decrypt = fake_crypto_pair()
+        with tempfile.TemporaryDirectory() as directory:
+            settings.set_api_key("gsk_old_python", directory, encrypt=encrypt)
+            path = Path(directory) / "settings.json"
+            stored = json.loads(path.read_text(encoding="utf-8"))
+            stored["EncryptedApiKey"] = binascii.hexlify(
+                b"ENC:" + "gsk_new_ps1".encode("utf-16-le")).decode("ascii")
+            path.write_text(json.dumps(stored), encoding="utf-8")
+            self.assertEqual(settings.get_api_key(directory, decrypt=decrypt), "gsk_new_ps1")
+
+    def test_empty_key_also_removes_legacy_encrypted_api_key(self):
+        encrypt, decrypt = fake_crypto_pair()
+        with tempfile.TemporaryDirectory() as directory:
+            settings.set_api_key(TEST_KEY, directory, encrypt=encrypt)
+            settings.set_api_key("", directory, encrypt=encrypt)
+            stored = json.loads((Path(directory) / "settings.json").read_text(encoding="utf-8"))
+            self.assertNotIn("EncryptedApiKey", stored)
+            self.assertEqual(settings.get_api_key(directory, decrypt=decrypt), "")
+
+
 class TestKeychainStorage(unittest.TestCase):
     def test_darwin_uses_keyring_and_file_stays_secret_free(self):
         store: dict = {}

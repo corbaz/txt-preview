@@ -23,6 +23,13 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn("ConvertFrom-SecureString $secureKey", SCRIPT)
         self.assertIn('"TXT Preview"', SCRIPT)
 
+    def test_save_keeps_the_python_app_preferences(self) -> None:
+        """settings.json is shared with app/main.py: saving here keeps the
+        Python app's plain preferences and drops its stale key copies."""
+        save = SCRIPT[SCRIPT.index("function Save-AppSettings"):SCRIPT.index("function Compare-AppVersions")]
+        self.assertIn('"selected_model", "theme", "speech_voice", "speed"', save)
+        self.assertNotIn("api_key_enc", save)
+
     def test_web_and_vision_payloads_are_supported(self) -> None:
         self.assertIn('type = "browser_search"', SCRIPT)
         self.assertIn('type      = "image_url"', SCRIPT)

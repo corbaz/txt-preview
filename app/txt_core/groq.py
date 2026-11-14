@@ -90,13 +90,13 @@ def build_groq_body(prompt: str, selected_model: str, web_search: bool,
         "messages": [{"role": "user", "content": content}],
     }
     if web_search and capabilities.get("web"):
-        # T25/S18 — official Groq Browser Search semantics for a real research
-        # request: server-side browser_search; tool_choice "required" means
-        # the model cannot answer without searching. Sources are read from
-        # message.executed_tools.search_results in the response,
-        # and reasoning_effort "low" as recommended for gpt-oss models.
+        # Same as txt.ps1: server-side browser_search with tool_choice "auto".
+        # "required" made Groq reject answers where gpt-oss chose not to
+        # search (HTTP 400 tool_use_failed). Sources are read from
+        # message.executed_tools in the response; reasoning_effort "low" as
+        # recommended for gpt-oss models.
         body["tools"] = [{"type": "browser_search"}]
-        body["tool_choice"] = "required"
+        body["tool_choice"] = "auto"
         body["reasoning_effort"] = "low"
     return body
 
@@ -120,8 +120,26 @@ def build_bridge_body(prompt: str, selected_model: str, bridge_key: str,
     return body
 
 
-def post_chat(api_key: str, body: dict, timeout_seconds: int = 600) -> dict:
-    """POST the chat body to api.groq.com and return the parsed JSON."""
+def _http_error_payload(error: urllib.error.HTTPError) -> dict:
+    """Groq's JSON error object ({message, code, ...}); empty when unreadable."""
+    try:
+        raw = error.read()
+        data = json.loads(raw.decode("utf-8", errors="replace")) if raw else {}
+    except (ValueError, OSError, AttributeError):
+        return {}
+    detail = data.get("error") if isinstance(data, dict) else None
+    return detail if isinstance(detail, dict) else {}
+
+
+def _http_error_message(status: int, payload: Mapping[str, Any]) -> str:
+    message = ERR_HTTP_STATUS.format(status=status)
+    detail = str(payload.get("message") or "").strip()
+    if detail:
+        message = f"{message[:-1]}: {detail}"
+    return message
+
+
+def _open_chat(api_key: str, body: dict, timeout_seconds: int) -> dict:
     request = urllib.request.Request(
         GROQ_CHAT_URL,
         data=json.dumps(body, ensure_ascii=True).encode("utf-8"),
@@ -130,11 +148,17 @@ def post_chat(api_key: str, body: dict, timeout_seconds: int = 600) -> dict:
     request.add_header("Content-Type", "application/json")
     request.add_header("User-Agent", USER_AGENT)
     request.add_header("Authorization", f"Bearer {api_key}")
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def post_chat(api_key: str, body: dict, timeout_seconds: int = 600) -> dict:
+    """POST the chat body to api.groq.com and return the parsed JSON."""
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            return json.loads(response.read().decode("utf-8"))
+        return _open_chat(api_key, body, timeout_seconds)
     except urllib.error.HTTPError as error:
-        raise RuntimeError(ERR_HTTP_STATUS.format(status=error.code)) from error
+        raise RuntimeError(
+            _http_error_message(error.code, _http_error_payload(error))) from error
     except urllib.error.URLError as error:
         # S17: connection/TLS failure — controlled message, verification intact.
         raise RuntimeError(ERR_CONNECTION.format(reason=connection_reason(error))) from error

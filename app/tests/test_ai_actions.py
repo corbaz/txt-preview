@@ -98,14 +98,15 @@ class TestAskAiGroqRouting(unittest.TestCase):
 
     def test_consult_web_request_cannot_degrade_to_ordinary_chat(self):
         """T25/S18: a Consultar/web request on a web-capable model always
-        carries the full Groq research semantics in the real body sent."""
+        carries the browser_search tool in the real body sent, with
+        tool_choice "auto" like txt.ps1."""
         api = api_with_env(self, GROQ_API_KEY="gsk_test")
         api._selected_model = "openai/gpt-oss-20b"
         with mock.patch.object(groq, "post_chat", return_value={"text": "x"}) as post:
             api.ask_ai("consult", True, "hola")
         body = post.call_args[0][1]
         self.assertEqual(body["tools"], [{"type": "browser_search"}])
-        self.assertEqual(body["tool_choice"], "required")
+        self.assertEqual(body["tool_choice"], "auto")
         self.assertEqual(body["reasoning_effort"], "low")
         self.assertNotIn("citation_options", body)
 

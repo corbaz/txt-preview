@@ -2086,6 +2086,21 @@ function Save-AppSettings {
         Model                    = $script:selectedGroqModel
         EncryptedBridgePasswords = $bridgeSecrets
     }
+    # settings.json is shared with the Python app (app/main.py): keep its plain
+    # preferences. Its key copies are dropped so EncryptedApiKey stays the
+    # single key both apps read.
+    if (Test-Path -LiteralPath $settingsPath) {
+        try {
+            $existing = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($field in @("selected_model", "theme", "speech_voice", "speed")) {
+                $property = $existing.PSObject.Properties[$field]
+                if ($property -and $null -ne $property.Value) {
+                    $settings[$field] = $property.Value
+                }
+            }
+        } catch {
+        }
+    }
     [IO.File]::WriteAllText(
         $settingsPath,
         ($settings | ConvertTo-Json),

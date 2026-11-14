@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## v:26.11.14-11.06
+
+### Consultar y Resumir con web vuelven a funcionar; una sola API key para ambas apps
+
+- Las consultas con búsqueda web usan `tool_choice: "auto"`, igual que `txt.ps1`. Con `"required"`, Groq devolvía HTTP 400 (`tool_use_failed`) cada vez que el modelo respondía sin buscar.
+- Los errores HTTP de Groq muestran el motivo que devuelve la API (por ejemplo, el límite de tokens por minuto en HTTP 429) en lugar de solo el código.
+- En Windows, la app Python y `txt.ps1` comparten `settings.json`: la API key guardada en la Configuración de cualquiera de las dos es la que usan ambas (`EncryptedApiKey`), en lugar de caer a la variable de entorno `GROQ_API_KEY`.
+- Guardar la configuración en `txt.ps1` conserva el modelo, el tema, la voz y la velocidad de la app Python.
+
 ## v:26.11.14-09.47
 
 ### Mensajes MP3 legibles en cualquier configuración regional

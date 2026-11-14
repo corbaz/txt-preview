@@ -71,6 +71,9 @@ def default_settings() -> dict:
 
 _PLAIN_FIELDS = ("selected_model", "theme", "speech_voice", "speed")
 _SECRET_FIELDS = ("api_key", "api_key_enc", "plaintext_key")
+# Key field of txt.ps1 (hex DPAPI blob, ConvertFrom-SecureString shape). Both
+# apps share settings.json on Windows, so the Python app keeps it in sync.
+LEGACY_KEY_FIELD = "EncryptedApiKey"
 
 
 def _read_json(path: str) -> dict | None:
@@ -233,6 +236,8 @@ def set_api_key(key: str, directory: str | None = None,
     stored = _read_json(path) or {}
     for field in _SECRET_FIELDS:
         stored.pop(field, None)
+    if sys.platform == "win32" or encrypt is not None:
+        stored.pop(LEGACY_KEY_FIELD, None)
     if key:
         # An injected crypto function is an explicit isolated-storage route for
         # tests and legacy migration. It must never fall through to a real
@@ -241,6 +246,7 @@ def set_api_key(key: str, directory: str | None = None,
             encrypt_function = encrypt or dpapi_encrypt
             blob = encrypt_function(key.encode("utf-16-le"))
             stored["api_key_enc"] = base64.b64encode(blob).decode("ascii")
+            stored[LEGACY_KEY_FIELD] = binascii.hexlify(blob).decode("ascii")
         else:
             try:
                 _keyring_module().set_password(KEYRING_SERVICE, KEYRING_ACCOUNT, key)
@@ -261,6 +267,13 @@ def get_api_key(directory: str | None = None, decrypt=None) -> str:
 def _get_api_key_impl(directory: str | None, decrypt) -> str:
     stored = _read_json(_settings_file(directory)) or {}
     if sys.platform == "win32" or decrypt is not None:
+        # txt.ps1 rewrites EncryptedApiKey on every save, so it is the latest
+        # key typed in either app; api_key_enc is only the fallback.
+        legacy_value = str(stored.get(LEGACY_KEY_FIELD) or "").strip()
+        if legacy_value:
+            legacy_key = _decode_legacy_api_key(legacy_value, decrypt)
+            if legacy_key:
+                return legacy_key
         blob = stored.get("api_key_enc")
         if blob:
             decrypt_function = decrypt or dpapi_decrypt
