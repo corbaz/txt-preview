@@ -45,6 +45,11 @@ class TestPrompts(unittest.TestCase):
         prompt = correct_prompt("hola mundo")
         self.assertIn("Actúa como un corrector experto en redacción en español.", prompt)
         self.assertIn("Dame solo el texto corregido, sin explicaciones ni comentarios.", prompt)
+        # A text that needs no correction comes back as is, with nothing added.
+        self.assertIn("Si el texto ya está correcto, devuélvelo exactamente igual, "
+                      "sin avisar que no hacía falta corregirlo.", prompt)
+        self.assertIn("Tu respuesta debe contener únicamente el texto, "
+                      "sin ninguna línea agregada antes ni después.", prompt)
         self.assertTrue(prompt.endswith("Texto original:\nhola mundo\n"))
 
     def test_summarize_prompt_is_verbatim_legacy(self):

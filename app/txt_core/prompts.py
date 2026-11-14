@@ -57,6 +57,8 @@ def correct_prompt(text: str) -> str:
         "No reescribas con estilo narrativo, emocional ni conversacional.\n"
         "No añadas frases nuevas, ni introducciones, ni cierres.\n"
         "Dame solo el texto corregido, sin explicaciones ni comentarios.\n"
+        "Si el texto ya está correcto, devuélvelo exactamente igual, sin avisar que no hacía falta corregirlo.\n"
+        "Tu respuesta debe contener únicamente el texto, sin ninguna línea agregada antes ni después.\n"
         "\n"
         "Texto original:\n"
         f"{text}\n"

@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## v:26.11.14-18.40
+
+### Corregir devuelve solo el texto
+
+- Cuando el texto no necesita correcciones, Corregir lo devuelve exactamente igual, sin agregar líneas del tipo «el texto es impecable». La instrucción a la IA se reforzó en `txt.ps1` y en la app Python.
+
 ## v:26.11.14-18.34
 
 ### El Navegador respeta el tema oscuro o claro

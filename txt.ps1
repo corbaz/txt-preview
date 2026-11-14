@@ -6493,6 +6493,8 @@ Mantén la estructura original tanto como sea posible.
 No reescribas con estilo narrativo, emocional ni conversacional.
 No añadas frases nuevas, ni introducciones, ni cierres.
 Dame solo el texto corregido, sin explicaciones ni comentarios.
+Si el texto ya está correcto, devuélvelo exactamente igual, sin avisar que no hacía falta corregirlo.
+Tu respuesta debe contener únicamente el texto, sin ninguna línea agregada antes ni después.
 
 Texto original:
 $Texto
