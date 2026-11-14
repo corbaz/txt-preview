@@ -494,4 +494,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   outline: none;
 }
 
-#browser-frame { flex: 1; border: none; background: #fff; }
+#browser-host {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+#browser-empty { color: var(--muted); font-size: 14px; }

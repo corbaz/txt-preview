@@ -32,7 +32,7 @@ APP = ROOT
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 
-from txt_core import bridges, clipboard, groq, language, models, prompts, settings, updater
+from txt_core import bridges, browser, clipboard, groq, language, models, prompts, settings, updater, webapp
 from txt_core.attachments import (
     IMAGE_EXTENSIONS,
     TEXT_EXTENSIONS,
@@ -641,6 +641,52 @@ class Api:
                         "message": MSG_WINDOW_CLOSE_FAILED.format(detail=error)}
             return {"ok": True}
 
+    # ---- Navegador (txt.ps1 Open-BrowserUrl / Initialize-BrowserView) -------
+    def _embedded_browser(self) -> browser.EmbeddedBrowser:
+        if getattr(self, "_browser", None) is None:
+            self._browser = browser.EmbeddedBrowser(
+                getattr(self, "_window", None),
+                self._settings_dir or settings.settings_dir())
+        return self._browser
+
+    def browser_open(self, address: str) -> dict:
+        """Navigate the Navegador tab; `unavailable` asks the UI to offer the
+        default browser instead (legacy fallback dialog)."""
+        url = browser.to_browser_url(address)
+        if not url:
+            return {"ok": False, "url": "", "message": browser.MSG_EMPTY_ADDRESS}
+        try:
+            self._embedded_browser().navigate(url)
+        except Exception as error:
+            return {"ok": False, "url": url, "unavailable": True,
+                    "message": browser.MSG_UNAVAILABLE.format(detail=error)}
+        return {"ok": True, "url": url, "message": browser.MSG_OPENING.format(url=url)}
+
+    def browser_back(self) -> dict:
+        self._embedded_browser().back()
+        return {"ok": True}
+
+    def browser_forward(self) -> dict:
+        self._embedded_browser().forward()
+        return {"ok": True}
+
+    def browser_place(self, rect: dict, visible: bool) -> dict:
+        """Put the native view over the Navegador page area, or hide it."""
+        self._embedded_browser().place(rect, bool(visible))
+        return {"ok": True}
+
+    def browser_state(self) -> dict:
+        return self._embedded_browser().state.snapshot()
+
+    def browser_open_external(self, address: str) -> dict:
+        """Legacy "Abrir en navegador": the system default browser."""
+        url = browser.to_browser_url(address)
+        if not url:
+            return {"ok": False, "message": browser.MSG_NO_ADDRESS_TO_OPEN}
+        import webbrowser
+        webbrowser.open(url)
+        return {"ok": True, "url": url, "message": browser.MSG_OPENING.format(url=url)}
+
     def open_attachment_dialog(self) -> dict:
         """Native open dialog returning real paths; used when the page's
         <input type=file> cannot hand over full paths."""
@@ -979,7 +1025,7 @@ def create_app() -> None:
     api = Api()
     window = webview.create_window(
         "TXT Preview",
-        str(WWW / "index.html"),
+        webapp.create_wsgi_app(WWW),  # no-store + stamped assets: never a stale UI
         js_api=api,  # speech engine lives on the bridge (T4)
         width=1100,
         height=760,

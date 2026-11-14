@@ -40,6 +40,7 @@
     document.querySelectorAll(".seg").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
     document.querySelectorAll(".page").forEach((p) => p.classList.toggle("active", p.dataset.page === name));
     if (name === "preview") schedulePreview();
+    placeBrowser();
   }
 
   // Configuración is a top-bar tab like the original; every .seg is a tab.
@@ -469,24 +470,105 @@
     withBusy($("export-mp3"), "Generando MP3...", (api) => api.export_mp3());
   });
 
-  // ---- Embedded browser ---------------------------------------------------
-  function normalizeAddress(raw) {
-    const value = raw.trim();
-    if (!value) return "";
-    if (/^https?:\/\//i.test(value)) return value;
-    return "https://" + value;
+  // ---- Navegador (txt.ps1 Open-BrowserUrl) --------------------------------
+  // The page itself is a native web view placed by Python over #browser-host;
+  // this code only drives it and keeps its bounds in sync with the layout.
+  let browserOpened = false;
+  let browserPollTimer = null;
+
+  function browserRect() {
+    const box = $("browser-host").getBoundingClientRect();
+    return { x: box.left, y: box.top, width: box.width, height: box.height,
+             inner_width: window.innerWidth };
   }
 
-  $("browser-go").addEventListener("click", () => {
-    const url = normalizeAddress($("browser-address").value);
-    if (url) $("browser-frame").src = url;
-  });
+  function browserTabActive() {
+    const page = document.querySelector('.page[data-page="browser"]');
+    return page && page.classList.contains("active");
+  }
+
+  // The native view covers the HTML below it, so it is only shown on its tab
+  // and never over the work overlay.
+  function placeBrowser() {
+    const api = bridgeApi();
+    if (!api || !browserOpened) return;
+    const overlay = $("work-overlay");
+    const visible = browserTabActive() && !(overlay && !overlay.hidden);
+    api.browser_place(browserRect(), visible).catch(() => {});
+    if (visible && !browserPollTimer) {
+      browserPollTimer = setInterval(pollBrowser, 400);
+    } else if (!visible && browserPollTimer) {
+      clearInterval(browserPollTimer);
+      browserPollTimer = null;
+    }
+  }
+
+  async function pollBrowser() {
+    const api = bridgeApi();
+    if (!api) return;
+    try {
+      const state = await api.browser_state();
+      $("browser-back").disabled = !state.can_back;
+      $("browser-forward").disabled = !state.can_forward;
+      if (state.url && document.activeElement !== $("browser-address")) {
+        $("browser-address").value = state.url;
+      }
+      if (state.error) setStatus(state.error);
+    } catch (_) { /* the next tick retries */ }
+  }
+
+  async function openBrowserUrl(address) {
+    const result = await safeCall((api) => api.browser_open(address),
+      "No se pudo abrir el navegador integrado.");
+    if (!result) return;
+    setStatus(result.message);
+    if (result.unavailable) {
+      // Legacy fallback: offer the default browser when the embedded one fails.
+      if (window.confirm("El navegador integrado no está disponible. ¿Querés abrir "
+          + result.url + " en tu navegador predeterminado?")) {
+        await safeCall((api) => api.browser_open_external(result.url),
+          "No se pudo abrir el navegador predeterminado.");
+      }
+      return;
+    }
+    if (!result.ok) return;
+    $("browser-address").value = result.url;
+    $("browser-empty").hidden = true;
+    browserOpened = true;
+    setTab("browser");
+  }
+
+  $("browser-go").addEventListener("click", () => openBrowserUrl($("browser-address").value));
 
   $("browser-address").addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
-      const url = normalizeAddress($("browser-address").value);
-      if (url) $("browser-frame").src = url;
+      e.preventDefault();
+      openBrowserUrl($("browser-address").value);
     }
+  });
+
+  $("browser-back").addEventListener("click", () => {
+    safeCall((api) => api.browser_back(), "No se pudo volver atrás.");
+  });
+
+  $("browser-forward").addEventListener("click", () => {
+    safeCall((api) => api.browser_forward(), "No se pudo avanzar.");
+  });
+
+  $("browser-external").addEventListener("click", async () => {
+    const result = await safeCall((api) => api.browser_open_external($("browser-address").value),
+      "No se pudo abrir el navegador predeterminado.");
+    if (result) setStatus(result.message);
+  });
+
+  window.addEventListener("resize", placeBrowser);
+
+  // Links clicked in Vista previa leave the preview and open in the Navegador tab.
+  $("preview").addEventListener("click", (e) => {
+    const link = e.target.closest("a[href]");
+    if (!link || !/^https?:\/\//i.test(link.href)) return;
+    e.preventDefault();
+    openBrowserUrl(link.href);
   });
 
   function setStatus(message) {
@@ -980,10 +1062,12 @@
   function showWorkOverlay(message) {
     $("work-message").textContent = message || "Procesando...";
     $("work-overlay").hidden = false;
+    placeBrowser();
   }
 
   function hideWorkOverlay() {
     $("work-overlay").hidden = true;
+    placeBrowser();
   }
 
   const AI_BUSY_LABELS = {

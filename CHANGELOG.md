@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## v:26.11.14-11.32
+
+### Navegador integrado como en la versión PowerShell
+
+- Los links de la Vista previa ya no reemplazan la aplicación entera: se abren en la pestaña Navegador.
+- La pestaña Navegador usa una vista web nativa (WebView2 en Windows, WKWebView en macOS) en lugar de un `iframe`, que la mayoría de los sitios bloqueaba.
+- Barra igual a la original: Atrás, Adelante, dirección, Ir y Abrir en navegador. La dirección acepta URLs, dominios sueltos y palabras (búsqueda en Google); los links `target="_blank"` quedan dentro de la pestaña.
+- La interfaz se sirve sin caché y con versiones en sus archivos: después de actualizar ya no queda un `index.html` viejo mezclado con JavaScript nuevo.
+
 ## v:26.11.14-11.06
 
 ### Consultar y Resumir con web vuelven a funcionar; una sola API key para ambas apps

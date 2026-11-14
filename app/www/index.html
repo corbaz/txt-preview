@@ -97,11 +97,18 @@
     </section>
 
     <section class="page" data-page="browser">
+      <!-- Legacy bar: [Atrás][Adelante][ dirección ][Ir][Abrir en navegador] -->
       <div id="browser-bar">
-        <input id="browser-address" type="text" placeholder="https://..." />
-        <button id="browser-go" class="ghost">Abrir</button>
+        <button id="browser-back" class="ghost" title="Atrás" aria-label="Atrás" disabled>&#8592;</button>
+        <button id="browser-forward" class="ghost" title="Adelante" aria-label="Adelante" disabled>&#8594;</button>
+        <input id="browser-address" type="text" spellcheck="false" autocomplete="off" />
+        <button id="browser-go" class="ghost">Ir</button>
+        <button id="browser-external" class="ghost">Abrir en navegador</button>
       </div>
-      <iframe id="browser-frame" title="Navegador"></iframe>
+      <!-- The native web view (WebView2 / WKWebView) is placed over this area. -->
+      <div id="browser-host">
+        <p id="browser-empty">Escribí una dirección arriba o hacé clic en un link de la Vista previa.</p>
+      </div>
     </section>
 
     <!-- S10: espera de trabajo IA — overlay grande centrado sobre el lienzo
