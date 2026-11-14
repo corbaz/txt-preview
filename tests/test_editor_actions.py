@@ -44,19 +44,23 @@ class EditorShortcutTests(unittest.TestCase):
 @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
 class ClipboardPasteTests(unittest.TestCase):
     SET_IMAGE = (
-        "$bitmap = New-Object Drawing.Bitmap 4, 4; "
-        "[Windows.Forms.Clipboard]::SetImage($bitmap); $bitmap.Dispose(); "
+        "$bitmap = New-Object Drawing.Bitmap 4, 4; $clipboardSet = $false; "
+        "for ($attempt = 0; $attempt -lt 10 -and -not $clipboardSet; $attempt++) { "
+        "try { [Windows.Forms.Clipboard]::SetImage($bitmap); $clipboardSet = $true } "
+        "catch { Start-Sleep -Milliseconds 100 } }; "
+        "if (-not $clipboardSet) { throw 'No se pudo preparar el portapapeles de prueba.' }; "
+        "Start-Sleep -Milliseconds 150; "
     )
 
     def test_vision_model_attaches_a_clipboard_image(self) -> None:
         results = run_app_snippet(
             "$script:selectedGroqModel = 'qwen/qwen3.8-27b'; " + self.SET_IMAGE +
-            "$textBox.Text = 'previo'; Invoke-ClipboardPaste; "
+            "$textBox.Text = 'previo'; Invoke-ClipboardPaste; $bitmap.Dispose(); "
             "$image = $script:attachedFiles[0]; "
             "'RESULT=' + $script:attachedFiles.Count + ',' + $image.Kind + ',' + "
             "[IO.Path]::GetExtension($image.Path) + ',' + (Test-Path -LiteralPath $image.Path) + ',' + "
             "($image.Size -gt 0) + ',' + $textBox.Text; "
-            "Remove-Item -LiteralPath $image.Path"
+            "if ($image -and $image.Path) { Remove-Item -LiteralPath $image.Path }"
         )
         # The image becomes an attachment and the editor text is left alone.
         self.assertEqual(results[-1], "1,Image,.png,True,True,previo")
@@ -64,7 +68,7 @@ class ClipboardPasteTests(unittest.TestCase):
     def test_model_without_vision_rejects_a_clipboard_image(self) -> None:
         results = run_app_snippet(
             "$script:selectedGroqModel = 'openai/gpt-oss-120b'; " + self.SET_IMAGE +
-            "$textBox.Text = 'previo'; Invoke-ClipboardPaste; "
+            "$textBox.Text = 'previo'; Invoke-ClipboardPaste; $bitmap.Dispose(); "
             "'RESULT=' + $script:attachedFiles.Count + ',' + $textBox.Text"
         )
         self.assertEqual(results[-1], "0,previo")
@@ -72,8 +76,12 @@ class ClipboardPasteTests(unittest.TestCase):
     def test_clipboard_text_is_still_pasted_into_the_editor(self) -> None:
         results = run_app_snippet(
             "$script:selectedGroqModel = 'qwen/qwen3.8-27b'; "
-            "[Windows.Forms.Clipboard]::SetText('hola portapapeles'); "
-            "Invoke-ClipboardPaste; "
+            "$clipboardSet = $false; "
+            "for ($attempt = 0; $attempt -lt 10 -and -not $clipboardSet; $attempt++) { "
+            "try { [Windows.Forms.Clipboard]::SetText('hola portapapeles'); $clipboardSet = $true } "
+            "catch { Start-Sleep -Milliseconds 100 } }; "
+            "if (-not $clipboardSet) { throw 'No se pudo preparar el portapapeles de prueba.' }; "
+            "Start-Sleep -Milliseconds 150; Invoke-ClipboardPaste; "
             "'RESULT=' + $script:attachedFiles.Count + ',' + $textBox.Text"
         )
         self.assertEqual(results[-1], "0,hola portapapeles")

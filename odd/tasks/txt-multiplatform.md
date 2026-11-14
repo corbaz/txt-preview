@@ -52,6 +52,7 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 | T24 | S17 | Use native system TLS trust on macOS/Python 3.14 and control network failures | done (`67cefc2`, `76ab082`) |
 | T25 | S18 | Diagnose and restore macOS bridge actions and researched Consultar on Windows/macOS | done (`76ab082`, `2c0cdd4`) |
 | T26 | S17-S18 | Commit reviewable release slices and push v:26.11.14-08.34 to origin/main | in progress |
+| T27 | S17-S18 | CI green for v:26.11.14 releases: macOS keyring isolation, locale row and Windows test flakes | in progress |
 
 ## Log
 
@@ -112,3 +113,5 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 - L35: Final verifier verdict: S17 MET, S18 MET, no blockers. Fixed its remaining advisory before closure: because Consultar now always researches, a non-web model no longer suggests the impossible action “Desmarcá Usar web”; it instructs the user to select openai/gpt-oss-120b or openai/gpt-oss-20b. Focused RED/GREEN observed and 577/577 full tests remained green; the combined command timed out only after unittest completed, so node --check and compileall were run separately and passed. T25 is complete; commits/push remain.
 
 - L36: Reviewable implementation commits created: `67cefc2` (native TLS/Edge/Doctor and 577-test foundations), `76ab082` (Groq required browser research, real sources and controlled errors), and `2c0cdd4` (visible pywebview failures plus native macOS/Windows clipboard). The TLS slice is larger than the ~400-line target because its security guard and subprocess tests are inseparable from the dependency/runtime change; the UI slice is larger because the centralized safeCall migration and its complete public-action contract must land atomically. Release docs are the next isolated commit.
+
+- L37: CI run 43593026760 failed on 577-test macOS because settings tests with injected crypto fell through to the real runner Keychain, and legacy PowerShell failed on a locale-dependent expectation plus two Windows test flakes (clipboard lock, Start-Process handle). Fixes: injected crypto now explicitly selects the isolated blob path without touching keyring (production macOS keyring/Windows DPAPI unchanged, pinned by a zero-keyring-calls test); legacy capability row normalizes only the thousands separator; clipboard test setups retry bounded; relaunch test waits for the child executable handle; README documents the mac `TXT` update/install/open function. Full local validation: 579/579 app tests + node/compileall/Doctor green and 123/123 legacy green. Release v:26.11.14-09.10 ready for commit, push and CI.

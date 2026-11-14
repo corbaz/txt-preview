@@ -31,6 +31,15 @@ cd txt-preview
 
 Si ya lo tenías clonado, en vez del clone hacé `git pull` y volvé a correr `./install.sh`. Si el clone no conserva el permiso de ejecución, corré una vez `chmod +x run.sh install.sh`.
 
+Para actualizar, reparar dependencias y abrir la app con un solo alias (clone en `~/txt-preview`):
+
+```bash
+echo 'alias txtpreview="cd ~/txt-preview && git pull --ff-only && ./install.sh && ./run.sh"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Después solo ejecutá `txtpreview`.
+
 `install.sh` hace esto:
 
 1. Pide Homebrew: si no lo tenés, te muestra el comando para instalarlo y te pide volver a ejecutar el script.

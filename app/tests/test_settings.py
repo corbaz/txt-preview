@@ -123,6 +123,26 @@ class TestLoadAndAtomicSave(unittest.TestCase):
 
 
 class TestWindowsSecretStorage(unittest.TestCase):
+    def test_injected_crypto_uses_isolated_blob_even_on_macos(self):
+        """Test/legacy crypto injection must never touch a real CI Keychain."""
+        encrypt, decrypt = fake_crypto_pair()
+        keyring_calls: list[tuple] = []
+        recording_keyring = types.SimpleNamespace(
+            set_password=lambda *args: keyring_calls.append(("set", args)),
+            get_password=lambda *args: keyring_calls.append(("get", args)),
+        )
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch("sys.platform", "darwin"), \
+                mock.patch.dict(sys.modules, {"keyring": recording_keyring}):
+            settings.set_api_key(TEST_KEY, directory, encrypt=encrypt)
+            self.assertEqual(
+                settings.get_api_key(directory, decrypt=decrypt), TEST_KEY)
+            with open(Path(directory) / "settings.json", encoding="utf-8") as handle:
+                stored = json.load(handle)
+            self.assertIn("api_key_enc", stored)
+            self.assertNotIn("api_key", stored)
+            self.assertEqual(keyring_calls, [])
+
     def test_set_api_key_stores_base64_blob_without_plaintext(self):
         encrypt, _ = fake_crypto_pair()
         with tempfile.TemporaryDirectory() as directory:
@@ -181,6 +201,20 @@ class TestKeychainStorage(unittest.TestCase):
 
 
 class TestLegacyMigration(unittest.TestCase):
+    def test_injected_crypto_allows_isolated_migration_on_macos(self):
+        encrypt, decrypt = fake_crypto_pair()
+        with tempfile.TemporaryDirectory() as legacy, \
+                tempfile.TemporaryDirectory() as target, \
+                mock.patch("sys.platform", "darwin"):
+            write_json(Path(legacy) / "settings.json", {
+                "EncryptedApiKey": "gsk_isolated_legacy",
+            })
+            self.assertTrue(settings.migrate_legacy_settings(
+                target, legacy_dir=legacy, encrypt=encrypt, decrypt=decrypt))
+            self.assertEqual(
+                settings.get_api_key(target, decrypt=decrypt),
+                "gsk_isolated_legacy")
+
     def test_migration_is_windows_only(self):
         with tempfile.TemporaryDirectory() as directory:
             with mock.patch("sys.platform", "darwin"):

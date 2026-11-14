@@ -273,7 +273,11 @@ class LocalBridgeTests(unittest.TestCase):
             "$row = @($modelsList.Items | Where-Object { $_.Tag -eq $id })[0]; "
             "'RESULT=' + (@($row.SubItems | Select-Object -First 7 | ForEach-Object { $_.Text }) -join '|') }"
         )
-        self.assertEqual(results, [
+        # ListView formats numbers with the runner's current culture: Spanish
+        # uses 131.072 and en-US uses 131,072. Normalize only that numeric
+        # display separator; the columns and capabilities remain exact.
+        normalized = [row.replace("131,072", "131.072") for row in results]
+        self.assertEqual(normalized, [
             "Modelo|Proveedor|Contexto|Chat|Visión|Web|Adjuntos|Funciones",
             "Claude Sonnet|Claude (suscripción)|-|✓|✓|—|✓",
             "openai/gpt-oss-120b|OpenAI|131.072|✓|—|✓|✓",

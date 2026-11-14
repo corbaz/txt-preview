@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -142,6 +143,16 @@ class WindowsPowerShellRelaunchTests(unittest.TestCase):
                 capture_output=True, timeout=60, encoding="utf-8", errors="replace", env=env,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            # txt.ps1 hands off with Start-Process; the short-lived stand-in may
+            # still hold its executable for a few milliseconds after the parent
+            # exits. Wait only for that file handle so TemporaryDirectory can
+            # clean up deterministically on Windows runners.
+            for _ in range(30):
+                try:
+                    fake.unlink(missing_ok=True)
+                    break
+                except PermissionError:
+                    time.sleep(0.1)
 
 
 if __name__ == "__main__":

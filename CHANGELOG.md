@@ -1,6 +1,6 @@
 # Historial de cambios
 
-## v:26.11.14-08.34
+## v:26.11.14-09.10
 
 ### Certificados nativos en macOS y Python 3.14
 
@@ -21,9 +21,11 @@
 
 ### Validación
 
-- 577/577 pruebas aprobadas; Doctor completo, JavaScript y compilación Python correctos.
+- 579/579 pruebas de la aplicación aprobadas; Doctor completo, JavaScript y compilación Python correctos.
 - Consulta funcional real contra Groq Browser Search aprobada: búsqueda obligatoria, respuesta y sección **Fuentes** con URL reales.
 - Exportación MP3 real ejecutada mediante el nuevo wrapper TLS.
+- CI macOS usa cifrado inyectado y almacenamiento temporal en sus pruebas, sin tocar ni contaminar el Keychain real del runner.
+- La suite PowerShell acepta el separador de miles propio de la configuración regional (`131.072` o `131,072`) sin relajar las columnas ni capacidades verificadas.
 
 ## v:26.11.13-20.25
 

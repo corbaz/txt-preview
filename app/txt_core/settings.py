@@ -234,7 +234,10 @@ def set_api_key(key: str, directory: str | None = None,
     for field in _SECRET_FIELDS:
         stored.pop(field, None)
     if key:
-        if sys.platform == "win32":
+        # An injected crypto function is an explicit isolated-storage route for
+        # tests and legacy migration. It must never fall through to a real
+        # macOS Keychain merely because the host running the test is Darwin.
+        if sys.platform == "win32" or encrypt is not None:
             encrypt_function = encrypt or dpapi_encrypt
             blob = encrypt_function(key.encode("utf-16-le"))
             stored["api_key_enc"] = base64.b64encode(blob).decode("ascii")
@@ -257,7 +260,7 @@ def get_api_key(directory: str | None = None, decrypt=None) -> str:
 
 def _get_api_key_impl(directory: str | None, decrypt) -> str:
     stored = _read_json(_settings_file(directory)) or {}
-    if sys.platform == "win32":
+    if sys.platform == "win32" or decrypt is not None:
         blob = stored.get("api_key_enc")
         if blob:
             decrypt_function = decrypt or dpapi_decrypt
@@ -302,7 +305,10 @@ def migrate_legacy_settings(directory: str | None = None, legacy_dir: str | None
     new-format secret field (api_key_enc / api_key / plaintext_key). With a
     distinct legacy folder the import only happens when the new settings file
     does not exist yet (first load; never clobber existing settings)."""
-    if sys.platform != "win32":
+    # Production migration remains Windows-only. Injected crypto explicitly
+    # selects the isolated legacy/DPAPI path so cross-platform tests never use
+    # or pollute the host Keychain.
+    if sys.platform != "win32" and encrypt is None and decrypt is None:
         return False
     legacy_path = os.path.join(legacy_dir or legacy_settings_dir(),
                                SETTINGS_FILE_NAME)
