@@ -5,6 +5,37 @@
 
   const $ = (id) => document.getElementById(id);
 
+  // ---- Bridge readiness + controlled errors (T25/S18) ---------------------
+  // Centralized readiness: a user action while the pywebview bridge is not up
+  // yet shows a visible Spanish status instead of silently doing nothing.
+  const BRIDGE_NOT_READY = "El puente de la aplicación todavía se está iniciando; esperá unos segundos y probá de nuevo.";
+
+  function bridgeApi() {
+    return window.pywebview && window.pywebview.api ? window.pywebview.api : null;
+  }
+
+  // requireBridge() returns null (with a visible status) when the bridge is
+  // not ready; bridgeApi() stays silent for background work like speechTick.
+  function requireBridge() {
+    const api = bridgeApi();
+    if (!api) setStatus(BRIDGE_NOT_READY);
+    return api;
+  }
+
+  // Central async call/error wrapper: every bridge promise — awaited or
+  // fire-and-forget — goes through safeCall, so a rejection becomes a
+  // controlled status message and never an unhandled promise rejection.
+  async function safeCall(action, failureMessage) {
+    const api = requireBridge();
+    if (!api) return null;
+    try {
+      return await action(api);
+    } catch (_) {
+      setStatus(failureMessage || "No se pudo completar la operación.");
+      return null;
+    }
+  }
+
   function setTab(name) {
     document.querySelectorAll(".seg").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
     document.querySelectorAll(".page").forEach((p) => p.classList.toggle("active", p.dataset.page === name));
@@ -24,8 +55,8 @@
     themeToggle.textContent = theme === "dark" ? "Tema: Oscuro" : "Tema: Claro";
     if (themeSelect) themeSelect.value = theme;
     try { localStorage.setItem("txt-theme", theme); } catch (_) {}
-    if (persist && window.pywebview && window.pywebview.api) {
-      window.pywebview.api.set_theme(theme);
+    if (persist) {
+      safeCall((api) => api.set_theme(theme), "No se pudo guardar el tema.");
     }
   }
   themeToggle.addEventListener("click", () => {
@@ -48,11 +79,15 @@
   }
 
   async function renderPreviewNow() {
-    const text = $("editor").value;
-    if (!window.pywebview || !window.pywebview.api) return;
-    const html = await window.pywebview.api.render_preview(text);
-    $("preview").innerHTML = html;
-    wrapSpeechWords();
+    const api = bridgeApi();
+    if (!api) return;
+    try {
+      const html = await api.render_preview($("editor").value);
+      $("preview").innerHTML = html;
+      wrapSpeechWords();
+    } catch (_) {
+      setStatus("No se pudo renderizar la vista previa.");
+    }
   }
 
   $("editor").addEventListener("input", () => {
@@ -139,11 +174,12 @@
   // "Idle") a click must not start the audio by itself (S12).
   $("preview").addEventListener("click", (e) => {
     const span = e.target.closest(".sw");
-    if (!span || !window.pywebview || !window.pywebview.api) return;
+    if (!span) return;
     if (!speechState || speechState.mode === "Idle") return;
     const index = parseInt(span.dataset.i, 10);
     if (!Number.isNaN(index)) {
-      window.pywebview.api.speech_click(index, getSpeechTextFrom(index));
+      safeCall((api) => api.speech_click(index, getSpeechTextFrom(index)),
+        "No se pudo saltar la lectura a la palabra elegida.");
     }
   });
 
@@ -226,9 +262,10 @@
   }
 
   async function speechTick() {
-    if (!window.pywebview || !window.pywebview.api) return;
+    const api = bridgeApi();
+    if (!api) return;
     try {
-      applySpeechState(await window.pywebview.api.speech_tick(getSpeechWords()));
+      applySpeechState(await api.speech_tick(getSpeechWords()));
     } catch (_) { /* the tick is best effort */ }
   }
 
@@ -251,35 +288,39 @@
   }
 
   $("speech-play").addEventListener("click", async () => {
-    if (!window.pywebview || !window.pywebview.api) return;
+    if (!requireBridge()) return;
     try {
       // S14: render the preview (and wrap the .sw spans) before reading the
       // alignment words, even when the Editor tab is the visible one — the
       // default tab is Editor, so the first Play used to send empty words
       // (no live highlight, no click targets). No tab switch happens.
       await renderPreviewNow();
-      applyVoiceSwitch(await window.pywebview.api.start_speech($("editor").value, getSpeechWords()));
-    } catch (_) { /* start_speech reports its own errors */ }
-  });
-
-  $("speech-pause").addEventListener("click", () => {
-    if (!window.pywebview || !window.pywebview.api) return;
-    if (speechState && speechState.mode === "Paused") {
-      window.pywebview.api.resume_speech();
-    } else {
-      window.pywebview.api.pause_speech();
+      const result = await window.pywebview.api.start_speech($("editor").value, getSpeechWords());
+      applyVoiceSwitch(result);
+      // T25/S18: start_speech reports its own failures as {ok:false,message}
+      // — surface them instead of leaving the click silent.
+      if (result && !result.ok) {
+        setStatus(result.message || "No se pudo iniciar la lectura.");
+      }
+    } catch (_) {
+      setStatus("No se pudo iniciar la lectura.");
     }
   });
 
-  $("speech-replay").addEventListener("click", () => {
-    if (!window.pywebview || !window.pywebview.api) return;
-    window.pywebview.api.replay_start(0);
+  $("speech-pause").addEventListener("click", () => {
+    const paused = speechState && speechState.mode === "Paused";
+    safeCall((api) => (paused ? api.resume_speech() : api.pause_speech()),
+      paused ? "No se pudo continuar la lectura." : "No se pudo pausar la lectura.");
   });
 
-  $("speech-stop").addEventListener("click", () => {
-    if (!window.pywebview || !window.pywebview.api) return;
-    window.pywebview.api.stop_speech();
-    setStatus("Lectura detenida.");
+  $("speech-replay").addEventListener("click", () => {
+    safeCall((api) => api.replay_start(0), "No se pudo repetir la lectura.");
+  });
+
+  $("speech-stop").addEventListener("click", async () => {
+    const result = await safeCall((api) => api.stop_speech(),
+      "No se pudo detener la lectura.");
+    if (result !== null) setStatus("Lectura detenida.");
   });
 
   // Dragging the replay slider only shows the target position; on release
@@ -294,10 +335,9 @@
   $("seek").addEventListener("change", () => {
     seekDragging = false;
     paintSlider($("seek"));
-    if (!window.pywebview || !window.pywebview.api) return;
-    if (speechState && speechState.provider === "Replay") {
-      window.pywebview.api.replay_start(Number($("seek").value) / 10);
-    }
+    if (!(speechState && speechState.provider === "Replay")) return;
+    safeCall((api) => api.replay_start(Number($("seek").value) / 10),
+      "No se pudo reiniciar la lectura en esa posición.");
   });
 
   // ---- Speed slider (bottom deck row 4) ------------------------------------
@@ -315,49 +355,55 @@
 
   speedSlider.addEventListener("change", () => {
     paintSlider(speedSlider);
-    if (!window.pywebview || !window.pywebview.api) return;
-    window.pywebview.api.set_speech_speed(Number(speedSlider.value));
+    safeCall((api) => api.set_speech_speed(Number(speedSlider.value)),
+      "No se pudo aplicar la velocidad de lectura.");
   });
 
   // ---- Editor tools (bottom deck row 2) ------------------------------------
+  // T25/S18: the native clipboard lives behind the bridge — the page in
+  // WKWebView (macOS) has no browser clipboard API to rely on.
   $("paste-editor").addEventListener("click", async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text || !text.trim()) {
-        setStatus("El portapapeles no contiene texto.");
-        return;
-      }
-      $("editor").value = text;
-      $("editor").setSelectionRange(text.length, text.length);
-      setStatus("Texto pegado desde el portapapeles.");
-    } catch (_) {
-      setStatus("No se pudo leer el portapapeles.");
+    const result = await safeCall((api) => api.read_clipboard(),
+      "No se pudo leer el portapapeles.");
+    if (!result) return;
+    if (!result.ok) {
+      setStatus(result.error);
+      return;
     }
+    if (!result.text || !result.text.trim()) {
+      setStatus("El portapapeles no contiene texto.");
+      return;
+    }
+    $("editor").value = result.text;
+    $("editor").setSelectionRange(result.text.length, result.text.length);
+    setStatus("Texto pegado desde el portapapeles.");
   });
 
   // Legacy Copy MD/Copy TXT: use the preview content while Vista previa
   // shows an AI response, otherwise the editor text. fetchText picks the
   // preview source (api.get_preview_text / api.get_preview_plain_text).
   async function copyMain(plain, fetchText) {
-    const api = window.pywebview && window.pywebview.api;
-    if (!api) return;
     let text = "";
     if (previewHasAiResponse) {
-      text = await fetchText(api);
+      const fetched = await safeCall((api) => fetchText(api),
+        "No se pudo leer la vista previa.");
+      text = fetched || "";
     }
     if (!text || !text.trim()) text = $("editor").value;
     if (!text || !text.trim()) {
       setStatus("No hay contenido para copiar.");
       return;
     }
-    try {
-      await navigator.clipboard.writeText(text);
-      setStatus(plain
-        ? "Texto sin formato copiado al portapapeles."
-        : "Markdown copiado al portapapeles.");
-    } catch (_) {
-      setStatus("No se pudo copiar al portapapeles.");
+    const result = await safeCall((api) => api.write_clipboard(text),
+      "No se pudo copiar al portapapeles.");
+    if (!result) return;
+    if (!result.ok) {
+      setStatus(result.error);
+      return;
     }
+    setStatus(plain
+      ? "Texto sin formato copiado al portapapeles."
+      : "Markdown copiado al portapapeles.");
   }
 
   $("copy-md").addEventListener("click", async () => {
@@ -368,11 +414,11 @@
   });
 
   $("clear-chat").addEventListener("click", () => {
-    if (!window.pywebview || !window.pywebview.api) return;
     $("editor").value = "";
     $("preview").innerHTML = "";
     previewHasAiResponse = false;
-    window.pywebview.api.clear_attachments();
+    safeCall((api) => api.clear_attachments(),
+      "No se pudieron quitar los adjuntos.");
     $("attachment-summary").textContent = "Sin archivos adjuntos para la próxima solicitud";
     $("clear-attachments").hidden = true;
     setTab("editor");
@@ -381,7 +427,7 @@
 
   // ---- Micrófono (legacy Win+H dictation) -----------------------------------
   $("mic-button").addEventListener("click", async () => {
-    if (!window.pywebview || !window.pywebview.api) return;
+    if (!requireBridge()) return;
     try {
       const result = await window.pywebview.api.start_dictation();
       if (result && result.message) setStatus(result.message);
@@ -392,21 +438,24 @@
 
   // ---- Cerrar (legacy $form.Close) -------------------------------------------
   $("close-app").addEventListener("click", () => {
-    if (!window.pywebview || !window.pywebview.api) return;
-    window.pywebview.api.close_app();
+    safeCall((api) => api.close_app(), "No se pudo cerrar la aplicación.");
   });
 
   // ---- Preview exports (bottom deck row 2) ----------------------------------
   // Legacy Export-PreviewPdf / Export-SpeechMp3: the Api works on the session
   // preview text (what Vista previa shows), not on the editor.
   async function withBusy(button, busyMessage, action) {
-    const api = window.pywebview && window.pywebview.api;
-    if (!api || !button) return;
+    if (!button) return;
+    if (!requireBridge()) return;
     button.disabled = true;
     setStatus(busyMessage);
     try {
-      const result = await action(api);
+      const result = await action(bridgeApi());
       if (result && result.message) setStatus(result.message);
+    } catch (_) {
+      // T25/S18: a rejected export shows a controlled error, never an
+      // unhandled promise rejection.
+      setStatus("No se pudo generar el archivo.");
     } finally {
       button.disabled = false;
     }
@@ -557,7 +606,7 @@
   // modelos. update_models already caches and returns fallback models on a
   // Groq error.
   async function loadStartupModels(selectedModel) {
-    const api = window.pywebview && window.pywebview.api;
+    const api = requireBridge();
     if (!api) return;
     const select = $("model-select");
     if (selectedModel) {
@@ -586,16 +635,17 @@
       // No API key: keep the default option.
       setStatus(result.error || "No se pudo cargar el catálogo de modelos.");
     } catch (_) {
-      // Keep the default option; the selector only becomes usable when there
-      // is more than one known model.
+      // T25/S18: keep the default option and show a controlled error; the
+      // selector only becomes usable when there is more than one known model.
+      setStatus("No se pudo cargar el catálogo de modelos.");
     } finally {
       if (select.options.length > 1) select.disabled = false;
     }
   }
 
   async function saveApiKey() {
-    const api = window.pywebview && window.pywebview.api;
-    if (!api) return;
+    if (!requireBridge()) return;
+    const api = bridgeApi();
     const key = $("api-key").value.trim();
     if (!key) {
       setStatus("Ingresá una API key de Groq.");
@@ -608,6 +658,8 @@
       const result = await api.set_api_key(key);
       $("api-key").value = "";
       setStatus(result.masked ? `API key guardada (${result.masked}).` : "API key guardada.");
+    } catch (_) {
+      setStatus("No se pudo guardar la API key.");
     } finally {
       button.disabled = false;
     }
@@ -622,8 +674,8 @@
   });
 
   $("update-models").addEventListener("click", async () => {
-    const api = window.pywebview && window.pywebview.api;
-    if (!api) return;
+    if (!requireBridge()) return;
+    const api = bridgeApi();
     const button = $("update-models");
     button.disabled = true;
     setStatus("Buscando modelos disponibles...");
@@ -637,16 +689,18 @@
       applySelectedModelCapabilities($("model-select").value);
       selectedModelId = $("model-select").value;
       setStatus(result.error || "Modelos actualizados.");
+    } catch (_) {
+      setStatus("No se pudo actualizar el catálogo de modelos.");
     } finally {
       button.disabled = false;
     }
   });
 
   $("model-select").addEventListener("change", async () => {
-    const api = window.pywebview && window.pywebview.api;
-    if (!api) return;
     const select = $("model-select");
-    const result = await api.set_selected_model(select.value);
+    const result = await safeCall((api) => api.set_selected_model(select.value),
+      "No se pudo cambiar el modelo.");
+    if (!result) return;
     if (!result.ok) {
       // S11: a rejected selection (non-chat/unknown) reverts to the session
       // model and surfaces the reason.
@@ -748,8 +802,8 @@
   }
 
   async function refreshVoices(force, selectedVoice) {
-    const api = window.pywebview && window.pywebview.api;
-    if (!api) return;
+    if (!requireBridge()) return;
+    const api = bridgeApi();
     const button = $("update-voices");
     if (button) button.disabled = true;
     try {
@@ -762,6 +816,10 @@
       voiceDefaults = result.defaults || {};
       applyVoiceCatalog(selectedVoice);
       if (result.warning) setStatus(result.warning);
+    } catch (_) {
+      // T25/S18: the startup voice load must never leave an unhandled
+      // rejection or a silent failure.
+      setStatus("No se pudo cargar el catálogo de voces Edge.");
     } finally {
       if (button) button.disabled = false;
     }
@@ -781,11 +839,11 @@
   // combination and selects + persists ITS default voice (never the
   // previous selection). set_speech_voice runs exactly once per click.
   async function selectVoiceByFilter() {
-    const api = window.pywebview && window.pywebview.api;
-    if (!api || !voiceCatalog.length) return null;
+    if (!voiceCatalog.length) return null;
     const chosen = renderFilteredVoiceCatalog(null, true);
     if (!chosen) return null;
-    const result = await api.set_speech_voice(chosen);
+    const result = await safeCall((api) => api.set_speech_voice(chosen),
+      "No se pudo cambiar la voz Edge.");
     if (result && result.ok) setStatus(`Voz Edge: ${result.voice}`);
     return chosen;
   }
@@ -803,9 +861,8 @@
   $("lang-en").addEventListener("click", () => activateVoiceToggle("lang-en"));
 
   $("voice-select").addEventListener("change", async () => {
-    const api = window.pywebview && window.pywebview.api;
-    if (!api) return;
-    const result = await api.set_speech_voice($("voice-select").value);
+    const result = await safeCall((api) => api.set_speech_voice($("voice-select").value),
+      "No se pudo cambiar la voz Edge.");
     if (result && result.ok) setStatus(`Voz Edge: ${result.voice}`);
   });
 
@@ -835,8 +892,7 @@
   }
 
   $("check-update").addEventListener("click", async () => {
-    const api = window.pywebview && window.pywebview.api;
-    if (!api) return;
+    if (!requireBridge()) return;
     const button = $("check-update");
     button.disabled = true;
     $("apply-update").hidden = true;
@@ -851,8 +907,7 @@
   });
 
   $("apply-update").addEventListener("click", async () => {
-    const api = window.pywebview && window.pywebview.api;
-    if (!api) return;
+    if (!requireBridge()) return;
     const button = $("apply-update");
     button.disabled = true;
     $("check-update").disabled = true;
@@ -871,13 +926,17 @@
     let theme = "dark";
     try { theme = localStorage.getItem("txt-theme") || "dark"; } catch (_) {}
     applyTheme(theme);
-    const api = window.pywebview && window.pywebview.api;
+    const api = bridgeApi();
     let config = null;
     if (api) {
       // Persisted settings win over localStorage (legacy Import-AppSettings).
       try {
         config = await api.get_settings();
-      } catch (_) { /* settings are best effort */ }
+      } catch (_) {
+        // T25/S18: a rejected settings load shows a controlled error and
+        // never kills the rest of startup.
+        setStatus("No se pudieron cargar las preferencias guardadas.");
+      }
       if (config && config.theme) applyTheme(config.theme);
       // S10: apply the persisted speed to the slider before the first paint,
       // then paint both sliders so fill and thumb agree from the first
@@ -891,9 +950,16 @@
       // Legacy voice catalog load: cache first, edge-tts on a miss.
       refreshVoices(false, config && config.speech_voice);
     }
-    const version = await api.app_version();
-    // VERSION already carries the "v:" prefix (legacy $appVersion).
-    $("version-badge").textContent = version;
+    // T25/S18: each startup await is caught on its own, so one rejected
+    // call (version) never kills independent initialization (status,
+    // capabilities, models, speech interval).
+    try {
+      const version = await api.app_version();
+      // VERSION already carries the "v:" prefix (legacy $appVersion).
+      $("version-badge").textContent = version;
+    } catch (_) {
+      setStatus("No se pudo obtener la versión de la aplicación.");
+    }
     setStatus("Listo.");
     // S9: the main model selector gets its catalog at startup, after the
     // persisted settings (selected model) are known. Not awaited: the model
@@ -929,15 +995,24 @@
   };
 
   async function runAi(action) {
-    const api = window.pywebview && window.pywebview.api;
-    if (!api) return;
     const button = document.querySelector(`[data-ai-action="${action}"]`);
     if (button) button.disabled = true;
     showWorkOverlay(`${AI_BUSY_LABELS[action] || "Consultando a la IA"}...`);
     try {
+      const api = requireBridge();
+      if (!api) return;
       const model = await api.get_selected_model();
-      setStatus(`${AI_BUSY_LABELS[action] || "Consultando a la IA"} · ${model}...`);
-      const result = await api.ask_ai(action, $("web-search").checked, $("editor").value);
+      if (action === "consult") {
+        // S18/T25: Consultar always researches the web, regardless of the
+        // optional checkbox — say so while the request runs.
+        setStatus(`Investigando en la web… · ${model}`);
+      } else {
+        setStatus(`${AI_BUSY_LABELS[action] || "Consultando a la IA"} · ${model}...`);
+      }
+      // T25/S18: consult forces the web search; the checkbox only gates the
+      // other AI actions.
+      const useWeb = action === "consult" || $("web-search").checked;
+      const result = await api.ask_ai(action, useWeb, $("editor").value);
       if (!result.ok) {
         setStatus(result.error);
         return;
@@ -945,9 +1020,11 @@
       if (result.editor_action === "replace") {
         $("editor").value = result.text;
       }
-      if (result.clipboard && navigator.clipboard) {
-        // Legacy Corregir copies the result; the browser clipboard is best effort.
-        try { await navigator.clipboard.writeText(result.text); } catch (_) {}
+      if (result.clipboard && result.text) {
+        // Legacy Corregir copies the result; the native clipboard bridge
+        // (T25/S18) replaces the browser API, unavailable on WKWebView.
+        await safeCall((api) => api.write_clipboard(result.text),
+          "No se pudo copiar al portapapeles.");
       }
       if (result.speech_language) speechLanguage = result.speech_language;
       // Vista previa now shows the AI response (legacy Copy MD/TXT rule).
@@ -955,6 +1032,10 @@
       await renderPreviewNow();
       setTab("preview");
       setStatus(result.message);
+    } catch (_) {
+      // T25/S18: a rejected AI request shows a controlled error and never
+      // leaves an unhandled promise rejection behind.
+      setStatus("No se pudo completar la consulta a la IA.");
     } finally {
       hideWorkOverlay();
       if (button) button.disabled = false;
@@ -987,26 +1068,29 @@
   // Use exactly one native dialog. WebView2 file inputs do not expose full
   // filesystem paths, which previously opened a second fallback dialog.
   $("attach-files").addEventListener("click", async () => {
-    if (!window.pywebview || !window.pywebview.api) return;
-    applyAttachments(await window.pywebview.api.open_attachment_dialog());
+    const result = await safeCall((api) => api.open_attachment_dialog(),
+      "No se pudo abrir el diálogo de adjuntos.");
+    applyAttachments(result);
   });
 
   $("attach-input").addEventListener("change", async () => {
     const files = Array.from($("attach-input").files || []);
     $("attach-input").value = "";
     const paths = files.map((file) => file.pywebviewFullPath).filter(Boolean);
-    if (!window.pywebview || !window.pywebview.api) return;
     if (paths.length) {
-      applyAttachments(await window.pywebview.api.add_attachments(paths));
+      applyAttachments(await safeCall((api) => api.add_attachments(paths),
+        "No se pudieron adjuntar los archivos."));
     } else {
       // WebView flavors that hide full paths: resolve through the native dialog.
-      applyAttachments(await window.pywebview.api.open_attachment_dialog());
+      applyAttachments(await safeCall((api) => api.open_attachment_dialog(),
+        "No se pudo abrir el diálogo de adjuntos."));
     }
   });
 
   $("clear-attachments").addEventListener("click", async () => {
-    if (!window.pywebview || !window.pywebview.api) return;
-    const result = await window.pywebview.api.clear_attachments();
+    const result = await safeCall((api) => api.clear_attachments(),
+      "No se pudieron quitar los adjuntos.");
+    if (!result) return;
     applyAttachments(result);
     if (result.ok) setStatus(result.message);
   });

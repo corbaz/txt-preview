@@ -364,7 +364,7 @@ class TestJavaScriptWiring(UiContractTestCase):
         "gender-female": "set_speech_voice",
         "lang-es": "set_speech_voice",
         "lang-en": "set_speech_voice",
-        "paste-editor": "clipboard.readText",
+        "paste-editor": "read_clipboard",
         "copy-md": "get_preview_text",
         "copy-txt": "get_preview_plain_text",
         "export-pdf": "export_pdf",
@@ -409,6 +409,41 @@ class TestJavaScriptWiring(UiContractTestCase):
 
     def test_copy_buttons_follow_the_preview_first_legacy_rule(self):
         self.assertIn("previewHasAiResponse", self.js_source)
+
+
+class TestClipboardBridgeWiring(UiContractTestCase):
+    """T25/S18: macOS WKWebView does not expose navigator.clipboard, so
+    Pegar/Copiar must go through the bridge's native clipboard methods."""
+
+    def test_no_navigator_clipboard_left_in_the_ui(self):
+        self.assertNotIn("navigator.clipboard", self.js_source)
+
+    def test_paste_uses_the_bridge_via_safe_call(self):
+        window = self.handler_window("paste-editor")
+        self.assertIn("read_clipboard", window)
+        self.assertIn("safeCall", window)
+        self.assertNotIn("navigator", window)
+
+    def test_paste_preserves_legacy_empty_and_error_messages(self):
+        window = self.handler_window("paste-editor")
+        self.assertIn("El portapapeles no contiene texto.", window)
+        self.assertIn("No se pudo leer el portapapeles.", window)
+        self.assertIn("Texto pegado desde el portapapeles.", window)
+
+    def test_copy_uses_the_bridge_write_clipboard(self):
+        copy_main = js_function(self.js_source, "copyMain")
+        self.assertIn("write_clipboard", copy_main)
+        self.assertNotIn("navigator", copy_main)
+
+    def test_copy_preserves_legacy_messages_and_preview_first_rule(self):
+        self.assertIn("Markdown copiado al portapapeles.", self.js_source)
+        self.assertIn("Texto sin formato copiado al portapapeles.", self.js_source)
+        self.assertIn("No se pudo copiar al portapapeles.", self.js_source)
+
+    def test_corregir_clipboard_result_copies_through_the_bridge(self):
+        run_ai = js_function(self.js_source, "runAi")
+        self.assertIn("write_clipboard", run_ai)
+        self.assertNotIn("navigator", run_ai)
 
     def test_gender_language_toggles_filter_the_voice_catalog(self):
         for token in ("voiceCatalog", "gender", "culture", "aria-pressed"):
@@ -917,6 +952,134 @@ class TestReplayHighlightAndNativeAttachments(UiContractTestCase):
         self.assertIn("webview.FileDialog.SAVE", self.py_source)
         self.assertNotIn("webview.OPEN_DIALOG", self.py_source)
         self.assertNotIn("webview.SAVE_DIALOG", self.py_source)
+
+
+class TestBridgeReadinessAndControlledErrors(UiContractTestCase):
+    """S18/T25: no silent dead buttons — bridge readiness is centralized with
+    a visible Spanish status, the pywebviewready startup sequence survives any
+    rejected call, every fire-and-forget bridge promise has controlled
+    rejection handling, Play surfaces {ok:false,message}, and Consultar
+    always requests web research regardless of the optional checkbox."""
+
+    def ready_handler(self):
+        start = self.js_source.index('"pywebviewready"')
+        end = self.js_source.index("});", start)
+        return self.js_source[start:end]
+
+    def full_handler(self, control_id):
+        """Whole addEventListener handler of one control (beyond the shared
+        700-char window), from the binding to its closing `});`."""
+        start = self.js_source.index(f'$("{control_id}").addEventListener')
+        end = self.js_source.index("});", start)
+        return self.js_source[start:end]
+
+    # -- centralized bridge readiness ----------------------------------------
+
+    def test_bridge_readiness_is_centralized_with_a_visible_spanish_status(self):
+        self.assertIn("function bridgeApi(", self.js_source)
+        require = js_function(self.js_source, "requireBridge")
+        self.assertIn("setStatus(", require)  # visible, never a silent return
+        # The Spanish status lives in the shared constant requireBridge shows.
+        self.assertIn("BRIDGE_NOT_READY", require)
+        self.assertIn("puente de la aplicación", self.js_source)
+        # The shared helper documents the null contract for callers.
+        self.assertIn("requireBridge() returns null", self.js_source)
+
+    def test_no_handler_keeps_the_silent_dead_button_guard(self):
+        self.assertNotIn(
+            "if (!window.pywebview || !window.pywebview.api) return;",
+            self.js_source)
+        self.assertNotIn(
+            "window.pywebview && window.pywebview.api;\n    if (!api) return;",
+            self.js_source)
+
+    # -- central async call/error wrapper ------------------------------------
+
+    def test_central_safe_call_wrapper_catches_rejections(self):
+        body = js_function(self.js_source, "safeCall")
+        self.assertIn("requireBridge()", body)
+        self.assertIn("catch", body)
+        self.assertIn("setStatus(", body)  # rejections become visible errors
+
+    def test_fire_and_forget_public_actions_route_through_safe_call(self):
+        for control_id, call in (
+            ("theme-toggle", "set_theme"),
+            ("speech-pause", "pause_speech"),
+            ("speech-replay", "replay_start"),
+            ("speech-stop", "stop_speech"),
+            ("speed", "set_speech_speed"),
+            ("close-app", "close_app"),
+            ("clear-chat", "clear_attachments"),
+            ("attach-files", "open_attachment_dialog"),
+        ):
+            window = self.handler_window(control_id)
+            self.assertIn("safeCall(", window, control_id)
+            self.assertIn(call, window, control_id)
+
+    def test_busy_exports_surface_a_controlled_error(self):
+        body = js_function(self.js_source, "withBusy")
+        self.assertLess(body.index("catch (_) {"), body.index("finally {"))
+
+    def test_ai_actions_surface_a_controlled_error(self):
+        body = js_function(self.js_source, "runAi")
+        self.assertLess(body.index("catch (_) {"), body.index("finally {"))
+
+    def test_voice_selection_surfaces_a_controlled_error(self):
+        for name in ("selectVoiceByFilter", "refreshVoices", "saveApiKey",
+                     "loadStartupModels"):
+            body = js_function(self.js_source, name)
+            # Either its own catch or the central safeCall wrapper.
+            self.assertTrue("catch" in body or "safeCall(" in body, name)
+
+    # -- startup sequence is independently survivable -------------------------
+
+    def test_startup_settings_failure_does_not_kill_startup(self):
+        handler = self.ready_handler()
+        settings_try = handler.index("try {")
+        get_settings = handler.index("get_settings")
+        self.assertLess(settings_try, get_settings)
+        self.assertIn("catch", handler[get_settings:get_settings + 400])
+
+    def test_startup_version_failure_does_not_kill_the_rest(self):
+        handler = self.ready_handler()
+        version_zone = handler[handler.index("app_version") - 200:]
+        self.assertIn("catch", version_zone[:400])
+        # Independent initialization still runs after a rejected version call.
+        self.assertIn("setStatus(\"Listo.\")", handler)
+        self.assertIn("loadStartupModels(", handler)
+        self.assertIn("setInterval(speechTick, 120)", handler)
+
+    def test_startup_model_load_keeps_its_catch(self):
+        body = js_function(self.js_source, "loadStartupModels")
+        self.assertLess(body.index("update_models()"), body.index("catch"))
+
+    # -- Play surfaces {ok:false,message} -------------------------------------
+
+    def test_play_surfaces_start_speech_failure_messages(self):
+        handler = self.full_handler("speech-play")
+        self.assertIn("applyVoiceSwitch(", handler)
+        self.assertIn("!result.ok", handler)
+        self.assertIn("setStatus(result.message", handler)
+
+    def test_play_catches_rejected_start_speech_calls(self):
+        handler = self.full_handler("speech-play")
+        self.assertIn("catch", handler)
+        self.assertIn("setStatus(", handler)
+
+    # -- Consultar always researches the web ----------------------------------
+
+    def test_consult_always_requests_web_search(self):
+        body = js_function(self.js_source, "runAi")
+        self.assertIn('action === "consult"', body)
+        self.assertIn('action === "consult" || $("web-search").checked', body)
+
+    def test_consult_shows_an_explicit_researching_status(self):
+        body = js_function(self.js_source, "runAi")
+        self.assertIn("Investigando en la web", body)
+
+    def test_other_ai_actions_keep_the_web_checkbox(self):
+        body = js_function(self.js_source, "runAi")
+        self.assertIn('$("web-search").checked', body)
 
 
 if __name__ == "__main__":

@@ -32,7 +32,7 @@ APP = ROOT
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 
-from txt_core import bridges, groq, language, models, prompts, settings, updater
+from txt_core import bridges, clipboard, groq, language, models, prompts, settings, updater
 from txt_core.attachments import (
     IMAGE_EXTENSIONS,
     TEXT_EXTENSIONS,
