@@ -96,11 +96,27 @@ class TestAskAiGroqRouting(unittest.TestCase):
         self.assertIn("Consulta:", body["messages"][0]["content"])
         self.assertEqual(body["model"], "openai/gpt-oss-120b")
 
-    def test_web_search_flag_reaches_the_body(self):
+    def test_consult_web_request_cannot_degrade_to_ordinary_chat(self):
+        """T25/S18: a Consultar/web request on a web-capable model always
+        carries the full Groq research semantics in the real body sent."""
         api = api_with_env(self, GROQ_API_KEY="gsk_test")
+        api._selected_model = "openai/gpt-oss-20b"
         with mock.patch.object(groq, "post_chat", return_value={"text": "x"}) as post:
             api.ask_ai("consult", True, "hola")
-        self.assertEqual(post.call_args[0][1]["tools"], [{"type": "browser_search"}])
+        body = post.call_args[0][1]
+        self.assertEqual(body["tools"], [{"type": "browser_search"}])
+        self.assertEqual(body["tool_choice"], "required")
+        self.assertEqual(body["reasoning_effort"], "low")
+        self.assertNotIn("citation_options", body)
+
+    def test_non_web_chat_body_has_no_research_fields(self):
+        api = api_with_env(self, GROQ_API_KEY="gsk_test")
+        with mock.patch.object(groq, "post_chat", return_value={"text": "x"}) as post:
+            api.ask_ai("summarize", False, "texto")
+        body = post.call_args[0][1]
+        self.assertNotIn("tools", body)
+        self.assertNotIn("tool_choice", body)
+        self.assertNotIn("reasoning_effort", body)
 
     def test_text_attachment_reaches_the_prompt(self):
         api = api_with_env(self, GROQ_API_KEY="gsk_test")
@@ -130,11 +146,54 @@ class TestAskAiGroqRouting(unittest.TestCase):
         self.assertEqual(content[1]["type"], "image_url")
         self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/png;base64,"))
 
-    def test_network_error_uses_legacy_message(self):
+    def test_controlled_runtime_error_reaches_the_ui_exactly(self):
+        """T25/S18: the exact controlled RuntimeError message from Groq (HTTP
+        status, TLS, model/tool rejection) reaches the UI — it is never
+        collapsed into the generic connection error."""
         api = api_with_env(self, GROQ_API_KEY="gsk_test")
-        with mock.patch.object(groq, "post_chat", side_effect=RuntimeError("boom")):
+        message = groq.ERR_HTTP_STATUS.format(status=400)
+        with mock.patch.object(groq, "post_chat", side_effect=RuntimeError(message)):
+            result = api.ask_ai("consult", True, "hola")
+        self.assertEqual(result, {"ok": False, "error": "Groq devolvió el estado HTTP 400."})
+
+    def test_tls_failure_message_reaches_the_ui_exactly(self):
+        api = api_with_env(self, GROQ_API_KEY="gsk_test")
+        message = groq.ERR_CONNECTION.format(reason="fallo TLS")
+        with mock.patch.object(groq, "post_chat", side_effect=RuntimeError(message)):
+            result = api.ask_ai("correct", False, "texto")
+        self.assertEqual(
+            result,
+            {"ok": False,
+             "error": "Error de conexión con Groq (fallo de red/TLS): fallo TLS"},
+        )
+
+    def test_unknown_exception_stays_generic_connection_error(self):
+        api = api_with_env(self, GROQ_API_KEY="gsk_test")
+        with mock.patch.object(groq, "post_chat", side_effect=KeyError("boom")):
             result = api.ask_ai("correct", False, "texto")
         self.assertEqual(result, {"ok": False, "error": "Error al conectar con la API."})
+
+    def test_bridge_runtime_error_reaches_the_ui_exactly(self):
+        """T25/S18: bridge paths are preserved and their controlled messages
+        surface exactly instead of the generic connection error."""
+        api = api_with_env(self)
+        api.set_selected_model("claude:claude-sonnet-4")
+        with mock.patch.object(bridges, "get_bridge_password", return_value="secreta"), \
+                mock.patch.object(bridges, "bridge_chat",
+                                  side_effect=RuntimeError("Claude: HTTP 502")):
+            result = api.ask_ai("consult", False, "hola")
+        self.assertEqual(result, {"ok": False, "error": "Claude: HTTP 502"})
+
+    def test_safeguard_is_not_usable_as_ordinary_chat(self):
+        """T25/S18: the safeguard model is never enabled for chat actions; the
+        capability gate refuses it before any network call."""
+        api = api_with_env(self, GROQ_API_KEY="gsk_test")
+        api._selected_model = "openai/gpt-oss-safeguard-20b"
+        with mock.patch.object(groq, "post_chat") as post:
+            result = api.ask_ai("consult", True, "hola")
+        self.assertFalse(result["ok"])
+        self.assertIn("no admite chat de texto", result["error"])
+        post.assert_not_called()
 
 
 class TestAskAiPostActions(unittest.TestCase):
@@ -226,6 +285,8 @@ class TestS11ChatAndWebGating(unittest.TestCase):
             result = api.ask_ai("consult", True, "consulta")
         self.assertFalse(result["ok"])
         self.assertIn("búsqueda web", result["error"])
+        self.assertIn("GPT-OSS", result["error"])
+        self.assertNotIn("Desmarcá", result["error"])
         post.assert_not_called()
 
     def test_consult_with_web_on_bridge_returns_clear_error(self):
@@ -235,6 +296,8 @@ class TestS11ChatAndWebGating(unittest.TestCase):
             result = api.ask_ai("consult", True, "hola")
         self.assertFalse(result["ok"])
         self.assertIn("búsqueda web", result["error"])
+        self.assertIn("GPT-OSS", result["error"])
+        self.assertNotIn("Desmarcá", result["error"])
         post.assert_not_called()
 
     def test_action_on_non_chat_model_refuses_before_the_request(self):
@@ -250,7 +313,7 @@ class TestS11ChatAndWebGating(unittest.TestCase):
         api._selected_model = "openai/gpt-oss-20b"
         with mock.patch.object(groq, "post_chat", return_value={"text": "x"}) as post:
             api.ask_ai("consult", True, "hola")
-        self.assertEqual(post.call_args[0][1]["tools"], [{"type": "browser_search"}])
+        self.assertEqual(post.call_args[0][1]["tools"][0]["type"], "browser_search")
 
     def test_summarize_stays_untouched_on_chat_models(self):
         api = api_with_env(self, GROQ_API_KEY="gsk_test")

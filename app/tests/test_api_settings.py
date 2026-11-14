@@ -217,6 +217,24 @@ class TestUpdateModels(ApiSettingsTestCase):
         ids = [entry["id"] for entry in result["models"]]
         self.assertIn("openai/gpt-oss-120b", ids)
 
+    def test_tls_failure_falls_back_to_catalog_without_traceback(self):
+        """S17/T24: an end-to-end TLS failure on /models (Mac incident) must
+        return ok with the static catalog plus the controlled error — never an
+        uncaught URLError traceback through pywebview."""
+        import ssl
+        import urllib.error
+        self.api.set_api_key("gsk_tls")
+        reason = ssl.SSLCertVerificationError(
+            20, "Basic Constraints of CA cert not marked critical")
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=urllib.error.URLError(reason)), \
+                mock.patch.object(main, "_tcp_listening", return_value=False):
+            result = self.api.update_models()
+        self.assertTrue(result["ok"])
+        self.assertIn("No se pudo conectar con Groq", result["error"])
+        ids = [entry["id"] for entry in result["models"]]
+        self.assertIn("openai/gpt-oss-120b", ids)
+
 
 class TestS11CatalogCapabilities(ApiSettingsTestCase):
     """S11/T18: the catalog exposes the full capability dict for every item."""
@@ -268,6 +286,14 @@ class TestS11SelectedModelValidation(ApiSettingsTestCase):
     def test_rejects_safeguard_non_chat(self):
         self.assertFalse(self.api.set_selected_model(
             "openai/gpt-oss-safeguard-20b")["ok"])
+
+    def test_safeguard_web_capability_never_enables_chat(self):
+        """T25/S18: the safeguard model is a safety classifier with browser
+        search, never an ordinary chat model; the ask_ai chat gate stays
+        authoritative for it."""
+        caps = models.model_capabilities("openai/gpt-oss-safeguard-20b")
+        self.assertFalse(caps.chat)
+        self.assertFalse(caps.text_files)
 
     def test_rejects_unknown_groq_id(self):
         result = self.api.set_selected_model("moonshotai/kimi-k2")
@@ -432,6 +458,19 @@ class TestAskAiKeyOrder(ApiSettingsTestCase):
         self.assertTrue(caps.vision)
         self.assertTrue(caps.text_files)
         self.assertFalse(caps.web)
+
+    def test_ask_ai_refuses_safeguard_before_the_network(self):
+        """T25/S18: even with a web checkbox, a safeguard selection fails at the
+        capability gate — never as a chat request and never a network call."""
+        self.api._selected_model = "openai/gpt-oss-safeguard-20b"
+        with mock.patch("urllib.request.urlopen") as urlopen:
+            result = self.api.ask_ai("consult", True, "hola")
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            result["error"],
+            "El modelo elegido no admite chat de texto. Elegí otro modelo para las acciones de IA.",
+        )
+        urlopen.assert_not_called()
 
 
 if __name__ == "__main__":

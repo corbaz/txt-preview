@@ -5,6 +5,15 @@ through pywebview. Legacy Windows-only app: ../txt.ps1.
 """
 from __future__ import annotations
 
+# S17: trust the native system certificate store (macOS Keychain / Windows
+# store) before any network module loads. macOS Python 3.14 strict X509
+# validation rejects a malformed system CA ("Basic Constraints of CA cert not
+# marked critical") during Groq /models startup; truststore fixes it using the
+# OS trust store without ever disabling verification. Required dependency —
+# missing truststore fails loudly here; Doctor/install provides it.
+import truststore
+truststore.inject_into_ssl()
+
 from bisect import bisect_right
 import json
 import os
@@ -77,6 +86,10 @@ ERR_API_CONNECTION = "Error al conectar con la API."
 # S11: capability gates speak before the request — never a silent tool omission.
 MSG_MODEL_NOT_CHAT = "El modelo elegido no admite chat de texto. Elegí otro modelo para las acciones de IA."
 MSG_MODEL_NO_WEB = "El modelo elegido no admite búsqueda web. Desmarcá «Usar web» o elegí otro modelo."
+MSG_CONSULT_REQUIRES_WEB_MODEL = (
+    "Consultar requiere búsqueda web. Selecciona un modelo GPT-OSS: "
+    "openai/gpt-oss-120b u openai/gpt-oss-20b."
+)
 MSG_ADDED_ATTACHMENTS = (
     "Los adjuntos visibles sobre el editor se enviarán en la próxima acción de IA."
 )
@@ -468,11 +481,18 @@ class Api:
         if not capabilities.chat:
             return {"ok": False, "error": MSG_MODEL_NOT_CHAT}
         if web_search and not capabilities.web:
-            return {"ok": False, "error": MSG_MODEL_NO_WEB}
+            error = (MSG_CONSULT_REQUIRES_WEB_MODEL
+                     if action == "consult" else MSG_MODEL_NO_WEB)
+            return {"ok": False, "error": error}
         try:
             response = self._send_ai_request(self._build_prompt(action, text), bool(web_search))
             result_text = groq.extract_response_text(response)
         except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except RuntimeError as error:
+            # T25/S18: the exact controlled message from Groq (HTTP status,
+            # TLS, model/tool rejection) or from a bridge reaches the UI;
+            # it is never collapsed into the generic connection error.
             return {"ok": False, "error": str(error)}
         except Exception:
             return {"ok": False, "error": ERR_API_CONNECTION}
@@ -552,6 +572,28 @@ class Api:
             result["speech_language"] = self._speech_language
             result["message"] = "Traducción lista en Vista previa."
         return result
+
+    # ---- Portapapeles (T25/S18) ---------------------------------------------
+    def read_clipboard(self, runner=None, platform: str | None = None) -> dict:
+        """Pegar button: native OS clipboard through the bridge (WKWebView on
+        macOS does not expose navigator.clipboard). Returns the {ok,...}
+        bridge contract and never raises into pywebview."""
+        try:
+            text = clipboard.read_clipboard(platform=platform, runner=runner)
+        except RuntimeError as error:
+            return {"ok": False, "error": str(error)}
+        return {"ok": True, "text": text}
+
+    def write_clipboard(self, text: str, runner=None,
+                        platform: str | None = None) -> dict:
+        """Copiar MD/TXT and Corregir: copy through the native clipboard.
+        Returns the {ok,...} bridge contract and never raises."""
+        try:
+            clipboard.write_clipboard(text or "", platform=platform,
+                                      runner=runner)
+        except RuntimeError as error:
+            return {"ok": False, "error": str(error)}
+        return {"ok": True}
 
     # ---- Micrófono dictation (T15/S8) ---------------------------------------
     def start_dictation(self) -> dict:

@@ -20,10 +20,23 @@ class TestGroqBody(unittest.TestCase):
             {"model": "openai/gpt-oss-120b", "messages": [{"role": "user", "content": "hola"}]},
         )
 
-    def test_web_search_only_when_capable(self):
+    def test_web_request_guarantees_research_semantics(self):
+        """T25/S18: a web request on a web-capable model always carries the
+        official Groq browser_search semantics — server-side tool, forced
+        tool_choice, citations enabled and low reasoning effort."""
         body = groq.build_groq_body("hola", "openai/gpt-oss-120b", True, CAPS_WEB)
         self.assertEqual(body["tools"], [{"type": "browser_search"}])
-        self.assertEqual(body["tool_choice"], "auto")
+        self.assertEqual(body["tool_choice"], "required")
+        self.assertEqual(body["reasoning_effort"], "low")
+        self.assertNotIn("citation_options", body)
+
+    def test_non_web_chat_body_has_no_research_fields(self):
+        """T25/S18: ordinary chat never gains the web-research fields."""
+        body = groq.build_groq_body("hola", "openai/gpt-oss-120b", False, CAPS_WEB)
+        self.assertNotIn("tools", body)
+        self.assertNotIn("tool_choice", body)
+        self.assertNotIn("reasoning_effort", body)
+        self.assertNotIn("citation_options", body)
 
     def test_web_search_suppressed_without_capability(self):
         body = groq.build_groq_body("hola", "allam-2-7b", True, CAPS_NOWEB)
@@ -79,8 +92,55 @@ class TestGroqHeadersAndPost(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Groq devolvió el estado HTTP 401."):
                 groq.post_chat("key", {"model": "m", "messages": []})
 
+    def test_post_chat_tls_error_raises_controlled_message(self):
+        """S17/T24: a TLS verification failure (Mac incident) becomes a controlled
+        Spanish connection error, never a raw urllib traceback; HTTPError messages
+        and the User-Agent stay unchanged."""
+        import ssl
+        import urllib.error
+        reason = ssl.SSLCertVerificationError(
+            20, "Basic Constraints of CA cert not marked critical")
+        error = urllib.error.URLError(reason)
+        with mock.patch("urllib.request.urlopen", side_effect=error):
+            with self.assertRaisesRegex(
+                    RuntimeError, r"Error de conexión con Groq \(fallo de red/TLS\):.*") as caught:
+                groq.post_chat("key", {"model": "m", "messages": []})
+        self.assertIn("Basic Constraints of CA cert not marked critical", str(caught.exception))
+
     def test_extract_response_text_strips_citations(self):
         response = {"choices": [{"message": {"content": "respuesta 【2†L3-L4】."}}]}
+        self.assertEqual(groq.extract_response_text(response), "respuesta.")
+
+    def test_extract_response_text_accepts_builtin_tool_shape(self):
+        """T25/S18: the real Groq built-in-tool final response carries the
+        answer in message.content plus executed_tools/annotations; the readable
+        answer survives and only payload-borne URLs are surfaced as evidence."""
+        response = {
+            "choices": [{"message": {
+                "role": "assistant",
+                "content": "El resultado es X 【2†L3-L4】.",
+                "executed_tools": [
+                    {"type": "browser_search", "input": {"query": "x"}, "output": "..."},
+                ],
+                "annotations": [{
+                    "type": "citation",
+                    "citations": [
+                        {"citation_number": 2, "url": "https://example.com/fuente",
+                         "title": "Fuente real"},
+                    ],
+                }],
+            }}],
+        }
+        text = groq.extract_response_text(response)
+        self.assertTrue(text.startswith("El resultado es X."))
+        self.assertIn("Fuentes:\n- [Fuente real](https://example.com/fuente)", text)
+
+    def test_extract_response_text_none_content_is_never_none(self):
+        response = {"choices": [{"message": {"role": "assistant", "content": None}}]}
+        self.assertEqual(groq.extract_response_text(response), "")
+
+    def test_extract_response_text_without_annotations_has_no_sources_section(self):
+        response = {"choices": [{"message": {"content": "respuesta."}}]}
         self.assertEqual(groq.extract_response_text(response), "respuesta.")
 
 

@@ -22,12 +22,22 @@ USER_AGENT = "txt-preview/26.11 (cross-platform desktop app)"
 ERR_MISSING_API_KEY = "Falta configurar la API key de Groq."
 ERR_MISSING_BRIDGE_PASSWORD = "Falta la contraseña del bridge de {label} ({env_var})."
 ERR_HTTP_STATUS = "Groq devolvió el estado HTTP {status}."
+# S17: TLS/connection failures (macOS Python 3.14 "Basic Constraints of CA cert
+# not marked critical") surface as a controlled Spanish message — never a raw
+# urllib traceback. Verification is never disabled; truststore provides native
+# system trust instead.
+ERR_CONNECTION = "Error de conexión con Groq (fallo de red/TLS): {reason}"
 
 IMAGE_MEDIA_TYPES = {
     ".png": "image/png",
     ".webp": "image/webp",
     ".gif": "image/gif",
 }
+
+
+def connection_reason(error: urllib.error.URLError) -> str:
+    """Human-readable reason of a URLError (an SSLError, an OSError or a str)."""
+    return str(getattr(error, "reason", None) or error)
 
 
 def image_media_type(extension: str) -> str:
@@ -80,8 +90,14 @@ def build_groq_body(prompt: str, selected_model: str, web_search: bool,
         "messages": [{"role": "user", "content": content}],
     }
     if web_search and capabilities.get("web"):
+        # T25/S18 — official Groq Browser Search semantics for a real research
+        # request: server-side browser_search; tool_choice "required" means
+        # the model cannot answer without searching. Sources are read from
+        # message.executed_tools.search_results in the response,
+        # and reasoning_effort "low" as recommended for gpt-oss models.
         body["tools"] = [{"type": "browser_search"}]
-        body["tool_choice"] = "auto"
+        body["tool_choice"] = "required"
+        body["reasoning_effort"] = "low"
     return body
 
 
@@ -119,14 +135,31 @@ def post_chat(api_key: str, body: dict, timeout_seconds: int = 600) -> dict:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         raise RuntimeError(ERR_HTTP_STATUS.format(status=error.code)) from error
+    except urllib.error.URLError as error:
+        # S17: connection/TLS failure — controlled message, verification intact.
+        raise RuntimeError(ERR_CONNECTION.format(reason=connection_reason(error))) from error
 
 
 def extract_response_text(response: Mapping[str, Any]) -> str:
-    """Legacy Get-AiResponseText minus the PS encoding repair (Python already decodes UTF-8)."""
-    from .citations import strip_citation_markers  # local import keeps module tree flat
+    """Legacy Get-AiResponseText minus the PS encoding repair (Python already decodes UTF-8).
+
+    T25/S18: also accepts the real Groq built-in-tool final response shape
+    (message.content plus executed_tools/annotations). The readable answer is
+    kept, citation markers are stripped, and the only visible evidence added is
+    the payload's own annotation citations — URLs are never fabricated.
+    """
+    from .citations import builtin_tool_sources, strip_citation_markers  # keeps module tree flat
 
     choices = response.get("choices")
     if not choices:
         text = response.get("text", "")
         return strip_citation_markers(str(text))
-    return strip_citation_markers(str(choices[0]["message"]["content"]))
+    message = choices[0].get("message") or {}
+    content = message.get("content")
+    if not isinstance(content, str):
+        content = "" if content is None else str(content)
+    text = strip_citation_markers(content)
+    sources = builtin_tool_sources(message)
+    if sources:
+        text = text.rstrip("\n") + "\n\nFuentes:\n" + "\n".join(sources)
+    return text
