@@ -137,12 +137,28 @@ class TestCheckUpdateRealRepo(RepoFixture):
         self.assertEqual(status.remote_version, REMOTE_VERSION)
         self.assertEqual(status.local_version, LOCAL_VERSION)
 
-    def test_dirty_refuses_with_legacy_message(self):
-        self.write_version(self.work, "v:26.10.30-00.00")  # local edit
+    def test_local_changes_do_not_affect_the_check(self):
+        """txt.ps1 parity: local changes only block installing, so the check
+        still offers the new version."""
+        self.bump_origin_version()
         (self.work / "notas.txt").write_text("borrador", encoding="utf-8")
         status = updater.check_update(self.work)
-        self.assertEqual(status.state, "dirty")
-        self.assertEqual(status.detail, MSG_DIRTY)
+        self.assertEqual(status.state, "available")
+        self.assertEqual(status.detail, "")
+
+    def test_version_outside_the_expected_format_is_an_error(self):
+        self.write_version(self.origin, "2.0.1")
+        self.commit_all(self.origin, "bad version")
+        status = updater.check_update(self.work)
+        self.assertEqual(status.state, "error")
+        self.assertEqual(
+            status.detail,
+            "La versión publicada no usa el formato esperado v:yy.mm.dd-HH.mm.")
+
+    def test_versions_compare_by_their_digits(self):
+        self.assertTrue(updater.compare_versions("v:26.11.14-12.03", "v:26.11.14-09.47"))
+        self.assertFalse(updater.compare_versions("v:26.11.14-09.47", "v:26.11.14-09.47"))
+        self.assertFalse(updater.compare_versions("v:25.12.31-23.59", "v:26.01.01-00.00"))
 
     def test_wrong_branch(self):
         git(self.work, "checkout", "-b", "otra")
@@ -163,7 +179,7 @@ class TestApplyUpdateRealRepo(RepoFixture):
         self.assertEqual(status.state, "up_to_date")
         self.assertEqual(status.local_version, REMOTE_VERSION)
         self.assertEqual(status.detail,
-                         f"Actualizado a {REMOTE_VERSION}. Reiniciá la aplicación.")
+                         "Actualización instalada. Cerrá y abrí la aplicación.")
         self.assertTrue(status.updated)
         self.assertEqual((self.work / "VERSION").read_text(
             encoding="utf-8").strip(), REMOTE_VERSION)
@@ -241,7 +257,7 @@ class TestCheckUpdateErrorPaths(unittest.TestCase):
         with mock.patch.object(updater, "_run_git", runner):
             status = updater.check_update(self.repo)
         self.assertEqual(status.state, "error")
-        self.assertTrue(status.detail.startswith("No se pudo contactar con GitHub."))
+        self.assertTrue(status.detail.startswith("No se pudo consultar origin/main."))
         self.assertEqual(runner.calls[0][:2], ["fetch", "--quiet"])
 
     def test_fetch_timeout_reports_github_contact_error(self):
@@ -249,7 +265,7 @@ class TestCheckUpdateErrorPaths(unittest.TestCase):
                                side_effect=subprocess.TimeoutExpired(cmd="git", timeout=30)):
             status = updater.check_update(self.repo)
         self.assertEqual(status.state, "error")
-        self.assertTrue(status.detail.startswith("No se pudo contactar con GitHub."))
+        self.assertTrue(status.detail.startswith("No se pudo consultar origin/main."))
 
     def test_unreadable_remote_version(self):
         runner = FakeGitRunner([(0, "", ""), (128, "", "fatal: not a valid ref")])
@@ -289,7 +305,8 @@ class TestCheckUpdateErrorPaths(unittest.TestCase):
         with mock.patch.object(updater, "_run_git", runner):
             status = updater.apply_update(self.repo)
         self.assertEqual(status.state, "up_to_date")
-        self.assertEqual(len(runner.calls), 4)  # no pull was attempted
+        self.assertEqual(len(runner.calls), 3)  # no status check, no pull
+        self.assertNotIn(["pull", "--ff-only", "origin", "main"], runner.calls)
 
 
 class TestApiUpdateWiring(unittest.TestCase):
@@ -321,7 +338,9 @@ class TestApiUpdateWiring(unittest.TestCase):
         self.assertTrue(result["updated"])
         self.assertIn("Reiniciá la aplicación.", result["detail"])
 
-    def test_startup_check_notifies_ui_only_when_available(self):
+    def test_startup_check_offers_an_available_update(self):
+        """Legacy Invoke-StartupUpdateCheck: an available version is offered
+        with the Yes/No question; any other result only refreshes the label."""
         available = updater.UpdateStatus("available", REMOTE_VERSION, LOCAL_VERSION, "")
         silent = updater.UpdateStatus("up_to_date", LOCAL_VERSION, LOCAL_VERSION, "")
         window = types.SimpleNamespace(evaluate_js=mock.Mock())
@@ -329,12 +348,55 @@ class TestApiUpdateWiring(unittest.TestCase):
         with mock.patch.object(main.updater, "check_update", return_value=available):
             self.api._startup_update_check(delay=0)
         script = window.evaluate_js.call_args[0][0]
-        self.assertTrue(script.startswith("window.txtUI && window.txtUI.applyUpdateStatus("))
-        payload = json.loads(script[len("window.txtUI && window.txtUI.applyUpdateStatus("):-1])
-        self.assertEqual(payload["state"], "available")
+        prefix = "window.txtUI && window.txtUI.offerStartupUpdate("
+        self.assertTrue(script.startswith(prefix))
+        self.assertEqual(json.loads(script[len(prefix):-1])["state"], "available")
         with mock.patch.object(main.updater, "check_update", return_value=silent):
             self.api._startup_update_check(delay=0)
-        self.assertEqual(window.evaluate_js.call_count, 1)  # silent stays silent
+        script = window.evaluate_js.call_args[0][0]
+        self.assertTrue(script.startswith("window.txtUI && window.txtUI.applyUpdateStatus("))
+
+    def test_restart_relaunches_the_app_and_closes_the_window(self):
+        window = types.SimpleNamespace(destroy=mock.Mock())
+        self.api._window = window
+        self.api.engine = mock.Mock()
+        with mock.patch.object(main.subprocess, "Popen") as popen:
+            result = self.api.restart_app()
+        argv = popen.call_args[0][0]
+        self.assertEqual(argv[0], sys.executable)
+        self.assertTrue(argv[1].endswith("main.py"))
+        window.destroy.assert_called_once()
+        self.assertEqual(result, {"ok": True})
+
+
+class TestUpdateUiTexts(unittest.TestCase):
+    """The Configuración texts and dialogs of txt.ps1."""
+
+    JS = (Path(__file__).resolve().parents[1] / "www" / "js" / "main.js").read_text(
+        encoding="utf-8")
+
+    def test_legacy_messages(self):
+        for text in (
+            "La aplicación está actualizada (${status.local_version}).",
+            "Nueva versión ${status.remote_version} disponible.",
+            "Actualización instalada. Cerrá y abrí la aplicación.",
+            "No se pudo actualizar",
+            "No se pudo comprobar",
+            "Aplicando la actualización...",
+            "Buscando una versión nueva en origin/main...",
+            "Se actualizará TXT Preview a ${availableUpdateVersion} desde origin/main. ",
+            "La aplicación deberá reiniciarse.",
+            "Cerrá y volvé a abrir la aplicación para usar el código nuevo.",
+            "Hay una versión nueva de TXT Preview: ${availableUpdateVersion} (tenés ${status.local_version}).",
+            "¿Querés actualizar ahora? La aplicación se reiniciará sola.",
+            "disponible. Podés actualizar desde Configuración.",
+        ):
+            self.assertIn(text, self.JS)
+
+    def test_accepting_the_startup_offer_installs_and_restarts(self):
+        body = self.JS.split("async function offerStartupUpdate(status) {", 1)[1][:900]
+        self.assertIn("window.confirm(", body)
+        self.assertLess(body.index("installUpdate()"), body.index("api.restart_app()"))
 
 
 if __name__ == "__main__":

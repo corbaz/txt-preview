@@ -922,22 +922,33 @@ class Api:
         self._update_status = updater.apply_update(REPO)
         return self._update_status.as_dict()
 
-    def _startup_update_check(self, delay: float = 3.0) -> None:
-        """Legacy Invoke-StartupUpdateCheck: runs once off the UI thread,
-        stays silent unless an update is available (the UI notice is the
-        only signal; offline or non-Git installs stay quiet)."""
+    def _startup_update_check(self, delay: float = 1.5) -> None:
+        """Legacy Invoke-StartupUpdateCheck: runs once off the UI thread and
+        offers a newer version with a Yes/No question; offline or non-Git
+        installs stay quiet (the details stay in Configuración)."""
         time.sleep(delay)
         try:
             status = self.check_for_updates()
         except Exception:
             return
-        if status.get("state") != updater.STATE_AVAILABLE:
-            return
         window = getattr(self, "_window", None)
-        if window is not None:
-            window.evaluate_js(
-                "window.txtUI && window.txtUI.applyUpdateStatus("
-                + json.dumps(status) + ")")
+        if window is None:
+            return
+        handler = ("offerStartupUpdate"
+                   if status.get("state") == updater.STATE_AVAILABLE
+                   else "applyUpdateStatus")
+        window.evaluate_js(
+            f"window.txtUI && window.txtUI.{handler}(" + json.dumps(status) + ")")
+
+    def restart_app(self) -> dict:
+        """Legacy Restart-App: relaunch with the same interpreter, then close."""
+        try:
+            subprocess.Popen(
+                [sys.executable, str(ROOT / "main.py")], cwd=str(REPO),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except Exception as error:
+            return {"ok": False, "message": f"No se pudo reiniciar la aplicación: {error}"}
+        return self.close_app()
 
     # ---- Speech (T4/S6) ----------------------------------------------------
     def _take_message(self) -> str:

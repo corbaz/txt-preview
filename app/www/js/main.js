@@ -1138,58 +1138,104 @@
   // ---- In-app update (T11/S4) ---------------------------------------------
   // Legacy Update-AppUpdateControls / Install-AppUpdate messages: the three
   // task-worded states plus the legacy refusal details from txt.ps1.
-  function updateStatusMessage(status) {
-    if (status.updated) return status.detail; // "Actualizado a X. Reiniciá la aplicación."
+  // Legacy Update-AppUpdateControls / Invoke-AppUpdateInstall texts.
+  let availableUpdateVersion = null;
+
+  function updateStatusMessage(status, installing) {
+    if (status.updated) return "Actualización instalada. Cerrá y abrí la aplicación.";
     switch (status.state) {
-      case "up_to_date": return "Estás en la última versión.";
-      case "available":
-        return `Nueva versión disponible: ${status.remote_version}. Tocá Actualizar.`;
-      case "dirty":
-        return "Hay cambios locales: la app no se actualiza sola.";
-      default:
-        return status.detail || "No se pudo comprobar si hay una versión nueva.";
+      case "up_to_date": return `La aplicación está actualizada (${status.local_version}).`;
+      case "available": return `Nueva versión ${status.remote_version} disponible.`;
+      default: {
+        const detail = status.detail || "error desconocido.";
+        return `${installing ? "No se pudo actualizar" : "No se pudo comprobar"}: ${detail}`;
+      }
     }
   }
 
-  function applyUpdateStatus(status) {
+  function applyUpdateStatus(status, installing) {
     if (!status) return;
-    const message = updateStatusMessage(status);
-    $("update-status").textContent = message;
+    const failed = !status.updated
+      && status.state !== "up_to_date" && status.state !== "available";
+    const label = $("update-status");
+    label.textContent = updateStatusMessage(status, installing);
+    label.classList.toggle("error", failed);
+    availableUpdateVersion = status.state === "available" ? status.remote_version : null;
     $("apply-update").hidden = status.state !== "available";
-    // The notice is also visible from other tabs (legacy startup MessageBox).
-    if (status.state === "available" || status.updated) setStatus(message);
+    if (status.updated) {
+      const version = status.local_version || status.remote_version;
+      $("version-badge").textContent = version;
+      $("app-version-label").textContent = `Aplicación ${version}`;
+      setStatus(`Actualización ${version} instalada.`);
+    } else if (failed && installing) {
+      setStatus(label.textContent, "error");
+    }
   }
 
-  $("check-update").addEventListener("click", async () => {
-    if (!requireBridge()) return;
+  async function checkForUpdates() {
     const button = $("check-update");
     button.disabled = true;
     $("apply-update").hidden = true;
+    $("update-status").classList.remove("error");
     $("update-status").textContent = "Buscando una versión nueva en origin/main...";
     try {
       applyUpdateStatus(await bridgeApi().check_for_updates());
     } catch (_) {
-      $("update-status").textContent = "No se pudo comprobar si hay una versión nueva.";
+      $("update-status").textContent = "No se pudo comprobar: error desconocido.";
     } finally {
       button.disabled = false;
     }
+  }
+
+  // Legacy Invoke-AppUpdateInstall: true when the new version was installed.
+  async function installUpdate() {
+    $("check-update").disabled = true;
+    $("apply-update").disabled = true;
+    $("update-status").textContent = "Aplicando la actualización...";
+    setStatus("Aplicando la actualización...");
+    try {
+      const status = await bridgeApi().apply_update();
+      applyUpdateStatus(status, true);
+      return !!status.updated;
+    } catch (_) {
+      $("update-status").textContent = "No se pudo actualizar: error desconocido.";
+      return false;
+    } finally {
+      $("check-update").disabled = false;
+      $("apply-update").disabled = false;
+    }
+  }
+
+  $("check-update").addEventListener("click", () => {
+    if (requireBridge()) checkForUpdates();
   });
 
   $("apply-update").addEventListener("click", async () => {
     if (!requireBridge()) return;
-    const button = $("apply-update");
-    button.disabled = true;
-    $("check-update").disabled = true;
-    $("update-status").textContent = "Aplicando la actualización..."; // legacy
-    try {
-      applyUpdateStatus(await bridgeApi().apply_update());
-    } catch (_) {
-      $("update-status").textContent = "No se pudo aplicar la actualización.";
-    } finally {
-      button.disabled = false;
-      $("check-update").disabled = false;
+    if (!window.confirm(`Se actualizará TXT Preview a ${availableUpdateVersion} desde origin/main. `
+        + "La aplicación deberá reiniciarse.")) return;
+    if (await installUpdate()) {
+      window.alert(`TXT Preview se actualizó a ${$("version-badge").textContent}. `
+        + "Cerrá y volvé a abrir la aplicación para usar el código nuevo.");
     }
   });
+
+  // Legacy Invoke-StartupUpdateCheck: offers the new version once at startup.
+  async function offerStartupUpdate(status) {
+    applyUpdateStatus(status);
+    if (!availableUpdateVersion) return;
+    const accepted = window.confirm(
+      `Hay una versión nueva de TXT Preview: ${availableUpdateVersion} (tenés ${status.local_version}).`
+      + " ¿Querés actualizar ahora? La aplicación se reiniciará sola.");
+    if (!accepted) {
+      setStatus(`Versión ${availableUpdateVersion} disponible. Podés actualizar desde Configuración.`,
+        "warning");
+      return;
+    }
+    if (await installUpdate()) {
+      await safeCall((api) => api.restart_app(), "No se pudo reiniciar la aplicación.");
+    }
+  }
 
   window.addEventListener("pywebviewready", async () => {
     let theme = "dark";
@@ -1379,7 +1425,7 @@
     copyMain, withBusy,
     applyTheme, applyModelCatalog, saveSettingsForm, showWorkOverlay, hideWorkOverlay,
     applySelectedModelCapabilities, capabilitiesFor,
-    loadStartupModels, applyUpdateStatus,
+    loadStartupModels, applyUpdateStatus, offerStartupUpdate,
     applyVoiceCatalog, refreshVoices, renderFilteredVoiceCatalog,
     selectVoiceByFilter, applySpeechState, applyVoiceSwitch, speedLabel,
   };

@@ -8,6 +8,7 @@ macOS. Local changes are never overwritten: a non-empty
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -29,7 +30,8 @@ STATE_ERROR = "error"
 MSG_NO_GIT_BINARY = "Git no está instalado o no está disponible en PATH."
 MSG_NO_GIT_CLONE = ("La aplicación no se ejecuta desde un clon Git; "
                     "no se puede actualizar automáticamente.")
-MSG_FETCH_ERROR = "No se pudo contactar con GitHub."
+MSG_FETCH_ERROR = "No se pudo consultar origin/main."
+MSG_VERSION_FORMAT = "La versión publicada no usa el formato esperado v:yy.mm.dd-HH.mm."
 MSG_REMOTE_VERSION = "No se pudo leer VERSION desde origin/main."
 MSG_LOCAL_VERSION = "No se pudo leer el archivo VERSION local."
 MSG_BRANCH_CHECK = "No se pudo revisar la rama actual."
@@ -62,15 +64,22 @@ class UpdateStatus:
         }
 
 
+_VERSION_PATTERN = re.compile(r"^v:\d{2}\.\d{2}\.\d{2}-\d{2}\.\d{2}$")
+
+
 def compare_versions(left: str, right: str) -> bool:
-    """True when the left version is newer (string compare, legacy style)."""
-    return left.strip() > right.strip()
+    """True when the left version is newer. Legacy Compare-AppVersions: both
+    must match v:yy.mm.dd-HH.mm and are compared by their digits."""
+    left, right = left.strip(), right.strip()
+    if not _VERSION_PATTERN.match(left) or not _VERSION_PATTERN.match(right):
+        raise ValueError(MSG_VERSION_FORMAT)
+    return int(re.sub(r"\D", "", left)) > int(re.sub(r"\D", "", right))
 
 
 def classify(local_version: str, remote_version: str,
              branch: str, dirty: bool) -> str:
-    """Legacy precedence: wrong_branch wins over dirty (Install-AppUpdate
-    checks the branch first), and both win over the version comparison."""
+    """Legacy precedence: the branch is checked first, local changes only
+    block the installation (see apply_update), then the version comparison."""
     if branch != BRANCH:
         return STATE_WRONG_BRANCH
     if dirty:
@@ -102,8 +111,16 @@ def _fetch_error(stderr: str) -> str:
     return detail
 
 
+def _is_dirty(repo: Path) -> bool | None:
+    code, stdout, _ = _run_git(repo, ["status", "--porcelain"])
+    if code != 0:
+        return None
+    return bool(stdout.strip())
+
+
 def check_update(repo_root: str | Path) -> UpdateStatus:
-    """Legacy Get-AvailableAppUpdate plus the dirty-worktree refusal."""
+    """Legacy Get-AvailableAppUpdate: main branch, fetch, VERSION compare.
+    Local changes do not affect the check; they only block installing."""
     repo = Path(repo_root)
     if not (repo / ".git").exists():
         return UpdateStatus(STATE_NO_GIT, "", "", MSG_NO_GIT_CLONE)
@@ -128,30 +145,29 @@ def check_update(repo_root: str | Path) -> UpdateStatus:
     if code != 0:
         return UpdateStatus(STATE_ERROR, remote_version, local_version,
                             MSG_BRANCH_CHECK)
-    branch = stdout.strip()
-
-    code, stdout, _ = _run_git(repo, ["status", "--porcelain"])
-    if code != 0:
-        return UpdateStatus(STATE_ERROR, remote_version, local_version,
-                            MSG_STATUS_CHECK)
-    dirty = bool(stdout.strip())
-
-    state = classify(local_version, remote_version, branch, dirty)
-    if state == STATE_DIRTY:
-        detail = MSG_DIRTY
-    elif state == STATE_WRONG_BRANCH:
-        detail = MSG_WRONG_BRANCH
-    else:
-        detail = ""
+    try:
+        state = classify(local_version, remote_version, stdout.strip(), False)
+    except ValueError as error:
+        return UpdateStatus(STATE_ERROR, remote_version, local_version, str(error))
+    detail = MSG_WRONG_BRANCH if state == STATE_WRONG_BRANCH else ""
     return UpdateStatus(state, remote_version, local_version, detail)
 
 
 def apply_update(repo_root: str | Path) -> UpdateStatus:
-    """Legacy Install-AppUpdate: re-verify, then `git pull --ff-only`."""
+    """Legacy Install-AppUpdate: main branch, clean worktree, then
+    `git pull --ff-only`."""
     repo = Path(repo_root)
     verified = check_update(repo)
     if verified.state != STATE_AVAILABLE:
         return verified
+
+    dirty = _is_dirty(repo)
+    if dirty is None:
+        return UpdateStatus(STATE_ERROR, verified.remote_version,
+                            verified.local_version, MSG_STATUS_CHECK)
+    if dirty:
+        return UpdateStatus(STATE_DIRTY, verified.remote_version,
+                            verified.local_version, MSG_DIRTY)
 
     code, _, stderr = _run_git(repo, ["pull", "--ff-only", "origin", BRANCH])
     if code != 0:
@@ -165,7 +181,6 @@ def apply_update(repo_root: str | Path) -> UpdateStatus:
                      if local_file.exists() else "")
     return UpdateStatus(
         STATE_UP_TO_DATE, verified.remote_version, local_version,
-        f"Actualizado a {verified.remote_version}. Reiniciá la aplicación.",
+        "Actualización instalada. Cerrá y abrí la aplicación.",
         updated=True,
     )
-

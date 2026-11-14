@@ -1,5 +1,15 @@
 # Historial de cambios
 
+## v:26.11.14-12.44
+
+### Actualizaciones como en la versión PowerShell
+
+- Al iniciar, si hay una versión nueva, la app pregunta si querés actualizar ahora; si aceptás, instala y se reinicia sola. Si no, avisa que podés actualizar desde Configuración.
+- «Actualizar ahora» pide confirmación y al terminar avisa que hay que cerrar y abrir la aplicación.
+- Los cambios locales ya no ocultan la versión nueva al buscar: solo impiden instalarla.
+- Las versiones se comparan por sus números y se valida el formato `v:aa.mm.dd-HH.mm`.
+- Textos iguales a los originales: «La aplicación está actualizada (…)», «Nueva versión … disponible.», «Actualización instalada. Cerrá y abrí la aplicación.», «No se pudo comprobar: …» y «No se pudo actualizar: …».
+
 ## v:26.11.14-12.40
 
 ### Mensajes de estado y traducción

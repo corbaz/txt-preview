@@ -590,3 +590,5 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 /* The hidden attribute always wins over display rules (flex/inline-flex). */
 [hidden] { display: none !important; }
+
+#update-status.error { color: #f85149; }
