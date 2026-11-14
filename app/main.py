@@ -18,6 +18,7 @@ from bisect import bisect_right
 import json
 import os
 import socket
+import re
 import subprocess
 import sys
 import threading
@@ -45,6 +46,7 @@ from txt_core.exports import (
     MSG_MP3_EMPTY,
     MSG_PDF_EMPTY,
     export_mp3 as export_mp3_file,
+    export_file_path,
     export_pdf as export_pdf_file,
     markdown_to_text,
 )
@@ -103,6 +105,8 @@ MSG_DICTATION_MAC = ("El dictado es una función del sistema en macOS: activá e
                      "la tecla de dictado (micrófono).")
 MSG_DICTATION_UNSUPPORTED = "El dictado nativo no está disponible en esta plataforma."
 MSG_WINDOW_UNAVAILABLE = "La ventana no está disponible."
+MSG_EDGE_TTS_OUTDATED = ("Las voces Edge necesitan una versión nueva de edge-tts. "
+                         "Tocá «Actualizar voces» en Configuración.")
 MSG_WINDOW_CLOSE_FAILED = "No se pudo cerrar la ventana: {detail}"
 INPUT_MESSAGES = {
     "consult": "Ingresá una consulta en el Editor o adjuntá al menos un archivo.",
@@ -208,8 +212,9 @@ class Api:
         self._theme = str(loaded.get("theme") or DEFAULT_THEME)
         self._speech_voice = str(loaded.get("speech_voice") or DEFAULT_SPEECH_VOICE)
         self.set_speech_speed(int(loaded.get("speed") or 100))
-        self._selected_model = str(loaded.get("selected_model")
-                                   or models.DEFAULT_MODEL_ID)
+        # The saved model is ignored on purpose, as in txt.ps1: every launch
+        # starts on openai/gpt-oss-120b.
+        self._selected_model = models.DEFAULT_MODEL_ID
         self._bridge_passwords.update(settings.get_bridge_passwords(
             [bridge.key for bridge in bridges.LOCAL_BRIDGES],
             self._settings_dir, decrypt=self._api_decrypt))
@@ -821,10 +826,7 @@ class Api:
         """Legacy Export-PreviewPdf, PyMuPDF instead of headless Edge."""
         if not self._preview_text.strip():
             return {"ok": False, "message": MSG_PDF_EMPTY}
-        target = self._ask_save_path(
-            "Guardar Vista previa como PDF", "txt-preview.pdf",
-            ("Documento PDF (*.pdf)", "Todos los archivos (*.*)"),
-        )
+        target = self._ask_export_path("Elegí la carpeta donde guardar el PDF", "pdf")
         if not target:
             return {"ok": False, "message": ""}
         try:
@@ -840,10 +842,7 @@ class Api:
         speech_text = markdown_to_text(self._preview_text)
         if not speech_text.strip():
             return {"ok": False, "message": MSG_MP3_EMPTY}
-        target = self._ask_save_path(
-            "Guardar lectura como MP3", "txt-preview.mp3",
-            ("Audio MP3 (*.mp3)", "Todos los archivos (*.*)"),
-        )
+        target = self._ask_export_path("Elegí la carpeta donde guardar el MP3", "mp3")
         if not target:
             return {"ok": False, "message": ""}
         try:
@@ -855,15 +854,33 @@ class Api:
             return {"ok": False, "message": f"No se pudo generar el MP3: {error}"}
         return {"ok": True, "path": target, "message": f"MP3 guardado en {target}"}
 
-    def _ask_save_path(self, _title: str, suggested_name: str, file_types) -> str | None:
-        """Native save dialog (legacy Select-ExportPath); None when cancelled."""
+    def _ask_export_path(self, title: str, extension: str) -> str | None:
+        """Legacy Select-ExportPath: ask only for the destination folder (an
+        Explorer-style tree) and generate the file name; None when cancelled."""
+        folder = self._ask_folder(title, self._last_export_folder())
+        if not folder:
+            return None
+        self._export_folder = folder
+        return export_file_path(folder, extension)
+
+    def _last_export_folder(self) -> str:
+        """The folder of the previous export, Documents the first time."""
+        return getattr(self, "_export_folder", None) or os.path.join(
+            os.path.expanduser("~"), "Documents")
+
+    def _ask_folder(self, title: str, initial: str) -> str | None:
         window = getattr(self, "_window", None)
         if window is None:
             return None
-        chosen = window.create_file_dialog(
-            webview.FileDialog.SAVE, save_filename=suggested_name, file_types=file_types,
-        )
-        return chosen or None
+        if sys.platform == "win32":
+            try:
+                return _windows_folder_tree(window, title, initial)
+            except Exception:
+                pass  # fall back to the pywebview folder dialog
+        chosen = window.create_file_dialog(webview.FileDialog.FOLDER, directory=initial)
+        if not chosen:
+            return None
+        return chosen if isinstance(chosen, str) else chosen[0]
 
     # ---- In-app update (T11/S4) ---------------------------------------------
     def check_for_updates(self) -> dict:
@@ -895,7 +912,41 @@ class Api:
 
     # ---- Speech (T4/S6) ----------------------------------------------------
     def _on_engine_message(self, level: str, message: str) -> None:
-        self._last_message = message
+        self._last_message = self._edge_voice_message(message)
+
+    def _edge_voice_message(self, message: str) -> str:
+        """Legacy Show-EdgeVoiceError: Microsoft rejects the handshake of an
+        outdated edge-tts with HTTP 403; that offers "Actualizar voces"."""
+        if "WSServerHandshakeError" in message and re.search(r"\b403\b", message):
+            self._voice_update_offered = True
+            return MSG_EDGE_TTS_OUTDATED
+        return message
+
+    def update_edge_tts(self, runner=None) -> dict:
+        """Legacy Update-EdgeTts: pip-upgrade edge-tts for the current user."""
+        python = self.engine.python_command
+        if not python:
+            return {"ok": False, "label": self.edge_tts_version_label(),
+                    "message": "Las voces Edge necesitan Python."}
+        run = runner or subprocess.run
+        try:
+            completed = run(
+                [python, "-m", "pip", "install", "--user", "--quiet", "--upgrade", "edge-tts"],
+                capture_output=True, text=True, timeout=600,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            code, error_text = completed.returncode, (completed.stderr or "").strip()
+        except Exception as error:
+            code, error_text = -1, str(error)
+        label = self.edge_tts_version_label(runner=runner)
+        if code != 0:
+            detail = (error_text.splitlines()[-1] if error_text
+                      else f"pip terminó con código {code}.")
+            return {"ok": False, "label": label,
+                    "message": f"No se pudieron actualizar las voces Edge: {detail}"}
+        self._voice_update_offered = False
+        version = label.replace("Voces Edge: ", "", 1)
+        return {"ok": True, "label": label,
+                "message": f"Voces Edge actualizadas: {version}."}
 
     def start_speech(self, text: str, raw_words: str | None = None) -> dict:
         """Start an Edge reading of the editor text; raw_words are the preview
@@ -1036,7 +1087,7 @@ class Api:
             try:
                 self.engine.poll()
             except Exception as error:
-                self._last_message = str(error)
+                self._last_message = self._edge_voice_message(str(error))
             click = self._pending_click
             self._pending_click = None
             if click is not None:
@@ -1087,6 +1138,7 @@ class Api:
             "replay_position": round(self._replay_position(), 3),
             "replay_duration": round(engine.replay.duration, 3),
             "message": self._last_message,
+            "voice_update_offered": bool(getattr(self, "_voice_update_offered", False)),
         }
 
     def _replay_position(self) -> float:
@@ -1123,6 +1175,37 @@ class Api:
                 engine.pause()
         except Exception as error:
             self._last_message = f"No se pudo saltar a la palabra elegida: {error}"
+
+
+def _windows_folder_tree(window, title: str, initial: str) -> str | None:
+    """WinForms FolderBrowserDialog in its classic tree form, shown on the UI
+    thread of the pywebview form (same dialog as txt.ps1)."""
+    from System import Func, Type
+    from System.Windows.Forms import DialogResult, FolderBrowserDialog
+    from webview.platforms.winforms import BrowserView
+    form = BrowserView.instances[window.uid]
+    chosen: list[str] = []
+
+    def show():
+        dialog = FolderBrowserDialog()
+        dialog.Description = title
+        dialog.ShowNewFolderButton = True
+        # Newer .NET upgrades the dialog to a file-style window; keep the tree.
+        for name, value in (("UseDescriptionForTitle", True), ("AutoUpgradeEnabled", False)):
+            if hasattr(dialog, name):
+                setattr(dialog, name, value)
+        dialog.SelectedPath = initial
+        try:
+            if dialog.ShowDialog(form) == DialogResult.OK:
+                chosen.append(str(dialog.SelectedPath))
+        finally:
+            dialog.Dispose()
+
+    if form.InvokeRequired:
+        form.Invoke(Func[Type](show))
+    else:
+        show()
+    return chosen[0] if chosen else None
 
 
 def create_app() -> None:

@@ -50,13 +50,16 @@ class ApiSettingsTestCase(unittest.TestCase):
 
 
 class TestStartupWiring(ApiSettingsTestCase):
-    def test_initialize_settings_applies_theme_speed_voice_and_model(self):
+    def test_initialize_settings_applies_theme_speed_voice_and_default_model(self):
         settings.save_settings({"theme": "light", "speed": 150,
                                 "speech_voice": "es-AR-TomasNeural",
                                 "selected_model": "allam-2-7b"},
                                self.settings_dir)
         summary = self.api.initialize_settings()
-        self.assertEqual(self.api.get_selected_model(), "allam-2-7b")
+        # txt.ps1 parity: the saved model is ignored on purpose; every launch
+        # starts on openai/gpt-oss-120b.
+        self.assertEqual(self.api.get_selected_model(), "openai/gpt-oss-120b")
+        self.assertEqual(summary["selected_model"], "openai/gpt-oss-120b")
         self.assertEqual(summary["theme"], "light")
         self.assertEqual(summary["speed"], 150)
         self.assertEqual(summary["speech_voice"], "es-AR-TomasNeural")
@@ -593,3 +596,61 @@ class TestAskAiKeyOrder(ApiSettingsTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEdgeTtsUpdateOffer(ApiSettingsTestCase):
+    """txt.ps1 Show-EdgeVoiceError / Update-EdgeTts."""
+
+    def setUp(self):
+        super().setUp()
+        # A real engine: the speech state is part of what these tests read.
+        self.api = main.Api(settings_dir=self.settings_dir)
+
+    OUTDATED = "aiohttp.client_exceptions.WSServerHandshakeError: 403, message='Invalid response status'"
+
+    def test_outdated_edge_tts_error_offers_the_update(self):
+        self.assertFalse(self.api._speech_state()["voice_update_offered"])
+        self.api._on_engine_message("error", self.OUTDATED)
+        state = self.api._speech_state()
+        self.assertTrue(state["voice_update_offered"])
+        self.assertEqual(
+            state["message"],
+            "Las voces Edge necesitan una versión nueva de edge-tts. "
+            "Tocá «Actualizar voces» en Configuración.")
+
+    def test_other_errors_do_not_offer_the_update(self):
+        self.api._on_engine_message("error", "No se encontró ffplay (error 4035).")
+        state = self.api._speech_state()
+        self.assertFalse(state["voice_update_offered"])
+        self.assertEqual(state["message"], "No se encontró ffplay (error 4035).")
+
+    def test_update_runs_pip_upgrade_and_withdraws_the_offer(self):
+        self.api.engine.python_command = "python"
+        self.api._voice_update_offered = True
+        calls = []
+
+        def runner(argv, **kwargs):
+            calls.append(argv)
+            return mock.Mock(returncode=0, stdout="7.3.1\n", stderr="")
+
+        result = self.api.update_edge_tts(runner=runner)
+        self.assertEqual(calls[0], ["python", "-m", "pip", "install", "--user",
+                                    "--quiet", "--upgrade", "edge-tts"])
+        self.assertEqual(result, {"ok": True, "label": "Voces Edge: edge-tts v7.3.1",
+                                  "message": "Voces Edge actualizadas: edge-tts v7.3.1."})
+        self.assertFalse(self.api._speech_state()["voice_update_offered"])
+
+    def test_failed_update_reports_the_last_pip_line_and_keeps_the_offer(self):
+        self.api.engine.python_command = "python"
+        self.api._voice_update_offered = True
+
+        def runner(argv, **kwargs):
+            if "pip" in argv:
+                return mock.Mock(returncode=1, stdout="", stderr="x\nERROR: sin red\n")
+            return mock.Mock(returncode=0, stdout="7.2.8\n", stderr="")
+
+        result = self.api.update_edge_tts(runner=runner)
+        self.assertEqual(result["ok"], False)
+        self.assertEqual(result["message"],
+                         "No se pudieron actualizar las voces Edge: ERROR: sin red")
+        self.assertTrue(self.api._speech_state()["voice_update_offered"])

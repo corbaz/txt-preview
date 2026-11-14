@@ -1,5 +1,17 @@
 # Historial de cambios
 
+## v:26.11.14-11.55
+
+### Exportar PDF y MP3 eligiendo la carpeta en un árbol
+
+- PDF y MP3 muestran un árbol de carpetas tipo Explorador para elegir dónde guardar, tanto en `txt.ps1` como en la app Python (en macOS, el selector de carpetas del sistema).
+- El archivo se nombra solo (`lectura-AAAAMMDD-HHMM.pdf` / `.mp3`) y nunca pisa uno existente: agrega `-2`, `-3`, etc. La siguiente exportación arranca en la última carpeta usada.
+
+### La app Python se comporta como la versión PowerShell
+
+- Cada inicio arranca en `openai/gpt-oss-120b`, sin restaurar el último modelo.
+- «Actualizar voces» aparece solo cuando Edge rechaza un `edge-tts` desactualizado (HTTP 403) y actualiza el paquete con `pip`, mostrando la versión resultante.
+
 ## v:26.11.14-11.39
 
 ### Configuración igual a la versión PowerShell

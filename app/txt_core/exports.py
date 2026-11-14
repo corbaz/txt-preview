@@ -125,6 +125,20 @@ def markdown_to_text(markdown_text: str) -> str:
     return unescape(plain).strip()
 
 
+def export_file_path(folder: str, extension: str, now=None, exists=os.path.exists) -> str:
+    """Legacy Get-ExportFilePath: "lectura-<yyyyMMdd-HHmm>.<ext>" inside the
+    chosen folder, with -2, -3... so an export never overwrites a file."""
+    import datetime
+    moment = now or datetime.datetime.now()
+    base_name = f"lectura-{moment:%Y%m%d-%H%M}"
+    path = os.path.join(folder, f"{base_name}.{extension}")
+    counter = 2
+    while exists(path):
+        path = os.path.join(folder, f"{base_name}-{counter}.{extension}")
+        counter += 1
+    return path
+
+
 def export_pdf(markdown_text: str, output_path: str) -> str:
     """Write markdown_text as a paginated PDF at output_path.
 

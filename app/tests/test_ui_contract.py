@@ -949,7 +949,7 @@ class TestReplayHighlightAndNativeAttachments(UiContractTestCase):
 
     def test_modern_pywebview_file_dialog_enums_replace_deprecated_constants(self):
         self.assertIn("webview.FileDialog.OPEN", self.py_source)
-        self.assertIn("webview.FileDialog.SAVE", self.py_source)
+        self.assertIn("webview.FileDialog.FOLDER", self.py_source)
         self.assertNotIn("webview.OPEN_DIALOG", self.py_source)
         self.assertNotIn("webview.SAVE_DIALOG", self.py_source)
 

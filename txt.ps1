@@ -4602,24 +4602,43 @@ function Wait-TaskWithEvents {
     return $task.GetAwaiter().GetResult()
 }
 
-function Select-ExportPath {
+# PDF and MP3 exports ask only for the destination folder, in an Explorer-style tree;
+# the file name is generated ("lectura-<date>-<time>.<ext>") and never overwrites.
+$script:lastExportFolder = [Environment]::GetFolderPath("MyDocuments")
+
+function Get-ExportFilePath {
     param(
-        [string]$title,
-        [string]$filter,
+        [string]$folder,
         [string]$extension
     )
 
-    $dialog = New-Object Windows.Forms.SaveFileDialog
-    $dialog.Title = $title
-    $dialog.Filter = $filter
-    $dialog.DefaultExt = $extension
-    $dialog.AddExtension = $true
-    $dialog.OverwritePrompt = $true
-    $dialog.InitialDirectory = [Environment]::GetFolderPath("MyDocuments")
-    $dialog.FileName = "lectura-{0:yyyyMMdd-HHmm}.{1}" -f (Get-Date), $extension
+    $baseName = "lectura-{0:yyyyMMdd-HHmm}" -f (Get-Date)
+    $path = Join-Path $folder "$baseName.$extension"
+    $counter = 2
+    while (Test-Path -LiteralPath $path) {
+        $path = Join-Path $folder "$baseName-$counter.$extension"
+        $counter++
+    }
+    return $path
+}
+
+function Select-ExportPath {
+    param(
+        [string]$title,
+        [string]$extension
+    )
+
+    $dialog = New-Object Windows.Forms.FolderBrowserDialog
+    $dialog.Description = $title
+    $dialog.UseDescriptionForTitle = $true
+    $dialog.ShowNewFolderButton = $true
+    # The classic dialog is the folder tree; the upgraded one is a file-style window.
+    $dialog.AutoUpgradeEnabled = $false
+    $dialog.SelectedPath = $script:lastExportFolder
     try {
         if ($dialog.ShowDialog($form) -eq [Windows.Forms.DialogResult]::OK) {
-            return $dialog.FileName
+            $script:lastExportFolder = $dialog.SelectedPath
+            return Get-ExportFilePath $dialog.SelectedPath $extension
         }
         return $null
     } finally {
@@ -4684,7 +4703,7 @@ function Export-PreviewPdf {
         Show-Message "No se encontró Microsoft Edge para generar el PDF." -Level Error
         return
     }
-    $targetPath = Select-ExportPath "Guardar Vista previa como PDF" "Documento PDF (*.pdf)|*.pdf" "pdf"
+    $targetPath = Select-ExportPath "Elegí la carpeta donde guardar el PDF" "pdf"
     if (-not $targetPath) {
         return
     }
@@ -4771,7 +4790,7 @@ function Export-SpeechMp3 {
         return
     }
 
-    $targetPath = Select-ExportPath "Guardar lectura como MP3" "Audio MP3 (*.mp3)|*.mp3" "mp3"
+    $targetPath = Select-ExportPath "Elegí la carpeta donde guardar el MP3" "mp3"
     if (-not $targetPath) {
         return
     }

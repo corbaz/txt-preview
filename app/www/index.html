@@ -86,7 +86,8 @@
           <input id="api-key" type="password" autocomplete="off" />
           <button id="save-api-key" class="ghost">Guardar</button>
           <button id="update-models" class="ghost">Actualizar modelos</button>
-          <button id="update-voices" class="ghost">Actualizar voces</button>
+          <!-- Shown only after Edge answers 403 (outdated edge-tts), as in txt.ps1. -->
+          <button id="update-voices" class="ghost" hidden>Actualizar voces</button>
           <span id="edge-tts-version" class="hint">Voces Edge: sin comprobar</span>
         </div>
         <div class="settings-row bridges">

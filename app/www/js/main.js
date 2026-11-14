@@ -260,6 +260,7 @@
       paintSlider(seek);
     }
     if (state.message) setStatus(state.message);
+    if (state.voice_update_offered) $("update-voices").hidden = false;
   }
 
   async function speechTick() {
@@ -989,7 +990,27 @@
     }
   }
 
-  $("update-voices").addEventListener("click", () => refreshVoices(true));
+  // Legacy Update-EdgeTts: the button only appears after Edge rejects an
+  // outdated edge-tts (HTTP 403) and upgrades the package.
+  $("update-voices").addEventListener("click", async () => {
+    const button = $("update-voices");
+    button.disabled = true;
+    showWorkOverlay("Actualizando las voces Edge (edge-tts)...");
+    try {
+      const result = await safeCall((api) => api.update_edge_tts(),
+        "No se pudieron actualizar las voces Edge.");
+      if (!result) return;
+      $("edge-tts-version").textContent = result.label;
+      setStatus(result.message);
+      if (result.ok) {
+        button.hidden = true;
+        refreshVoices(true);
+      }
+    } finally {
+      hideWorkOverlay();
+      button.disabled = false;
+    }
+  });
 
   // Radio-like groups (legacy New-ToggleGroup panels): one active per group.
   const VOICE_TOGGLE_GROUPS = {
