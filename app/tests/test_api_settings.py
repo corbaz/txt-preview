@@ -89,20 +89,138 @@ class TestApiKeyHandling(ApiSettingsTestCase):
 
 
 class TestUpdateModels(ApiSettingsTestCase):
-    def test_guard_without_api_key(self):
-        result = self.api.update_models()
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"], "Ingresá una API key de Groq.")
-
-    def test_guard_failure_is_not_cached(self):
-        self.assertFalse(self.api.update_models()["ok"])
-        self.api.set_api_key("gsk_guard_test")
-        with mock.patch.object(models, "fetch_models",
-                               return_value=list(models.DEFAULT_GROQ_MODELS)), \
+    def test_without_api_key_lists_static_catalog_and_probes_bridges(self):
+        """txt.ps1 parity: a subscription bridge alone is a valid setup, so
+        no Groq key still lists the static catalog and checks the bridges."""
+        with mock.patch.object(models, "fetch_models") as fetch, \
                 mock.patch.object(main, "_tcp_listening", return_value=False):
             result = self.api.update_models()
+        fetch.assert_not_called()
+        self.assertTrue(result["ok"])
+        self.assertNotIn("error", result)
+        self.assertEqual([m["id"] for m in result["models"]],
+                         sorted(m.id for m in models.DEFAULT_GROQ_MODELS))
+        self.assertEqual(result["bridge_status"],
+                         {"claude": "Apagado", "codex": "Apagado", "gemini": "Apagado"})
+
+    def test_saving_a_key_drops_the_cached_catalog(self):
+        with mock.patch.object(main, "_tcp_listening", return_value=False):
+            self.api.update_models()
+        self.api.set_api_key("gsk_guard_test")
+        only = [models.ModelInfo("openai/gpt-oss-120b", "OpenAI", 131072)]
+        with mock.patch.object(models, "fetch_models", return_value=only), \
+                mock.patch.object(main, "_tcp_listening", return_value=False):
+            result = self.api.update_models()
+        self.assertEqual([m["id"] for m in result["models"]], ["openai/gpt-oss-120b"])
+
+    def test_catalog_rows_carry_the_legacy_list_columns(self):
+        self.api.set_api_key("gsk_rows")
+        only = [models.ModelInfo("openai/gpt-oss-120b", "OpenAI", 131072)]
+        with mock.patch.object(models, "fetch_models", return_value=only), \
+                mock.patch.object(main, "_tcp_listening", return_value=False):
+            row = self.api.update_models()["models"][0]
+        self.assertEqual(row["owned_by"], "OpenAI")
+        self.assertEqual(row["context"], "131.072")
+        self.assertEqual(
+            row["capabilities"]["summary"],
+            "Texto · Razonamiento · Búsqueda web · Documentos (texto, PDF, Word, PowerPoint)")
+
+
+class TestSettingsForm(ApiSettingsTestCase):
+    """Configuración buttons, with the txt.ps1 messages."""
+
+    OFF = "Bridges: Claude Apagado · Codex Apagado · Gemini Apagado"
+
+    def test_save_requires_a_key_or_a_bridge_password(self):
+        result = self.api.save_settings_form("  ", {"claude": " "})
+        self.assertEqual(result, {
+            "ok": False, "level": "error", "message":
+            "No se pudo guardar: Ingresá una API key de Groq o la contraseña de un bridge."})
+
+    def test_save_persists_key_and_bridge_passwords_and_rechecks_bridges(self):
+        with mock.patch.object(main, "_tcp_listening", return_value=False), \
+                mock.patch.object(main.sys, "platform", "win32"):
+            result = self.api.save_settings_form(" gsk_saved ", {"claude": " pw1 ", "codex": ""})
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            result["message"],
+            "Configuración guardada de forma segura para este usuario de Windows. " + self.OFF)
+        self.assertEqual(settings.get_api_key(self.settings_dir, decrypt=self.decrypt),
+                         "gsk_saved")
+        self.assertEqual(
+            settings.get_bridge_passwords(["claude", "codex", "gemini"],
+                                          self.settings_dir, decrypt=self.decrypt),
+            {"claude": "pw1"})
+        self.assertEqual(self.api.get_settings_secrets(), {
+            "api_key": "gsk_saved",
+            "bridge_passwords": {"claude": "pw1", "codex": "", "gemini": ""}})
+
+    def test_bridge_password_alone_can_be_saved(self):
+        with mock.patch.object(main, "_tcp_listening", return_value=False):
+            result = self.api.save_settings_form("", {"gemini": "pw"})
         self.assertTrue(result["ok"])
 
+    def test_saved_bridge_passwords_are_loaded_at_startup(self):
+        settings.set_bridge_passwords({"codex": "pw2"}, self.settings_dir, encrypt=self.encrypt)
+        self.api.initialize_settings()
+        self.assertEqual(self.api._bridge_passwords.get("codex"), "pw2")
+
+    def test_refresh_models_reports_the_count_and_saves_the_key(self):
+        listed = [models.ModelInfo("b-model", "B", 10), models.ModelInfo("a-model", "A", 20)]
+        with mock.patch.object(models, "fetch_models", return_value=listed) as fetch, \
+                mock.patch.object(main, "_tcp_listening", return_value=False):
+            result = self.api.refresh_models("gsk_box", {})
+        fetch.assert_called_once_with("gsk_box")
+        self.assertEqual(result["level"], "info")
+        self.assertEqual(result["message"],
+                         "2 modelos activos cargados desde Groq. " + self.OFF)
+        self.assertEqual([m["id"] for m in result["models"]], ["a-model", "b-model"])
+        self.assertEqual(settings.get_api_key(self.settings_dir, decrypt=self.decrypt),
+                         "gsk_box")
+
+    def test_refresh_models_failure_still_probes_bridges(self):
+        with mock.patch.object(main, "_tcp_listening", return_value=False):
+            result = self.api.refresh_models("", {})
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["level"], "warning")
+        self.assertEqual(
+            result["message"],
+            "No se pudieron actualizar los modelos de Groq: Ingresá una API key de Groq. "
+            + self.OFF)
+        self.assertEqual(settings.get_api_key(self.settings_dir, decrypt=self.decrypt), "")
+
+    def test_recheck_bridges_uses_the_typed_passwords(self):
+        seen = []
+
+        def fake_http(bridge, method, path, body, timeout, password):
+            seen.append((bridge.key, password))
+            return 200, "[]"
+
+        with mock.patch.object(main, "_tcp_listening", return_value=True), \
+                mock.patch.object(main.bridges, "bridge_http", side_effect=fake_http), \
+                mock.patch.dict("os.environ", {}, clear=False), \
+                mock.patch.object(main.bridges, "bridge_password_file",
+                                  return_value=self.settings_dir + "/none.txt"):
+            for name in ("CLAUDE_BRIDGE_PASSWORD", "CODEX_BRIDGE_PASSWORD",
+                         "GEMINI_BRIDGE_PASSWORD"):
+                main.os.environ.pop(name, None)
+            result = self.api.recheck_bridges({"claude": "typed"})
+        self.assertIn(("claude", "typed"), seen)
+        self.assertEqual(result["bridge_status"]["claude"], "Conectado (0 modelos)")
+
+    def test_edge_tts_version_label(self):
+        self.api.engine.python_command = "python"
+        ok = mock.Mock(returncode=0, stdout="7.3.1\n")
+        self.assertEqual(self.api.edge_tts_version_label(runner=lambda *a, **k: ok),
+                         "Voces Edge: edge-tts v7.3.1")
+        missing = mock.Mock(returncode=1, stdout="")
+        self.assertEqual(self.api.edge_tts_version_label(runner=lambda *a, **k: missing),
+                         "Voces Edge: edge-tts no instalado")
+        self.api.engine.python_command = None
+        self.assertEqual(self.api.edge_tts_version_label(), "Voces Edge: sin Python")
+
+
+class TestUpdateModelsBridges(ApiSettingsTestCase):
     def test_merges_groq_and_bridge_models_with_status(self):
         self.api.set_api_key("gsk_bridge_test")
         groq_model = models.ModelInfo("openai/gpt-oss-120b", "OpenAI", 131072)

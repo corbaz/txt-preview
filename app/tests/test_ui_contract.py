@@ -1025,7 +1025,7 @@ class TestBridgeReadinessAndControlledErrors(UiContractTestCase):
         self.assertLess(body.index("catch (_) {"), body.index("finally {"))
 
     def test_voice_selection_surfaces_a_controlled_error(self):
-        for name in ("selectVoiceByFilter", "refreshVoices", "saveApiKey",
+        for name in ("selectVoiceByFilter", "refreshVoices", "saveSettingsForm",
                      "loadStartupModels"):
             body = js_function(self.js_source, name)
             # Either its own catch or the central safeCall wrapper.

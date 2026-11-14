@@ -503,3 +503,70 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 #browser-empty { color: var(--muted); font-size: 14px; }
+
+/* ---- Configuración (txt.ps1 layout) ---- */
+.page[data-page="settings"] { overflow: hidden; }
+
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  padding: 24px 28px 14px;
+  box-sizing: border-box;
+}
+
+.settings-head { display: flex; justify-content: space-between; gap: 24px; }
+.settings-head h1 { font-size: 24px; font-weight: 600; margin: 0 0 6px; }
+.settings-update { min-width: 0; }
+.settings-update .hint { margin: 8px 0 0; }
+
+.settings-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.settings-row label { font-size: 13px; min-width: 62px; }
+.settings-row input {
+  background: var(--editor);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  outline: none;
+}
+.settings-row input:focus { border-color: var(--accent); }
+#api-key { flex: 0 1 470px; min-width: 180px; }
+#edge-tts-version { margin: 0; }
+
+.settings-row.bridges { gap: 24px; }
+.bridge { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bridge label { min-width: 0; }
+.bridge input { width: 150px; }
+.bridge-status { font-size: 13px; color: var(--muted); }
+.bridge-status.warning, #settings-status.warning { color: #e3b341; }
+#settings-status.error { color: #f85149; }
+
+#models-list-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--editor);
+}
+#models-list { width: 100%; border-collapse: collapse; font-size: 13px; }
+#models-list th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  text-align: left;
+  font-weight: 600;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+#models-list td { padding: 6px 10px; white-space: nowrap; }
+#models-list tbody tr { cursor: default; }
+#models-list tbody tr:hover { background: var(--panel); }
+#models-list tbody tr.selected { background: var(--accent); color: #fff; }
+
+#settings-status { margin: 0; font-size: 13px; min-height: 18px; }

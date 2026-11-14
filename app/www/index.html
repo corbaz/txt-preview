@@ -65,34 +65,56 @@
     </section>
 
     <section class="page" data-page="settings">
-      <div class="settings-form">
-        <label for="api-key">API key de Groq</label>
-        <div class="row">
-          <input id="api-key" type="password" placeholder="gsk_..." autocomplete="off" />
+      <!-- Same layout as the txt.ps1 Configuración tab. -->
+      <div class="settings-page">
+        <div class="settings-head">
+          <div>
+            <h1>Configuración</h1>
+            <p id="settings-hint" class="hint">La API key y las contraseñas de los bridges se cifran para tu usuario de Windows.</p>
+          </div>
+          <div class="settings-update">
+            <div class="settings-row">
+              <span id="app-version-label">Aplicación</span>
+              <button id="check-update" class="ghost">Buscar actualización</button>
+              <button id="apply-update" class="ghost" hidden>Actualizar ahora</button>
+            </div>
+            <p id="update-status" class="hint">Actualizaciones todavía no comprobadas.</p>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label for="api-key">API key</label>
+          <input id="api-key" type="password" autocomplete="off" />
           <button id="save-api-key" class="ghost">Guardar</button>
-        </div>
-        <p class="hint">Se guarda cifrada con la API del sistema (Windows DPAPI, Keychain en macOS). Podés crear una gratis en console.groq.com/keys.</p>
-        <label>Modelo</label>
-        <div class="row">
           <button id="update-models" class="ghost">Actualizar modelos</button>
-        </div>
-        <p class="hint">El selector de modelo vive en la barra superior; los puentes locales (Claude, Codex, Gemini) aparecen cuando están corriendo.</p>
-        <label for="theme-select">Tema</label>
-        <select id="theme-select">
-          <option value="dark">Oscuro</option>
-          <option value="light">Claro</option>
-        </select>
-        <label>Voz Edge</label>
-        <div class="row">
           <button id="update-voices" class="ghost">Actualizar voces</button>
+          <span id="edge-tts-version" class="hint">Voces Edge: sin comprobar</span>
         </div>
-        <p class="hint">El selector de voz vive en la botonera inferior; tocá «Actualizar voces» para refrescar la lista.</p>
-        <label>Actualización</label>
-        <div class="row" id="update-row">
-          <button id="check-update" class="ghost">Buscar actualizaciones</button>
-          <button id="apply-update" class="ghost" hidden>Actualizar ahora</button>
+        <div class="settings-row bridges">
+          <div class="bridge">
+            <label for="bridge-password-claude">Claude</label>
+            <input id="bridge-password-claude" class="bridge-password" data-bridge="claude" type="password" placeholder="Contraseña (opcional)" autocomplete="off" />
+            <span id="bridge-status-claude" class="bridge-status">Sin comprobar</span>
+          </div>
+          <div class="bridge">
+            <label for="bridge-password-codex">Codex</label>
+            <input id="bridge-password-codex" class="bridge-password" data-bridge="codex" type="password" placeholder="Contraseña (opcional)" autocomplete="off" />
+            <span id="bridge-status-codex" class="bridge-status">Sin comprobar</span>
+          </div>
+          <div class="bridge">
+            <label for="bridge-password-gemini">Gemini</label>
+            <input id="bridge-password-gemini" class="bridge-password" data-bridge="gemini" type="password" placeholder="Contraseña (opcional)" autocomplete="off" />
+            <span id="bridge-status-gemini" class="bridge-status">Sin comprobar</span>
+          </div>
         </div>
-        <p id="update-status" class="hint">Actualizaciones todavía no comprobadas.</p>
+        <div id="models-list-wrap">
+          <table id="models-list">
+            <thead>
+              <tr><th>Modelo</th><th>Proveedor</th><th>Contexto</th><th>Chat</th><th>Visión</th><th>Web</th><th>Adjuntos</th><th>Funciones</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p id="settings-status">Configurá una API key para actualizar la lista.</p>
       </div>
     </section>
 

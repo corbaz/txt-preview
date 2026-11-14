@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## v:26.11.14-11.39
+
+### Configuración igual a la versión PowerShell
+
+- La pestaña Configuración replica la original: versión y actualización arriba a la derecha, API key con Guardar y Actualizar modelos, versión de edge-tts, contraseñas y estado de los bridges Claude, Codex y Gemini, y la lista de modelos con columnas Modelo, Proveedor, Contexto, Chat, Visión, Web, Adjuntos y Funciones.
+- Las contraseñas de los bridges se guardan cifradas (en Windows, en el mismo campo que usa `txt.ps1`; en macOS, en el llavero) y al salir de la casilla se vuelve a comprobar el bridge.
+- Los bridges se comprueban aunque no haya API key de Groq: una suscripción sola es una configuración válida.
+- El selector de modelo muestra «Groq · modelo» y «Bridge · modelo», solo con modelos de chat, como el original.
+
 ## v:26.11.14-11.32
 
 ### Navegador integrado como en la versión PowerShell

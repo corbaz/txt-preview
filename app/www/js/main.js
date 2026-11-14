@@ -645,42 +645,97 @@
     const previous = preferredModel || select.value
       || (select.options[0] && select.options[0].value) || "";
     select.innerHTML = "";
-    const groups = {};
+    // Legacy Show-GroqModels: one selector for every provider, labelled
+    // "Groq · <id>" / "<Bridge> · <name>"; Groq models that cannot chat are
+    // listed in Configuración only.
     for (const model of result.models || []) {
-      const label = BRIDGE_GROUP_LABELS.includes(model.provider) ? model.provider : "Groq";
-      (groups[label] = groups[label] || []).push(model);
-    }
-    for (const label of BRIDGE_GROUP_LABELS) {
-      const models = groups[label];
-      if (!models || !models.length) continue;
-      const group = document.createElement("optgroup");
-      if (label === "Groq") {
-        group.label = "Groq";
-      } else {
-        const key = models[0].bridge;
-        group.label = `${label} · ${result.bridge_status[key] || ""}`;
-      }
-      for (const model of models) {
-        const option = document.createElement("option");
-        option.value = model.id;
-        option.textContent = model.name || model.id;
-        option.dataset.provider = label;
-        group.appendChild(option);
-      }
-      select.appendChild(group);
-    }
-    const hasPrevious = Array.from(select.options).some((o) => o.value === previous);
-    if (previous && !hasPrevious) {
-      // A persisted model missing from the catalog stays selectable.
+      const isBridge = !!model.bridge;
+      if (!isBridge && !(model.capabilities && model.capabilities.chat)) continue;
       const option = document.createElement("option");
-      option.value = previous;
-      option.textContent = previous;
+      option.value = model.id;
+      option.textContent = `${isBridge ? model.provider : "Groq"} · ${model.name || model.id}`;
       select.appendChild(option);
     }
-    if (previous) select.value = previous;
+    const hasPrevious = Array.from(select.options).some((o) => o.value === previous);
+    if (hasPrevious) {
+      select.value = previous;
+    } else if (select.options.length) {
+      select.selectedIndex = 0; // legacy: fall back to the first listed model
+    }
     select.disabled = select.options.length === 0;
+    renderModelsList(result.models || []);
+    applyBridgeStatus(result.bridge_status || {});
     // The catalog may have resolved the capabilities of the shown model.
     applySelectedModelCapabilities(select.value);
+    showSelectedModelSummary();
+  }
+
+  // Legacy Add-ModelListRow: one column per capability.
+  function renderModelsList(models) {
+    const body = document.querySelector("#models-list tbody");
+    body.innerHTML = "";
+    const mark = (value) => (value ? "\u2713" : "\u2014");
+    for (const model of models) {
+      const caps = model.capabilities || FALLBACK_CAPABILITIES;
+      const row = document.createElement("tr");
+      row.dataset.model = model.id;
+      const cells = [model.name || model.id, model.owned_by || "", model.context || "-",
+        mark(caps.chat), mark(caps.vision), mark(caps.web),
+        mark(caps.text_files || caps.vision), caps.summary || ""];
+      for (const text of cells) {
+        const cell = document.createElement("td");
+        cell.textContent = text;
+        row.appendChild(cell);
+      }
+      body.appendChild(row);
+    }
+    markSelectedModelRow();
+  }
+
+  function markSelectedModelRow() {
+    const current = $("model-select").value;
+    document.querySelectorAll("#models-list tbody tr").forEach((row) => {
+      row.classList.toggle("selected", row.dataset.model === current);
+    });
+  }
+
+  const BRIDGE_PORTS = { claude: 4098, codex: 4094, gemini: 4092 };
+  const BRIDGE_NAMES = { claude: "Claude", codex: "Codex", gemini: "Gemini" };
+
+  // Legacy Update-BridgeModels status labels (warning unless connected/off).
+  function applyBridgeStatus(bridgeStatus) {
+    for (const key of Object.keys(BRIDGE_PORTS)) {
+      const label = $(`bridge-status-${key}`);
+      const status = bridgeStatus[key] || "Sin comprobar";
+      label.textContent = status;
+      label.classList.toggle("warning",
+        !(status.startsWith("Conectado") || status === "Apagado" || status === "Sin comprobar"));
+      label.title = `${BRIDGE_NAMES[key]} · 127.0.0.1:${BRIDGE_PORTS[key]} · ${status}`;
+    }
+  }
+
+  function setSettingsStatus(message, level) {
+    const status = $("settings-status");
+    status.textContent = message;
+    status.classList.toggle("error", level === "error");
+    status.classList.toggle("warning", level === "warning");
+  }
+
+  // Legacy Update-ModelCapabilityControls: "<model> · <capabilities>".
+  function showSelectedModelSummary() {
+    const modelId = $("model-select").value;
+    if (!modelId) return;
+    const caps = capabilitiesFor(modelId);
+    setSettingsStatus(caps.summary ? `${modelId} · ${caps.summary}` : modelId);
+    markSelectedModelRow();
+  }
+
+  function bridgePasswordsFromBoxes() {
+    const passwords = {};
+    document.querySelectorAll(".bridge-password").forEach((box) => {
+      passwords[box.dataset.bridge] = box.value.trim();
+    });
+    return passwords;
   }
 
   // S9: startup model load — the persisted model is preselected and the
@@ -725,58 +780,84 @@
     }
   }
 
-  async function saveApiKey() {
-    if (!requireBridge()) return;
-    const api = bridgeApi();
-    const key = $("api-key").value.trim();
-    if (!key) {
-      setStatus("Ingresá una API key de Groq.");
-      $("api-key").focus();
-      return;
+  let savedBridgePasswords = {};
+
+  function applySettingsResult(result) {
+    if (result.models) {
+      applyModelCatalog(result);
+      selectedModelId = $("model-select").value;
     }
+    if (result.message) setSettingsStatus(result.message, result.level);
+    savedBridgePasswords = bridgePasswordsFromBoxes();
+  }
+
+  async function saveSettingsForm() {
     const button = $("save-api-key");
     button.disabled = true;
     try {
-      const result = await api.set_api_key(key);
-      $("api-key").value = "";
-      setStatus(result.masked ? `API key guardada (${result.masked}).` : "API key guardada.");
-    } catch (_) {
-      setStatus("No se pudo guardar la API key.");
+      const result = await safeCall(
+        (api) => api.save_settings_form($("api-key").value, bridgePasswordsFromBoxes()),
+        "No se pudo guardar la configuración.");
+      if (result) applySettingsResult(result);
     } finally {
       button.disabled = false;
     }
   }
 
-  $("save-api-key").addEventListener("click", saveApiKey);
+  $("save-api-key").addEventListener("click", saveSettingsForm);
   $("api-key").addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      saveApiKey();
+      saveSettingsForm();
     }
   });
 
   $("update-models").addEventListener("click", async () => {
-    if (!requireBridge()) return;
-    const api = bridgeApi();
     const button = $("update-models");
     button.disabled = true;
-    setStatus("Buscando modelos disponibles...");
+    setSettingsStatus("Consultando modelos activos de Groq...");
     try {
-      const result = await api.update_models();
-      if (!result.ok) {
-        setStatus(result.error || "Ingresá una API key de Groq.");
-        return;
-      }
-      applyModelCatalog(result);
-      applySelectedModelCapabilities($("model-select").value);
-      selectedModelId = $("model-select").value;
-      setStatus(result.error || "Modelos actualizados.");
-    } catch (_) {
-      setStatus("No se pudo actualizar el catálogo de modelos.");
+      const result = await safeCall(
+        (api) => api.refresh_models($("api-key").value, bridgePasswordsFromBoxes()),
+        "No se pudo actualizar el catálogo de modelos.");
+      if (result) applySettingsResult(result);
     } finally {
       button.disabled = false;
     }
   });
+
+  // Leaving a bridge box after changing its password checks the bridges again.
+  document.querySelectorAll(".bridge-password").forEach((box) => {
+    box.addEventListener("blur", async () => {
+      if ((savedBridgePasswords[box.dataset.bridge] || "") === box.value.trim()) return;
+      const result = await safeCall((api) => api.recheck_bridges(bridgePasswordsFromBoxes()),
+        "No se pudieron comprobar los bridges.");
+      if (result) applySettingsResult(result);
+    });
+  });
+
+  // Fills the password boxes, the version label and the edge-tts label.
+  async function loadSettingsPage() {
+    const api = bridgeApi();
+    if (!api) return;
+    try {
+      const secrets = await api.get_settings_secrets();
+      $("api-key").value = secrets.api_key || "";
+      for (const [key, password] of Object.entries(secrets.bridge_passwords || {})) {
+        const box = $(`bridge-password-${key}`);
+        if (box) box.value = password || "";
+      }
+      savedBridgePasswords = bridgePasswordsFromBoxes();
+      $("app-version-label").textContent = `Aplicación ${await api.app_version()}`;
+      if ((await api.platform()) === "darwin") {
+        $("settings-hint").textContent =
+          "La API key y las contraseñas de los bridges se guardan en el llavero de tu usuario de macOS.";
+      }
+      $("edge-tts-version").textContent = await api.edge_tts_version_label();
+    } catch (_) {
+      setSettingsStatus("No se pudo cargar la configuración.", "error");
+    }
+  }
 
   $("model-select").addEventListener("change", async () => {
     const select = $("model-select");
@@ -793,6 +874,7 @@
     }
     selectedModelId = select.value;
     applySelectedModelCapabilities(select.value);
+    showSelectedModelSummary();
     try {
       $("attachment-summary").textContent = await api.get_attachment_summary();
     } catch (_) { /* the summary is best effort */ }
@@ -1043,6 +1125,7 @@
       setStatus("No se pudo obtener la versión de la aplicación.");
     }
     setStatus("Listo.");
+    loadSettingsPage(); // not awaited: Configuración fills in the background
     // S9: the main model selector gets its catalog at startup, after the
     // persisted settings (selected model) are known. Not awaited: the model
     // fetch runs while the editor is already usable.

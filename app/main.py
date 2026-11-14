@@ -210,6 +210,9 @@ class Api:
         self.set_speech_speed(int(loaded.get("speed") or 100))
         self._selected_model = str(loaded.get("selected_model")
                                    or models.DEFAULT_MODEL_ID)
+        self._bridge_passwords.update(settings.get_bridge_passwords(
+            [bridge.key for bridge in bridges.LOCAL_BRIDGES],
+            self._settings_dir, decrypt=self._api_decrypt))
         return {
             "migrated": migrated,
             "theme": self._theme,
@@ -304,25 +307,38 @@ class Api:
     # ---- Model catalog (T10/S2) ---------------------------------------------
     def update_models(self) -> dict:
         """Legacy Initialize-ModelSources / Update-BridgeModels: Groq /models
-        plus a live probe of every local bridge, cached for the session."""
+        plus a live probe of every local bridge, cached for the session.
+        Without a Groq key the static catalog is listed and the bridges are
+        still probed: a subscription bridge alone is a valid setup."""
         if self._models_cache is not None:
             return self._models_cache
         api_key = self._resolve_api_key()
-        if not api_key.strip():
-            return {"ok": False, "error": MSG_NEEDS_API_KEY,
-                    "models": [], "bridge_status": {}}
         fetch_error: str | None = None
-        try:
-            groq_models = models.fetch_models(api_key)
-        except RuntimeError as error:
-            fetch_error = str(error)
-            groq_models = list(models.DEFAULT_GROQ_MODELS)  # static catalog
+        groq_models = list(models.DEFAULT_GROQ_MODELS)  # static catalog
+        if api_key.strip():
+            try:
+                groq_models = models.fetch_models(api_key)
+            except RuntimeError as error:
+                fetch_error = str(error)
+        result = self._build_catalog(groq_models)
+        if fetch_error:
+            result["error"] = fetch_error
+        self._models_cache = result
+        return result
+
+    def _build_catalog(self, groq_models: list) -> dict:
+        """Legacy Show-GroqModels rows: Groq models sorted by id, then the
+        models of every running bridge."""
+        self._groq_models = list(groq_models)
         catalog: list[dict] = [
             {"id": item.id, "name": item.id, "provider": "Groq",
+             "owned_by": item.owned_by,
+             "context": (f"{int(item.context_window):,}".replace(",", ".")
+                         if item.context_window is not None else "-"),
              "vision": models.model_capabilities(item.id).vision,
              # S11: the full capability dict travels with every catalog entry.
              "capabilities": models.model_capabilities(item.id).as_dict()}
-            for item in groq_models
+            for item in sorted(groq_models, key=lambda model: model.id)
         ]
         bridge_status: dict[str, str] = {}
         self._bridge_model_vision = {}
@@ -332,12 +348,98 @@ class Api:
             for entry in bridge_models:
                 self._bridge_model_vision[entry["id"]] = entry["vision"]
             catalog.extend(bridge_models)
-        result: dict = {"ok": True, "models": catalog,
-                        "bridge_status": bridge_status}
-        if fetch_error:
-            result["error"] = fetch_error
+        return {"ok": True, "models": catalog, "bridge_status": bridge_status}
+
+    def _known_groq_models(self) -> list:
+        return getattr(self, "_groq_models", None) or list(models.DEFAULT_GROQ_MODELS)
+
+    @staticmethod
+    def _bridge_summary(bridge_status: dict) -> str:
+        """Legacy Get-BridgeStatusSummary."""
+        return " · ".join(f"{bridge.label} {bridge_status.get(bridge.key, '')}"
+                          for bridge in bridges.LOCAL_BRIDGES)
+
+    def _apply_bridge_passwords(self, passwords: dict | None) -> None:
+        """Legacy Sync-BridgePasswordsFromBoxes."""
+        for bridge in bridges.LOCAL_BRIDGES:
+            self._bridge_passwords[bridge.key] = str(
+                (passwords or {}).get(bridge.key) or "").strip()
+
+    def _persist_secrets(self, api_key: str) -> None:
+        settings.set_api_key(api_key, self._settings_dir, encrypt=self._api_encrypt)
+        settings.set_bridge_passwords(self._bridge_passwords, self._settings_dir,
+                                      encrypt=self._api_encrypt)
+
+    def get_settings_secrets(self) -> dict:
+        """Values of the Configuración password boxes (shown masked, as the
+        legacy app fills txtApiKey and the bridge boxes)."""
+        return {"api_key": self._resolve_api_key(),
+                "bridge_passwords": {bridge.key: self._bridge_passwords.get(bridge.key, "")
+                                     for bridge in bridges.LOCAL_BRIDGES}}
+
+    def save_settings_form(self, api_key: str, bridge_passwords: dict | None = None) -> dict:
+        """Legacy Invoke-SaveSettings: persist the key and bridge passwords,
+        then check the bridges again with them."""
+        api_key = (api_key or "").strip()
+        self._apply_bridge_passwords(bridge_passwords)
+        if not api_key and not any(self._bridge_passwords.values()):
+            return {"ok": False, "level": "error", "message":
+                    "No se pudo guardar: Ingresá una API key de Groq o la contraseña de un bridge."}
+        try:
+            self._persist_secrets(api_key)
+        except Exception as error:
+            return {"ok": False, "level": "error",
+                    "message": f"No se pudo guardar: {error}"}
+        result = self._build_catalog(self._known_groq_models())
+        self._models_cache = result
+        system = "macOS" if sys.platform == "darwin" else "Windows"
+        return {**result, "level": "info", "message":
+                f"Configuración guardada de forma segura para este usuario de {system}. "
+                f"Bridges: {self._bridge_summary(result['bridge_status'])}"}
+
+    def refresh_models(self, api_key: str, bridge_passwords: dict | None = None) -> dict:
+        """Legacy "Actualizar modelos": Groq /models with the key in the box
+        (saved on success), then the bridges — probed even without a key."""
+        api_key = (api_key or "").strip()
+        self._apply_bridge_passwords(bridge_passwords)
+        groq_models = self._known_groq_models()
+        try:
+            groq_models = models.fetch_models(api_key)
+            self._persist_secrets(api_key)
+            message = f"{len(groq_models)} modelos activos cargados desde Groq."
+            level = "info"
+        except Exception as error:
+            message = f"No se pudieron actualizar los modelos de Groq: {error}"
+            level = "warning"
+        result = self._build_catalog(groq_models)
+        self._models_cache = result
+        return {**result, "level": level, "message":
+                f"{message} Bridges: {self._bridge_summary(result['bridge_status'])}"}
+
+    def recheck_bridges(self, bridge_passwords: dict | None = None) -> dict:
+        """Leaving a bridge password box after changing it checks the bridges
+        again right away (legacy passwordBox.Add_Leave)."""
+        self._apply_bridge_passwords(bridge_passwords)
+        result = self._build_catalog(self._known_groq_models())
         self._models_cache = result
         return result
+
+    def edge_tts_version_label(self, runner=None) -> str:
+        """Legacy Update-EdgeTtsVersionLabel."""
+        python = self.engine.python_command
+        if not python:
+            return "Voces Edge: sin Python"
+        run = runner or subprocess.run
+        try:
+            completed = run(
+                [python, "-c", "import importlib.metadata as m; print(m.version('edge-tts'))"],
+                capture_output=True, text=True, timeout=30,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            version = completed.stdout.strip() if completed.returncode == 0 else ""
+        except Exception:
+            version = ""
+        return (f"Voces Edge: edge-tts v{version}" if version
+                else "Voces Edge: edge-tts no instalado")
 
     def _probe_bridge(self, bridge: bridges.Bridge) -> tuple[list[dict], str]:
         """Legacy Update-BridgeModels per bridge: GET /models with the resolved
@@ -375,6 +477,8 @@ class Api:
                 "id": f"{bridge.key}:{model['id']}",
                 "name": str(model.get("name") or model.get("id")),
                 "provider": bridge.label,
+                "owned_by": f"{bridge.label} (suscripción)",
+                "context": "-",
                 "bridge": bridge.key,
                 "vision": vision,
                 "capabilities": capabilities.as_dict(),

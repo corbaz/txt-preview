@@ -288,6 +288,77 @@ def _get_api_key_impl(directory: str | None, decrypt) -> str:
     return str(stored.get("api_key", "") or "")
 
 
+# ---- Bridge passwords ---------------------------------------------------------
+
+BRIDGE_PASSWORDS_FIELD = "EncryptedBridgePasswords"
+
+
+def _bridge_account(key: str) -> str:
+    return f"bridge-{key}"
+
+
+def set_bridge_passwords(passwords: dict, directory: str | None = None,
+                         encrypt=None) -> None:
+    """Store the bridge passwords {key: password}; blank ones are removed.
+
+    Windows writes txt.ps1's own field (hex DPAPI blobs), so both apps share
+    them; elsewhere they go to the OS keychain and never touch the file."""
+    cleaned = {str(key): str(value).strip() for key, value in (passwords or {}).items()}
+    if sys.platform == "win32" or encrypt is not None:
+        encrypt_function = encrypt or dpapi_encrypt
+        path = _settings_file(directory)
+        stored = _read_json(path) or {}
+        stored[BRIDGE_PASSWORDS_FIELD] = {
+            key: binascii.hexlify(
+                encrypt_function(value.encode("utf-16-le"))).decode("ascii")
+            for key, value in cleaned.items() if value
+        }
+        _write_json(path, stored)
+        return
+    try:
+        keyring = _keyring_module()
+        for key, value in cleaned.items():
+            if value:
+                keyring.set_password(KEYRING_SERVICE, _bridge_account(key), value)
+            else:
+                try:
+                    keyring.delete_password(KEYRING_SERVICE, _bridge_account(key))
+                except Exception:
+                    pass
+    except Exception:
+        pass  # no keychain backend: the passwords last for this session only
+
+
+def get_bridge_passwords(keys, directory: str | None = None, decrypt=None) -> dict:
+    """Stored passwords for the given bridge keys; never raises."""
+    found: dict[str, str] = {}
+    if sys.platform == "win32" or decrypt is not None:
+        stored = _read_json(_settings_file(directory)) or {}
+        blobs = stored.get(BRIDGE_PASSWORDS_FIELD)
+        if not isinstance(blobs, dict):
+            return found
+        for key in keys:
+            value = str(blobs.get(key) or "").strip()
+            if not value:
+                continue
+            try:
+                password = _decode_secret_text(
+                    (decrypt or dpapi_decrypt)(binascii.unhexlify(value)))
+            except Exception:
+                continue
+            if password:
+                found[key] = password
+        return found
+    for key in keys:
+        try:
+            value = _keyring_module().get_password(KEYRING_SERVICE, _bridge_account(key))
+        except Exception:
+            value = None
+        if value:
+            found[key] = value
+    return found
+
+
 # ---- Legacy migration (Windows) ---------------------------------------------
 
 def _decode_legacy_api_key(value: str, decrypt) -> str:
