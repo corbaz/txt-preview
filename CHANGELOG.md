@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## v:26.11.14-12.11
+
+### Modelos de los bridges
+
+- Al cambiar de modelo ya no aparece el mensaje «Modelo: Groq · …» con el proveedor equivocado para los modelos de Claude, Codex o Gemini; la versión PowerShell no muestra ese mensaje.
+
 ## v:26.11.14-12.03
 
 ### Consultar, Vista previa y exportaciones como en la versión PowerShell

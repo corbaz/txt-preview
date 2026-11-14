@@ -940,9 +940,6 @@
     try {
       $("attachment-summary").textContent = await bridgeApi().get_attachment_summary();
     } catch (_) { /* the summary is best effort */ }
-    const option = select.selectedOptions[0];
-    const provider = (option && option.dataset.provider) || "Groq";
-    setStatus(`Modelo: ${provider === "Groq" ? "Groq · " + select.value : (option ? option.textContent : select.value)}`);
   });
 
   // ---- Voz Edge (T4/S6, filters S15/T22) -------------------------------------
