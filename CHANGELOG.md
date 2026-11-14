@@ -1,5 +1,30 @@
 # Historial de cambios
 
+## v:26.11.14-08.34
+
+### Certificados nativos en macOS y Python 3.14
+
+- Las conexiones HTTPS de Groq usan ahora el almacén de certificados nativo mediante `truststore` (Keychain en macOS y CryptoAPI en Windows), sin desactivar la verificación TLS.
+- La generación de audio y la consulta de voces Edge inyectan el mismo almacén nativo antes de cargar `edge-tts`.
+- El catálogo de voces utiliza un wrapper propio compartido con el Doctor, por lo que ambos verifican el mismo camino de red.
+- Los errores TLS o de conexión de Groq se convierten en mensajes controlados; el catálogo de modelos cae al respaldo local sin imprimir un traceback de pywebview.
+- El Doctor comprueba e instala `truststore` y documenta la reparación del error `Basic Constraints of CA cert not marked critical` de Python 3.14.
+
+### Funciones macOS y Consultar con investigación real
+
+- Todos los botones del puente pywebview muestran ahora un error visible si el puente aún no está listo o una llamada falla; una inicialización fallida ya no desactiva silenciosamente el resto de la aplicación.
+- Play muestra el error real del motor en vez de ignorarlo, y las operaciones asíncronas de tema, voz, velocidad, exportación, adjuntos y actualización quedan protegidas contra rechazos invisibles.
+- Copiar y Pegar usan el portapapeles nativo: `pbcopy`/`pbpaste` en macOS y PowerShell seguro en Windows, con texto Unicode y multilínea.
+- Consultar fuerza `browser_search` con `tool_choice: required` en los modelos GPT-OSS compatibles, por lo que ya no puede degradarse silenciosamente a chat común.
+- Groq conserva las URL reales de `executed_tools.search_results`/anotaciones en una sección **Fuentes** y transmite al usuario los errores HTTP/TLS controlados.
+- Exportar MP3 usa también un wrapper con el almacén TLS nativo antes de importar Edge TTS.
+
+### Validación
+
+- 577/577 pruebas aprobadas; Doctor completo, JavaScript y compilación Python correctos.
+- Consulta funcional real contra Groq Browser Search aprobada: búsqueda obligatoria, respuesta y sección **Fuentes** con URL reales.
+- Exportación MP3 real ejecutada mediante el nuevo wrapper TLS.
+
 ## v:26.11.13-20.25
 
 ### Paridad visual, IA y voz

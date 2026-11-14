@@ -7,18 +7,18 @@ Las mejoras publicadas en cada versión se detallan en [`CHANGELOG.md`](CHANGELO
 ## Qué podés hacer
 
 - Escribir o pegar texto y verlo formateado en **Vista previa**.
-- **Consultar IA**: tu consulta queda en el Editor y la respuesta aparece en **Vista previa**.
+- **Consultar IA**: tu consulta queda en el Editor y la respuesta aparece en **Vista previa**. Con `openai/gpt-oss-20b` o `openai/gpt-oss-120b`, la aplicación obliga a Groq a investigar en la web y muestra las fuentes devueltas por el servicio.
 - **Resumir**, **Corregir gramática y ortografía** y **Traducir** inglés ↔ español reemplazan el texto del Editor.
 - En la barra de IA, arriba del Editor: **Consultar IA**, **Resumir**, **Corregir Gramática y Ortografía**, **Traducir EN→ES** y **ES→EN**, búsqueda web (en los modelos que navegan, activada por defecto) y **Adjuntar archivos**: texto, PDF, Word (.docx), PowerPoint (.pptx) e imágenes (hasta 3, en los modelos con visión). Los formatos antiguos .doc y .ppt **no están soportados**: guardalos primero como .docx o .pptx.
 - Abrir los links de las respuestas en la pestaña **Navegador**, dentro de la misma ventana.
-- Las marcas de cita de búsqueda web que a veces trae la respuesta (como `【2†L58-L62】`) se quitan antes de mostrarla, leerla, exportarla o llevarla al editor.
+- Las marcas internas de cita de búsqueda web (como `【2†L58-L62】`) se limpian, pero las URL reales que Groq devuelve se conservan en una sección **Fuentes**.
 - Escuchar el resultado con **voces neuronales de Edge**, con pausa, **Repetir** del último audio, control de velocidad y resaltado de la palabra que se lee. Si seleccionás un fragmento en la Vista previa, **Play** lee solo esa selección; si hacés clic en una palabra, lee desde ahí hasta el final.
-- Exportar a **PDF** y **MP3**, copiar como Markdown o texto plano. Estas acciones y **Play** usan lo que muestra la Vista previa: la respuesta de la IA si hay una, o el texto del Editor.
+- Exportar a **PDF** y **MP3**, copiar como Markdown o texto plano. Copiar y Pegar usan el portapapeles nativo (`pbcopy`/`pbpaste` en macOS), no la API limitada de WKWebView. Estas acciones y **Play** usan lo que muestra la Vista previa: la respuesta de la IA si hay una, o el texto del Editor.
 - Elegir tema claro u oscuro.
 
 ## Instalación
 
-Necesitás [Git](https://git-scm.com/downloads), Python 3.10 o superior, FFmpeg y algunos paquetes de Python (`pywebview`, `markdown`, `pymupdf`, `edge-tts`). El instalador de cada sistema se encarga de todo lo que falte; en macOS la ventana usa el WKWebView que ya trae el sistema, y en Windows el doctor verifica que esté el runtime WebView2.
+Necesitás [Git](https://git-scm.com/downloads), Python 3.10 o superior, FFmpeg y algunos paquetes de Python (`pywebview`, `markdown`, `pymupdf`, `edge-tts`, `truststore`). El instalador de cada sistema se encarga de todo lo que falte; `truststore` hace que Python use el almacén de certificados nativo (Keychain en macOS / CryptoAPI en Windows), en macOS la ventana usa el WKWebView que ya trae el sistema, y en Windows el doctor verifica que esté el runtime WebView2.
 
 ### macOS
 
@@ -35,8 +35,16 @@ Si ya lo tenías clonado, en vez del clone hacé `git pull` y volvé a correr `.
 
 1. Pide Homebrew: si no lo tenés, te muestra el comando para instalarlo y te pide volver a ejecutar el script.
 2. Instala Python y FFmpeg con `brew install python` y `brew install ffmpeg` (solo si faltan).
-3. Instala los paquetes de la app: `pip install --user -r app/requirements.txt edge-tts`.
+3. Instala los paquetes de la app: `pip install --user -r app/requirements.txt edge-tts`, incluido `truststore` para las conexiones TLS de Groq y Edge TTS.
 4. Corre el doctor de dependencias y te muestra cómo abrir la app.
+
+Si Python 3.14 muestra `CERTIFICATE_VERIFY_FAILED` o `Basic Constraints of CA cert not marked critical`, actualizá el clon y repetí el instalador; no desactives la verificación TLS:
+
+```bash
+git pull
+./install.sh
+python3 app/doctor.py
+```
 
 ### Windows
 
@@ -94,15 +102,15 @@ Un agente de IA puede correr el doctor, parsear el `--json` y ejecutar el campo 
 | Git | Lo usa clonar y actualizar con `git pull`. | Vos (una vez): `brew install git` / `winget install --id Git.Git -e` |
 | Python 3.10+ | Corre la app y sus pruebas. | El instalador de tu sistema |
 | FFmpeg | Reproduce las voces Edge y exporta MP3. | El instalador: `brew install ffmpeg` / `winget install --id Gyan.FFmpeg -e` |
-| Paquetes de Python | `pywebview`, `markdown`, `pymupdf`, `edge-tts`. | El instalador, o `python app/doctor.py --fix` |
+| Paquetes de Python | `pywebview`, `markdown`, `pymupdf`, `edge-tts`, `truststore`. | El instalador, o `python app/doctor.py --fix` |
 | Runtime de web | macOS trae WKWebView integrado (nada que instalar); en Windows el doctor verifica el WebView2 runtime y sugiere `winget install --id Microsoft.EdgeWebView -e` si falta. | Automático / doctor |
 
 ## Primeros pasos
 
 1. Creá una API key gratuita en [console.groq.com/keys](https://console.groq.com/keys).
-2. Definila en la variable de entorno `GROQ_API_KEY` antes de abrir la app: en esta versión es de ahí que la app la lee. El campo **API key de Groq** de la pestaña **Configuración** va a guardarla cifrada cuando se complete la integración de configuración; en la misma pestaña está el selector de modelos, que hoy se conecta al catálogo en el siguiente paso de integración.
-3. La app abre con `openai/gpt-oss-120b`, una buena opción general.
-4. En el **Editor**, escribí algo y probá **Consultar IA**: la respuesta aparece en **Vista previa**.
+2. Guardala desde **Configuración → API key de Groq** (almacenamiento seguro del sistema) o definí `GROQ_API_KEY` antes de abrir la app.
+3. Elegí `openai/gpt-oss-120b` o `openai/gpt-oss-20b` para **Consultar IA** con investigación web obligatoria; la app rechaza con un mensaje claro los modelos sin búsqueda.
+4. En el **Editor**, escribí algo y probá **Consultar IA**: la respuesta investigada y sus fuentes aparecen en **Vista previa**.
 5. Con la respuesta en Vista previa podés tocar **Play** para escucharla con una voz Edge, adjuntar archivos en el Editor para la próxima consulta, o exportar el resultado a **PDF** o **MP3**.
 
 ### Modelos por suscripción (bridges locales)
