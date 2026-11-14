@@ -232,7 +232,7 @@ class ApiVoicesTestCase(unittest.TestCase):
         self.assertEqual(self.api._speech_voice, "es-AR-TomasNeural")
 
     def test_default_voice_display(self):
-        self.assertEqual(self.api._speech_voice_display(), "Elvira (es-ES)")
+        self.assertEqual(self.api._speech_voice_display(), "Edge · es-CR-JuanNeural (Male)")
 
     def test_catalog_voice_display_uses_legacy_format(self):
         self.api.list_voices(runner=self.runner())

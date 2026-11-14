@@ -194,6 +194,8 @@ class TestPlaySwitchesVoiceToTheTextLanguage(SpeechApiTestCase):
         super().setUp()
         self.api.engine = mock.Mock()
         self.save_catalog()
+        # These cases start from a chosen Spanish female voice.
+        self.api._speech_voice = "es-ES-ElviraNeural"
 
     def start(self, text):
         return self.api.start_speech(text)

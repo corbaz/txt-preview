@@ -686,8 +686,14 @@
       const key = span.dataset.capability;
       const supported = !!caps[key];
       span.classList.toggle("off", !supported);
-      span.title = `${CAP_TITLES[key]} — ${supported ? "disponible en este modelo" : "no disponible en este modelo"}`;
+      // txt.ps1 Update-CapabilityBadges: only the capabilities the model has.
+      span.hidden = !supported;
+      span.title = CAP_TITLES[key];
     });
+    // txt.ps1: the web checkbox and the attach button are hidden when they
+    // do not apply to the selected model.
+    $("web-search-label").hidden = !caps.web;
+    $("attach-files").hidden = !(caps.text_files || caps.vision);
     if (modelId === lastCapabilityModel) return; // same model: keep the user's choice
     lastCapabilityModel = modelId;
     const webSupported = !!caps.web;
@@ -1173,7 +1179,7 @@
 
   window.addEventListener("pywebviewready", async () => {
     let theme = "dark";
-    try { theme = localStorage.getItem("txt-theme") || "dark"; } catch (_) {}
+    // txt.ps1 always starts on Tema: Oscuro; the theme is not remembered.
     applyTheme(theme);
     const api = bridgeApi();
     let config = null;

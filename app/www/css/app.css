@@ -587,3 +587,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* Status levels (txt.ps1 Show-Message): warnings yellow, errors red. */
 #status-message.warning { color: #e3b341; }
 #status-message.error { color: #f85149; }
+
+/* The hidden attribute always wins over display rules (flex/inline-flex). */
+[hidden] { display: none !important; }

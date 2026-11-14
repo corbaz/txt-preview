@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## v:26.11.14-12.37
+
+### Inicio y barra de contexto como en la versión PowerShell
+
+- Cada inicio arranca en Tema: Oscuro, velocidad 1,00x y la voz Hombre · Español (es-CR-JuanNeural); ya no se restauran el tema, la velocidad ni la voz de la sesión anterior.
+- La barra de contexto muestra solo las capacidades que el modelo tiene, y oculta la casilla de búsqueda web y el botón Adjuntar archivos cuando no aplican.
+- Al cambiar a un modelo sin visión se quitan las imágenes adjuntas.
+
 ## v:26.11.14-12.33
 
 ### Lectura de la Vista previa y Navegador en macOS

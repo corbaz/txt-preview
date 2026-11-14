@@ -50,7 +50,7 @@ class ApiSettingsTestCase(unittest.TestCase):
 
 
 class TestStartupWiring(ApiSettingsTestCase):
-    def test_initialize_settings_applies_theme_speed_voice_and_default_model(self):
+    def test_every_launch_starts_on_the_legacy_defaults(self):
         settings.save_settings({"theme": "light", "speed": 150,
                                 "speech_voice": "es-AR-TomasNeural",
                                 "selected_model": "allam-2-7b"},
@@ -60,9 +60,10 @@ class TestStartupWiring(ApiSettingsTestCase):
         # starts on openai/gpt-oss-120b.
         self.assertEqual(self.api.get_selected_model(), "openai/gpt-oss-120b")
         self.assertEqual(summary["selected_model"], "openai/gpt-oss-120b")
-        self.assertEqual(summary["theme"], "light")
-        self.assertEqual(summary["speed"], 150)
-        self.assertEqual(summary["speech_voice"], "es-AR-TomasNeural")
+        # txt.ps1 never reads theme, speed or voice back either.
+        self.assertEqual(summary["theme"], "dark")
+        self.assertEqual(summary["speed"], 100)
+        self.assertEqual(summary["speech_voice"], "es-CR-JuanNeural")
         self.assertFalse(summary["migrated"])
 
     def test_initialize_settings_runs_legacy_migration(self):
@@ -666,3 +667,19 @@ class TestPreviewContent(ApiSettingsTestCase):
         self.api.set_preview_content("# Respuesta")
         self.assertEqual(self.api.get_preview_text(), "# Respuesta")
         self.assertEqual(self.api.get_preview_plain_text(), "Respuesta")
+
+
+class TestModelChangeDropsImages(ApiSettingsTestCase):
+    def test_images_are_removed_when_the_new_model_has_no_vision(self):
+        from txt_core.attachments import Attachment, Kind
+        self.api._selected_model = "qwen/qwen3.8-27b"  # vision model
+        self.api._attachments = [Attachment(Kind.IMAGE, "foto.png", "/x/foto.png"),
+                                 Attachment(Kind.TEXT, "nota.txt", "/x/nota.txt", "hola")]
+        self.api.set_selected_model("openai/gpt-oss-120b")  # no vision
+        self.assertEqual([a.name for a in self.api._attachments], ["nota.txt"])
+
+    def test_images_stay_on_a_vision_model(self):
+        from txt_core.attachments import Attachment, Kind
+        self.api._attachments = [Attachment(Kind.IMAGE, "foto.png", "/x/foto.png")]
+        self.api.set_selected_model("qwen/qwen3.8-27b")
+        self.assertEqual([a.name for a in self.api._attachments], ["foto.png"])

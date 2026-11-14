@@ -268,7 +268,7 @@ class TestBottomDeck(UiContractTestCase):
             "Español",
             "Inglés",
             "Voz",
-            "es-ES-ElviraNeural",
+            "es-CR-JuanNeural",
             "Play",
             "Pausar",
             "Detener",

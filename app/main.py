@@ -61,8 +61,8 @@ WWW = ROOT / "www"
 VERSION_FILE = REPO / "VERSION"
 
 # Edge voice catalog lands in a later step; this is the default reading voice.
-DEFAULT_SPEECH_VOICE = "es-ES-ElviraNeural"
-DEFAULT_SPEECH_VOICE_DISPLAY = "Elvira (es-ES)"
+DEFAULT_SPEECH_VOICE = "es-CR-JuanNeural"  # txt.ps1 default: Hombre · Español
+DEFAULT_SPEECH_VOICE_DISPLAY = "Edge · es-CR-JuanNeural (Male)"
 SPEECH_SPEED_MIN = 50
 SPEECH_SPEED_MAX = 200
 DEFAULT_THEME = "dark"
@@ -210,9 +210,11 @@ class Api:
             self._settings_dir, legacy_dir=self._legacy_dir,
             encrypt=self._api_encrypt, decrypt=self._api_decrypt)
         loaded = settings.load_settings(self._settings_dir)
-        self._theme = str(loaded.get("theme") or DEFAULT_THEME)
-        self._speech_voice = str(loaded.get("speech_voice") or DEFAULT_SPEECH_VOICE)
-        self.set_speech_speed(int(loaded.get("speed") or 100))
+        # txt.ps1 never reads theme, speed or voice back: every launch starts
+        # on Tema: Oscuro, 1,00x and the default Hombre · Español voice.
+        self._theme = DEFAULT_THEME
+        self._speech_voice = DEFAULT_SPEECH_VOICE
+        self.set_speech_speed(100)
         # The saved model is ignored on purpose, as in txt.ps1: every launch
         # starts on openai/gpt-oss-120b.
         self._selected_model = models.DEFAULT_MODEL_ID
@@ -522,6 +524,12 @@ class Api:
             return {"ok": False, "error": MSG_MODEL_NOT_CHAT, "model": model_id}
         self._selected_model = model_id
         settings.set_selected_model(model_id, self._settings_dir)
+        # txt.ps1 Update-ModelCapabilityControls: image attachments are
+        # removed when the new model cannot see images.
+        if not self._selected_capabilities().vision:
+            with self._attachments_lock:
+                self._attachments = [attachment for attachment in self._attachments
+                                     if attachment.kind != Kind.IMAGE]
         return {"ok": True, "model": model_id}
 
     def add_attachments(self, paths) -> dict:
