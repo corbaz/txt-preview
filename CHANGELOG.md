@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## v:26.11.14-19.00
+
+### Interfaz neumórfica (app Python)
+
+- Nueva apariencia neumórfica en tema claro y oscuro: una sola superficie suave, botones en relieve que se hunden al presionarlos, pestaña y selectores activos hundidos, y el editor, la vista previa y los campos como «pozos» en bajorrelieve.
+- Paleta clara (papel frío con acento índigo) y oscura (grafito con acento lila) renovadas; la acción principal «Consultar IA» conserva el relleno de acento.
+- Solo cambian colores, sombras y bordes redondeados: la distribución, los textos y el comportamiento de los controles son los mismos.
+
 ## v:26.11.14-18.40
 
 ### Corregir devuelve solo el texto

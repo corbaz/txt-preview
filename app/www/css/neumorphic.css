@@ -1,0 +1,215 @@
+/* Neumorphic skin, loaded after app.css.
+ *
+ * One soft surface for the whole window; controls are raised from it with a
+ * light and a dark shadow, and pressed/active controls sink into it. Only
+ * colors, shadows and radii live here: sizes and layout stay in app.css.
+ */
+
+/* ---- Tokens ---------------------------------------------------------------- */
+:root {
+  /* Dark: graphite surface, lilac accent. */
+  --bg: #23272F;
+  --panel: #23272F;
+  --elevated: #23272F;
+  --editor: #23272F;
+  --text: #E6E9F2;
+  --muted: #8F98AE;
+  --accent: #9AA2FF;
+  --accent-hover: #B3B9FF;
+  --on-accent: #14171E;
+  --hover: #23272F;
+  --pressed: #23272F;
+  --border: transparent;
+  --play: #4ADE9B;
+  --pause: #FBBF24;
+  --stop: #FB7185;
+  --notice: #6EE7B7;
+
+  --nm-dark: rgba(0, 0, 0, 0.55);
+  --nm-light: rgba(255, 255, 255, 0.06);
+  --nm-raised: 4px 4px 9px var(--nm-dark), -4px -4px 9px var(--nm-light);
+  --nm-raised-hover: 6px 6px 12px var(--nm-dark), -6px -6px 12px var(--nm-light);
+  --nm-pressed: inset 3px 3px 7px var(--nm-dark), inset -3px -3px 7px var(--nm-light);
+  --nm-well: inset 2px 2px 5px var(--nm-dark), inset -2px -2px 5px var(--nm-light);
+  --nm-radius: 12px;
+}
+
+body[data-theme="light"] {
+  /* Light: cool paper surface, indigo accent. */
+  --bg: #E8ECF2;
+  --panel: #E8ECF2;
+  --elevated: #E8ECF2;
+  --editor: #E8ECF2;
+  --text: #1F2533;
+  --muted: #667086;
+  --accent: #4F55E3;
+  --accent-hover: #3C42CC;
+  --on-accent: #FFFFFF;
+  --hover: #E8ECF2;
+  --pressed: #E8ECF2;
+  --border: transparent;
+  --play: #0A8F63;
+  --pause: #B86A04;
+  --stop: #D11F47;
+  --notice: #0B7A57;
+
+  --nm-dark: rgba(163, 174, 194, 0.7);
+  --nm-light: rgba(255, 255, 255, 0.95);
+}
+
+/* ---- Surfaces --------------------------------------------------------------- */
+#app-header, #context-bar, #deck, #browser-bar, #preview-result-bar {
+  background: var(--bg);
+  border: none;
+}
+
+#app-header { box-shadow: 0 6px 12px -8px var(--nm-dark); z-index: 2; }
+#deck { box-shadow: 0 -6px 12px -8px var(--nm-dark); padding-top: 14px; padding-bottom: 12px; }
+.deck-inner { gap: 12px; }
+.deck-row { gap: 12px; }
+#segmented { gap: 12px; }
+
+/* ---- Raised controls -------------------------------------------------------- */
+.btn, .seg, .toggle, .ghost {
+  background: var(--bg);
+  color: var(--text);
+  border: none;
+  border-radius: var(--nm-radius);
+  box-shadow: var(--nm-raised);
+  transition: box-shadow 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.toggle, .seg { color: var(--muted); }
+.ghost { color: var(--text); padding: 8px 16px; }
+
+.btn:hover, .seg:hover, .toggle:hover, .ghost:hover {
+  background: var(--bg);
+  color: var(--accent);
+  box-shadow: var(--nm-raised-hover);
+}
+
+/* Pressed: while held, and for the selected tab / toggle. */
+.btn:active, .seg:active, .toggle:active, .ghost:active,
+.seg.active, .toggle[aria-pressed="true"] {
+  background: var(--bg);
+  color: var(--accent);
+  box-shadow: var(--nm-pressed);
+}
+
+.seg.active, .toggle[aria-pressed="true"] { font-weight: 600; }
+
+.btn:disabled, .ghost:disabled, .btn:disabled:hover, .ghost:disabled:hover {
+  color: var(--muted);
+  box-shadow: var(--nm-raised);
+  opacity: 0.55;
+}
+
+/* Primary action keeps the accent fill, still raised. */
+#deck-row-1 .btn.accent, .btn.accent {
+  background: linear-gradient(145deg, var(--accent-hover), var(--accent));
+  color: var(--on-accent);
+  font-weight: 600;
+}
+body[data-theme="light"] #deck-row-1 .btn.accent,
+body[data-theme="light"] .btn.accent {
+  background: linear-gradient(145deg, #6268F0, var(--accent));
+}
+.btn.accent:hover { color: var(--on-accent); filter: brightness(1.06); }
+.btn.accent:active { box-shadow: var(--nm-pressed); filter: brightness(0.95); }
+
+.btn.play { color: var(--play); }
+.btn.pause { color: var(--pause); }
+.btn.stop { color: var(--stop); }
+.btn.play:hover { color: var(--play); }
+.btn.pause:hover { color: var(--pause); }
+.btn.stop:hover { color: var(--stop); }
+
+/* ---- Wells: where content is typed or shown --------------------------------- */
+#model-select, #voice-select, #browser-address,
+.settings-row input, .settings-form input, .settings-form select {
+  background: var(--bg);
+  color: var(--text);
+  border: none;
+  border-radius: var(--nm-radius);
+  box-shadow: var(--nm-well);
+}
+
+#model-select, #voice-select { padding: 0 12px; }
+#browser-address { border-radius: 999px; }
+
+.settings-row input:focus, #browser-address:focus,
+#model-select:focus-visible, #voice-select:focus-visible {
+  box-shadow: var(--nm-well), 0 0 0 2px var(--accent);
+}
+
+/* Dropdown lists are drawn by the system: give their items a solid surface. */
+#model-select option, #voice-select option { background: var(--bg); color: var(--text); }
+
+.page[data-page="editor"], .page[data-page="preview"] { background: var(--bg); }
+
+#editor, #preview {
+  background: var(--bg);
+  border: none;
+  border-radius: 16px;
+  box-shadow: var(--nm-well);
+  margin: 12px 14px;
+}
+
+#models-list-wrap {
+  background: var(--bg);
+  border: none;
+  border-radius: 16px;
+  box-shadow: var(--nm-well);
+}
+#models-list th { background: var(--bg); border-bottom: none; box-shadow: 0 4px 8px -6px var(--nm-dark); }
+#models-list tbody tr:hover { background: transparent; color: var(--accent); }
+#models-list tbody tr.selected { background: transparent; color: var(--accent); font-weight: 600; }
+
+/* ---- Small parts ------------------------------------------------------------ */
+#web-search-label input { accent-color: var(--accent); }
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--accent) var(--fill, 33.33%), transparent var(--fill, 33.33%));
+  box-shadow: var(--nm-well);
+}
+input[type="range"]::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  margin-top: -5px;
+  background: var(--bg);
+  border: none;
+  box-shadow: 2px 2px 5px var(--nm-dark), -2px -2px 5px var(--nm-light);
+}
+
+.markdown-body code, .markdown-body pre {
+  background: var(--bg);
+  border: none;
+  border-radius: 10px;
+  box-shadow: var(--nm-well);
+}
+.markdown-body pre code { box-shadow: none; }
+
+/* Dialogs float above the surface. */
+.attachment-dialog {
+  background: var(--bg);
+  border: none;
+  border-radius: 18px;
+  box-shadow: 14px 14px 30px var(--nm-dark), -8px -8px 22px var(--nm-light);
+}
+.attachment-dialog-head { border-bottom: none; box-shadow: 0 4px 8px -6px var(--nm-dark); }
+#attachment-modal-body { background: var(--bg); }
+#attachment-modal { background: rgba(10, 12, 16, 0.55); }
+body[data-theme="light"] #attachment-modal { background: rgba(120, 130, 150, 0.45); }
+
+#work-overlay { background: rgba(20, 23, 29, 0.72); }
+body[data-theme="light"] #work-overlay { background: rgba(232, 236, 242, 0.82); }
+.work-spinner { border-color: transparent; border-top-color: var(--accent); box-shadow: var(--nm-raised); }
+
+/* Keyboard focus stays clearly visible on the soft surface. */
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#editor:focus-visible { outline: none; box-shadow: var(--nm-well), 0 0 0 2px var(--accent); }
