@@ -7,7 +7,13 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
-from .groq import GROQ_MODELS_URL, ERR_HTTP_STATUS
+from .groq import GROQ_MODELS_URL, ERR_HTTP_STATUS, connection_reason
+
+# S17: TLS/connection failures on /models startup become a controlled message
+# so update_models can fall back to the static catalog without a traceback.
+ERR_MODELS_CONNECTION = (
+    "No se pudo conectar con Groq para cargar los modelos (fallo de conexión/TLS): {reason}"
+)
 
 DEFAULT_MODEL_ID = "openai/gpt-oss-120b"
 
@@ -126,6 +132,10 @@ def fetch_models(api_key: str) -> list[ModelInfo]:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         raise RuntimeError(ERR_HTTP_STATUS.format(status=error.code)) from error
+    except urllib.error.URLError as error:
+        # S17: connection/TLS failure — controlled message, verification intact.
+        raise RuntimeError(
+            ERR_MODELS_CONNECTION.format(reason=connection_reason(error))) from error
     return [
         ModelInfo(
             id=item["id"],

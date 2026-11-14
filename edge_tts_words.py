@@ -7,7 +7,17 @@ import asyncio
 import json
 from pathlib import Path
 
-import edge_tts
+# S17/T24: native system TLS trust injected BEFORE importing edge_tts, so
+# every audio-generation subprocess uses the macOS Keychain / Windows
+# CryptoAPI trust store (edge_tts builds its SSL context at import time).
+# Certificate verification is never disabled.
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    truststore = None
+
+import edge_tts  # noqa: E402
 
 
 async def generate(

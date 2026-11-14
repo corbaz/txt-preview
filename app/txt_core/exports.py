@@ -8,8 +8,13 @@ and Convert-MarkdownToText (5945).
   with PyMuPDF (pymupdf.Story, falling back to a plain-text layout), so it
   needs neither Edge nor the network and behaves identically on Windows
   and macOS.
-- The MP3 runs `python -m edge_tts ...` directly, the same CLI the legacy
-  app used for Edge voices (S6: Edge-only; System.Speech is dropped).
+- The MP3 used to run `python -m edge_tts ...` directly, the same CLI the
+  legacy app used; on macOS Python 3.14 that subprocess builds its SSL
+  context from the certifi bundle and fails (S17: "Basic Constraints of CA
+  cert not marked critical"), so the MP3 now runs app/edge_tts_export.py,
+  a wrapper that injects the native system trust (truststore) BEFORE
+  importing edge_tts. Certificate verification is never disabled
+  (S6: Edge-only; System.Speech is dropped).
 """
 from __future__ import annotations
 
@@ -19,6 +24,7 @@ import shutil
 import subprocess
 import tempfile
 from html import unescape
+from pathlib import Path
 
 from .markdown import render_markdown
 
@@ -254,6 +260,13 @@ def find_python_command(*names: str) -> str | None:
     return None
 
 
+# S17/T24: MP3 synthesis goes through the repository wrapper (next to the
+# app package), never `python -m edge_tts`, so the subprocess uses the
+# same native system TLS trust as the app itself.
+EDGE_TTS_EXPORT_SCRIPT = (Path(__file__).resolve().parents[2]
+                          / "app" / "edge_tts_export.py")
+
+
 def export_mp3(
     text: str,
     output_path: str,
@@ -262,12 +275,14 @@ def export_mp3(
     python_command: str | None = None,
     runner=None,
 ) -> str:
-    """Read text aloud into an MP3 via the edge-tts CLI (legacy Edge path).
+    """Read text aloud into an MP3 via the Edge truststore wrapper (S17/T24).
 
-    Runs `python -m edge_tts --voice <voice> --rate <rate-100> --file <tmp>
-    --write-media <output>` with the engine's python_command discovery
-    pattern; the temp text file is always deleted. Returns output_path and
-    raises RuntimeError with legacy-style Spanish messages on failure.
+    Runs `python app/edge_tts_export.py --voice <voice> --rate <rate-100>
+    --text-file <tmp> --media-file <output>` with the engine's
+    python_command discovery pattern; the wrapper injects the native
+    system TLS trust before importing edge_tts. The temp text file is
+    always deleted. Returns output_path and raises RuntimeError with
+    legacy-style Spanish messages on failure.
     """
     if python_command is None:
         python_command = find_python_command("python", "python3")
@@ -279,11 +294,11 @@ def export_mp3(
         with os.fdopen(handle_fd, "w", encoding="utf-8", newline="") as handle:
             handle.write(text)
         argv = [
-            python_command, "-m", "edge_tts",
+            python_command, str(EDGE_TTS_EXPORT_SCRIPT),
             "--voice", voice_name,
             "--rate", str(rate_percent - 100),
-            "--file", text_file,
-            "--write-media", output_path,
+            "--text-file", text_file,
+            "--media-file", output_path,
         ]
         run = runner or subprocess.run
         result = run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

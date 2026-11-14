@@ -24,6 +24,7 @@ import platform
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 CHECK_IDS = [
@@ -33,18 +34,24 @@ CHECK_IDS = [
     "pywebview",
     "markdown",
     "pymupdf",
+    "truststore",
     "edge-tts",
     "ffmpeg",
     "webview-runtime",
 ]
 
 # Paquetes que --fix puede instalar con pip; el resto solo recibe una sugerencia.
-FIXABLE_PACKAGES = {"pywebview", "markdown", "pymupdf", "edge-tts"}
+FIXABLE_PACKAGES = {"pywebview", "markdown", "pymupdf", "truststore", "edge-tts"}
 PACKAGE_PIP_NAMES = {"pywebview": "pywebview", "markdown": "markdown",
-                     "pymupdf": "pymupdf", "edge-tts": "edge-tts"}
+                     "pymupdf": "pymupdf", "truststore": "truststore",
+                     "edge-tts": "edge-tts"}
 
 MIN_PYTHON = (3, 10)
 EDGE_TTS_PROBE_TIMEOUT = 15
+
+# S17/T24: la sonda online de voces corre el wrapper del repositorio (el
+# mismo camino que usa la app), no `python -m edge_tts`.
+EDGE_VOICES_WRAPPER = Path(__file__).resolve().parent / "edge_tts_voices.py"
 
 # Clave de registro del WebView2 Runtime Evergreen (fuente: docs de Microsoft).
 WEBVIEW2_REG_KEY = r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A20A2C48}"
@@ -154,16 +161,24 @@ def check_pymupdf() -> Dict:
     return _check_package("pymupdf", "lectura de PDF adjuntos y export a PDF")
 
 
+def check_truststore() -> Dict:
+    return _check_package(
+        "truststore",
+        "TLS con el almacén nativo del sistema (Keychain/CryptoAPI) para las voces Edge y la app")
+
+
 def check_edge_tts() -> Dict:
     check = _check_package("edge-tts", "voces Edge en línea")
     if not check["ok"]:
         return check
-    # Sonda opcional: confirma que el servicio de voces responde. Sin red la
-    # sonda falla pero el paquete sirve, así que no marca el check como fallo.
-    voices = _run([sys.executable, "-m", "edge_tts", "--list-voices"],
+    # Sonda opcional vía app/edge_tts_voices.py: confirma que el servicio de
+    # voces responde con el mismo camino de TLS nativo que usa la app. Sin
+    # red la sonda falla pero el paquete sirve, así que no marca el check
+    # como fallo.
+    voices = _run([sys.executable, str(EDGE_VOICES_WRAPPER)],
                   timeout=EDGE_TTS_PROBE_TIMEOUT)
     if voices:
-        count = len([line for line in voices.splitlines() if line.strip() and not line.startswith("-")])
+        count = len([line for line in voices.splitlines() if line.strip()])
         check["detail"] = f"paquete edge-tts {importlib.metadata.version('edge-tts')} (voces en línea OK, {count} voces)"
     else:
         check["detail"] = (f"paquete edge-tts {importlib.metadata.version('edge-tts')} instalado; "

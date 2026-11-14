@@ -2,7 +2,8 @@
 2285, Invoke-EdgeVoiceCatalogProcess 2297, Save-/Read-EdgeVoiceCatalogCache
 2339/2364, edge-voices.json under the settings dir).
 
-The catalog runs `python -m edge_tts --list-voices` with a 15 second timeout,
+The catalog runs the repository wrapper app/edge_tts_voices.py (S17/T24:
+native system TLS trust injected before edge_tts) with a 15 second timeout,
 parses the es/en Female/Male lines, and caches the result atomically so the
 Configuración selector works offline on the next launch.
 """
@@ -13,6 +14,7 @@ import os
 import re
 import subprocess
 import tempfile
+from pathlib import Path
 from typing import Any, Callable
 
 from ..settings import settings_dir
@@ -20,6 +22,12 @@ from ..settings import settings_dir
 VOICE_CATALOG_FILE = "edge-voices.json"
 VOICE_CATALOG_VERSION = 1
 VOICE_CATALOG_TIMEOUT_SECONDS = 15
+
+# S17/T24: the voice query is the repository wrapper (next to this app
+# package's root), never `python -m edge_tts --list-voices`, so the probe
+# uses the same native system TLS trust as the app itself.
+VOICE_CATALOG_WRAPPER = (Path(__file__).resolve().parents[2]
+                         / "edge_tts_voices.py")
 
 # Legacy per-line filter: only es|en cultures with a Female|Male gender, and
 # the line must carry trailing columns (the "\s+" after the gender).
@@ -63,13 +71,15 @@ def fetch_voice_catalog(python_command: str, runner: Callable[..., Any] | None =
                         timeout_seconds: float = VOICE_CATALOG_TIMEOUT_SECONDS,
                         ) -> list[dict[str, str]]:
     """Legacy Invoke-EdgeVoiceCatalogProcess + ConvertFrom-EdgeVoiceCatalogText:
-    run edge_tts --list-voices, parse the output; RuntimeError on any failure."""
+    run the repository wrapper (native system TLS trust + one
+    ShortName/Gender/Locale line per voice), parse the output; RuntimeError
+    on any failure."""
     if not python_command:
         raise RuntimeError(MSG_NO_PYTHON)
     run = runner or subprocess.run
     try:
         completed = run(
-            [python_command, "-m", "edge_tts", "--list-voices"],
+            [python_command, str(VOICE_CATALOG_WRAPPER)],
             capture_output=True, text=True, timeout=timeout_seconds,
         )
     except subprocess.TimeoutExpired as error:

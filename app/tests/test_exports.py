@@ -3,7 +3,10 @@
 Legacy reference: txt.ps1 Export-PreviewPdf / Export-SpeechMp3 (4645-4790)
 and the clipboard buttons (6400-6445). The PDF is produced by PyMuPDF so it
 stays deterministic and needs neither msedge nor the network; the MP3 runs
-the edge-tts CLI the same way the legacy app did (Edge-only voices, S6).
+through app/edge_tts_export.py (S17/T24), the truststore wrapper launched
+by export_mp3 with a pinned argv — never `python -m edge_tts`, which
+bypasses the native macOS trust store on Python 3.14 (Edge-only voices,
+S6). The tests stub the edge_tts module the real wrapper imports.
 """
 import io
 import json
@@ -35,24 +38,31 @@ except ImportError:
 
 SAMPLE_MARKDOWN = "# Título del documento\n\nPárrafo con **negrita**.\n"
 
+# The real app/edge_tts_export.py wrapper, exercised end to end with a
+# stubbed edge_tts module (no network, no TLS).
+EXPORT_SCRIPT = (Path(__file__).resolve().parents[2]
+                 / "app" / "edge_tts_export.py")
 
-# Module the fake "python -m edge_tts" resolves to: records its argv and,
-# unless FAKE_EDGE_TTS_FAIL is set, writes a dummy media file where the CLI
-# was told to (--write-media), exactly like a successful synthesis.
+
+# Stub edge_tts module the real app/edge_tts_export.py imports: records the
+# wrapper invocation argv and the Communicate call, then either raises
+# (FAKE_EDGE_TTS_FAIL) or yields one audio chunk whose data the wrapper
+# writes to --media-file, exactly like a successful synthesis.
 FAKE_EDGE_TTS_SOURCE = """\
 import json, os, sys
-# `python -m edge_tts ...` consumes "-m edge_tts" itself, so the module
-# records the full CLI argv the app handed to the interpreter.
-args = ["-m", "edge_tts"] + sys.argv[1:]
-def value(flag):
-    return args[args.index(flag) + 1]
+# Full invocation: [edge_tts_export.py, --voice, ..., --media-file, ...].
 with open(os.environ["FAKE_EDGE_TTS_ARGS"], "w", encoding="utf-8") as handle:
-    json.dump(args, handle)
-if os.environ.get("FAKE_EDGE_TTS_FAIL"):
-    print("la síntesis falló", file=sys.stderr)
-    sys.exit(1)
-with open(value("--write-media"), "wb") as handle:
-    handle.write(b"ID3fake-mp3")
+    json.dump(sys.argv, handle)
+
+class Communicate:
+    def __init__(self, text, voice, rate="", **kwargs):
+        with open(os.environ["FAKE_EDGE_TTS_CALL"], "w", encoding="utf-8") as handle:
+            json.dump({"text": text, "voice": voice, "rate": rate}, handle)
+
+    async def stream(self):
+        if os.environ.get("FAKE_EDGE_TTS_FAIL"):
+            raise RuntimeError("la síntesis falló")
+        yield {"type": "audio", "data": b"ID3fake-mp3"}
 """
 
 
@@ -66,9 +76,11 @@ class FakeEdgeTtsMixin:
         with open(module_path, "w", encoding="utf-8") as handle:
             handle.write(FAKE_EDGE_TTS_SOURCE)
         self.args_log = os.path.join(self.work_dir, "argv.json")
+        self.call_log = os.path.join(self.work_dir, "communicate.json")
         self.env = dict(os.environ)
         self.env["PYTHONPATH"] = self.work_dir
         self.env["FAKE_EDGE_TTS_ARGS"] = self.args_log
+        self.env["FAKE_EDGE_TTS_CALL"] = self.call_log
         self.env.pop("FAKE_EDGE_TTS_FAIL", None)
 
     def run_export(self, output_path, **kwargs):
@@ -152,7 +164,7 @@ class TestExportPdf(unittest.TestCase):
 
 
 class TestExportMp3(FakeEdgeTtsMixin, unittest.TestCase):
-    def test_success_runs_edge_tts_cli_and_writes_media(self):
+    def test_success_launches_export_wrapper_with_pinned_argv(self):
         output = os.path.join(self.work_dir, "lectura.mp3")
         self.run_export(output)
         self.assertTrue(os.path.isfile(output))
@@ -160,15 +172,30 @@ class TestExportMp3(FakeEdgeTtsMixin, unittest.TestCase):
             self.assertEqual(handle.read(), b"ID3fake-mp3")
         with open(self.args_log, encoding="utf-8") as handle:
             argv = json.load(handle)
+        # Pinned wrapper invocation: the repository script (absolute path),
+        # never `python -m edge_tts`; the legacy flags keep their meaning.
         self.assertEqual(argv, [
-            "-m", "edge_tts",
+            str(EXPORT_SCRIPT),
             "--voice", "es-ES-ElviraNeural",
             "--rate", "20",
-            "--file", argv[7],
-            "--write-media", output,
+            "--text-file", argv[6],
+            "--media-file", output,
         ])
-        self.assertTrue(argv[7].endswith(".txt"))
-        # The temporary text file handed to --file is deleted afterwards.
+        self.assertTrue(argv[6].endswith(".txt"))
+        self.assertNotIn("-m", argv)
+        self.assertNotIn("--write-media", argv)
+        # The wrapper passed the preview text and the legacy rate
+        # (percent - 100, signed "+NN%") to edge_tts.Communicate.
+        with open(self.call_log, encoding="utf-8") as handle:
+            call = json.load(handle)
+        self.assertEqual(call, {
+            "text": "Texto para leer.",
+            "voice": "es-ES-ElviraNeural",
+            "rate": "+20%",
+        })
+        # The temporary text file handed to --text-file is deleted afterwards.
+        self.assertFalse(os.path.isfile(argv[6]),
+                         "the temp text file must be deleted after the export")
         leftovers = [name for name in os.listdir(self.work_dir)
                      if name.startswith("txt-mp3-")]
         self.assertEqual(leftovers, [])

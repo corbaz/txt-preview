@@ -94,6 +94,33 @@ class TestFetchModels(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Ingresá una API key de Groq."):
             models.fetch_models("  ")
 
+    def test_tls_error_raises_controlled_message(self):
+        """S17/T24: a TLS/URLError on Groq /models startup becomes a controlled
+        RuntimeError naming the Groq connection/TLS failure, so update_models
+        can fall back without a pywebview traceback."""
+        import ssl
+        import urllib.error
+        from unittest import mock
+        reason = ssl.SSLCertVerificationError(
+            20, "Basic Constraints of CA cert not marked critical")
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=urllib.error.URLError(reason)):
+            with self.assertRaisesRegex(
+                    RuntimeError,
+                    "No se pudo conectar con Groq para cargar los modelos "
+                    "\(fallo de conexión/TLS\):.*") as caught:
+                models.fetch_models("key")
+        self.assertIn("Basic Constraints of CA cert not marked critical", str(caught.exception))
+
+    def test_url_error_raises_controlled_message(self):
+        """S17/T24: any URLError (DNS/refused connection) gets the same treatment."""
+        import urllib.error
+        from unittest import mock
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=urllib.error.URLError("name resolution failed")):
+            with self.assertRaisesRegex(RuntimeError, "No se pudo conectar con Groq"):
+                models.fetch_models("key")
+
     def test_filters_inactive(self):
         payload = {"data": [
             {"id": "a", "active": True},

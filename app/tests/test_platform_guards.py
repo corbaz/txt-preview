@@ -6,6 +6,7 @@ Windows-pushed changes from silently breaking the Mac build.
 """
 import ast
 import sys
+import types
 import unittest
 from pathlib import Path
 
@@ -92,6 +93,78 @@ class TestNoDriveLetterPaths(unittest.TestCase):
             for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if pattern.search(line) and "ProgramFiles(x86)" not in line:
                     offenders.append(f"{path.name}:{i}: {line.strip()[:80]}")
+        self.assertEqual(offenders, [])
+
+
+class TestS17NativeTrustStore(unittest.TestCase):
+    """S17/T24: the entrypoint trusts the native system store (macOS Keychain /
+    Windows store) before any network or TLS use, and TLS verification is never
+    weakened (no verify=False, no VERIFY_X509_STRICT/verify_flags changes)."""
+
+    def test_requirements_pin_truststore(self):
+        # truststore>=0.10.5 supports Python 3.14 + the macOS Security framework.
+        text = (APP / "requirements.txt").read_text(encoding="utf-8")
+        self.assertIn("truststore>=0.10.5", text)
+
+    def test_main_imports_and_injects_truststore_before_other_imports(self):
+        source = (APP / "main.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        statements = list(tree.body)
+        non_future = [(i, n) for i, n in enumerate(statements)
+                      if isinstance(n, (ast.Import, ast.ImportFrom))
+                      and not (isinstance(n, ast.ImportFrom) and n.module == "__future__")]
+        self.assertGreaterEqual(len(non_future), 2)
+        first_index, first_import = non_future[0]
+        self.assertEqual(
+            getattr(first_import, "module", None) or first_import.names[0].name,
+            "truststore",
+            "the entrypoint must import truststore first (before urllib/network "
+            "modules and before txt_core Groq/models imports)")
+        inject_index = next(
+            (i for i, n in enumerate(statements)
+             if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)
+             and isinstance(n.value.func, ast.Attribute)
+             and n.value.func.attr == "inject_into_ssl"
+             and isinstance(n.value.func.value, ast.Name)
+             and n.value.func.value.id == "truststore"),
+            None)
+        self.assertIsNotNone(
+            inject_index,
+            "main.py must call truststore.inject_into_ssl() at module level")
+        for later_index, _node in non_future[1:]:
+            self.assertLess(
+                inject_index, later_index,
+                "truststore.inject_into_ssl() must run before every other import")
+
+    def test_main_actually_calls_inject_into_ssl_on_import(self):
+        stub = types.ModuleType("truststore")
+        calls = []
+        stub.inject_into_ssl = lambda: calls.append(True)
+        real = sys.modules.get("truststore")
+        real_main = sys.modules.get("main")
+        sys.modules.pop("main", None)
+        sys.modules["truststore"] = stub
+        try:
+            import main  # noqa: F401 — fresh import with the recording stub
+        finally:
+            if real is not None:
+                sys.modules["truststore"] = real
+            else:
+                sys.modules.pop("truststore", None)
+            if real_main is not None:
+                sys.modules["main"] = real_main
+            else:
+                sys.modules.pop("main", None)
+        self.assertEqual(calls, [True])
+
+    def test_sources_never_weaken_tls_verification(self):
+        offenders = []
+        for path in _iter_app_sources():
+            for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                code = line.split("#", 1)[0]
+                if ("verify=False" in code or "verify = False" in code
+                        or "verify_flags" in code or "VERIFY_X509_STRICT" in code):
+                    offenders.append(f"{path.name}:{i}: {line.strip()[:60]}")
         self.assertEqual(offenders, [])
 
 

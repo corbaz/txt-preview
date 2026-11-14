@@ -24,7 +24,7 @@ def missing_check(cid, fix="arreglalo"):
 
 CHECK_IDS = [
     "git", "python", "pip", "pywebview", "markdown", "pymupdf",
-    "edge-tts", "ffmpeg", "webview-runtime",
+    "truststore", "edge-tts", "ffmpeg", "webview-runtime",
 ]
 
 
@@ -125,8 +125,8 @@ class JsonCliTests(unittest.TestCase):
 class FixModeTests(unittest.TestCase):
     def setUp(self):
         self.results = [ok_check(cid) for cid in CHECK_IDS]
-        self.results[6] = missing_check("edge-tts", fix="python -m pip install --user edge-tts")
-        self.results[7] = missing_check("ffmpeg", fix="brew install ffmpeg")
+        self.results[7] = missing_check("edge-tts", fix="python -m pip install --user edge-tts")
+        self.results[8] = missing_check("ffmpeg", fix="brew install ffmpeg")
 
     def test_fix_installs_python_packages_and_reports_unfixable(self):
         log = []
@@ -171,6 +171,76 @@ class FixModeTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("edge-tts", output)
         self.assertIn("Sin arreglo automático", output)
+
+
+class TruststoreCheckTests(unittest.TestCase):
+    """S17/T24: truststore es un paquete requerido e instalable con pip."""
+
+    def test_check_ids_include_truststore_before_edge_tts(self):
+        self.assertIn("truststore", doctor.CHECK_IDS)
+        self.assertLess(doctor.CHECK_IDS.index("truststore"),
+                        doctor.CHECK_IDS.index("edge-tts"))
+
+    def test_truststore_is_fixable_with_pip(self):
+        self.assertIn("truststore", doctor.FIXABLE_PACKAGES)
+        self.assertEqual(doctor.PACKAGE_PIP_NAMES["truststore"], "truststore")
+
+    def test_missing_truststore_reports_a_pip_fix(self):
+        with mock.patch.object(doctor.importlib.metadata, "version",
+                               side_effect=doctor.importlib.metadata.PackageNotFoundError):
+            check = doctor.check_truststore()
+        self.assertFalse(check["ok"])
+        self.assertIn("truststore", check["fix"])
+        self.assertIn("pip install", check["fix"])
+
+    def test_present_truststore_is_ok(self):
+        with mock.patch.object(doctor.importlib.metadata, "version",
+                               return_value="0.10.5"):
+            check = doctor.check_truststore()
+        self.assertTrue(check["ok"])
+        self.assertIn("0.10.5", check["detail"])
+
+    def test_doctor_stays_stdlib_only(self):
+        # El doctor invoca el wrapper; nunca importa truststore ni edge_tts.
+        text = Path(doctor.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("import truststore", text)
+        self.assertNotIn("import edge_tts", text)
+
+
+class EdgeTtsProbeTests(unittest.TestCase):
+    """S17/T24: la sonda online corre el wrapper del repositorio."""
+
+    def fake_metadata_version(self, version="7.3.1"):
+        return mock.patch.object(doctor.importlib.metadata, "version",
+                                 return_value=version)
+
+    def test_probe_runs_the_repository_wrapper_not_python_m(self):
+        captured = {}
+
+        def fake_run(argv, timeout=None):
+            captured["argv"] = argv
+            captured["timeout"] = timeout
+            return "es-ES-ElviraNeural Female es-ES\n"
+
+        with self.fake_metadata_version(), \
+                mock.patch.object(doctor, "_run", side_effect=fake_run):
+            check = doctor.check_edge_tts()
+        self.assertTrue(check["ok"])
+        self.assertEqual(captured["timeout"], doctor.EDGE_TTS_PROBE_TIMEOUT)
+        argv = captured["argv"]
+        self.assertEqual(argv[0], sys.executable)
+        self.assertEqual(Path(argv[1]).resolve(),
+                         (Path(doctor.__file__).resolve().parent
+                          / "edge_tts_voices.py"))
+        self.assertNotIn("-m", argv)
+        self.assertIn("voces en línea OK", check["detail"])
+
+    def test_probe_failure_keeps_the_package_ok(self):
+        with self.fake_metadata_version(), \
+                mock.patch.object(doctor, "_run", return_value=None):
+            check = doctor.check_edge_tts()
+        self.assertTrue(check["ok"])
+        self.assertIn("no se pudo consultar", check["detail"])
 
 
 class WebviewRuntimeTests(unittest.TestCase):

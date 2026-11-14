@@ -2,3 +2,6 @@ pywebview>=6.1
 markdown>=3.7
 pymupdf>=1.24
 keyring>=25
+# S17: native system trust store (macOS Security framework / Windows store) for
+# Python 3.14 strict X509; injected early in app/main.py.
+truststore>=0.10.5

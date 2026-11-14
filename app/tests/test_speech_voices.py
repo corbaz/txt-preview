@@ -66,7 +66,9 @@ class TestParseVoiceCatalog(unittest.TestCase):
 
 
 class TestFetchVoiceCatalog(unittest.TestCase):
-    def test_runs_edge_tts_list_voices_and_parses(self):
+    def test_runs_the_repository_wrapper_and_parses(self):
+        # S17/T24: the catalog runs app/edge_tts_voices.py (native system TLS
+        # trust injected before edge_tts), never `python -m edge_tts`.
         captured = {}
 
         def runner(args, **kwargs):
@@ -77,8 +79,13 @@ class TestFetchVoiceCatalog(unittest.TestCase):
         parsed = voices.fetch_voice_catalog("fakepython", runner=runner)
         self.assertEqual(len(parsed), 4)
         self.assertEqual(captured["args"],
-                         ["fakepython", "-m", "edge_tts", "--list-voices"])
+                         ["fakepython", str(voices.VOICE_CATALOG_WRAPPER)])
         self.assertEqual(captured["kwargs"]["timeout"], 15)
+
+    def test_wrapper_lives_in_the_app_directory(self):
+        self.assertEqual(voices.VOICE_CATALOG_WRAPPER.name, "edge_tts_voices.py")
+        self.assertEqual(voices.VOICE_CATALOG_WRAPPER.parent.name, "app")
+        self.assertTrue(voices.VOICE_CATALOG_WRAPPER.is_file())
 
     def test_empty_output_raises_legacy_error(self):
         def runner(args, **kwargs):
