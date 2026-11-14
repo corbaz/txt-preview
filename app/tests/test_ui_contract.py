@@ -926,7 +926,7 @@ class TestVoiceSelectorFiltersByActiveToggles(UiContractTestCase):
         self.assertEqual(body.count("set_speech_voice"), 1)
         toggle = js_function(self.js_source, "activateVoiceToggle")
         self.assertIn("aria-pressed", toggle)
-        self.assertIn("selectVoiceByFilter()", toggle)
+        self.assertIn("selectVoiceByFilter(silent)", toggle)
 
     def test_apply_voice_switch_sets_toggles_before_rendering_and_never_persists(self):
         body = js_function(self.js_source, "applyVoiceSwitch")

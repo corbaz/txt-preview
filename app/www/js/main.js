@@ -79,11 +79,15 @@
     }, 150);
   }
 
+  let previewRenderSequence = 0;
+
   async function renderPreviewNow() {
     const api = bridgeApi();
     if (!api) return;
+    const sequence = ++previewRenderSequence;
     try {
       const html = await api.render_preview(previewContent());
+      if (sequence !== previewRenderSequence) return; // a newer render is on its way
       $("preview").innerHTML = html;
       wrapSpeechWords();
     } catch (_) {
@@ -378,7 +382,10 @@
   $("speech-stop").addEventListener("click", async () => {
     const result = await safeCall((api) => api.stop_speech(),
       "No se pudo detener la lectura.");
-    if (result !== null) setStatus("Lectura detenida.");
+    if (result !== null) {
+      setTab("preview"); // txt.ps1: the reading controls show Vista previa
+      setStatus("Lectura detenida.");
+    }
   });
 
   // Dragging the replay slider only shows the target position; on release
@@ -1093,21 +1100,28 @@
   // S15/T22: a toggle click re-renders the selector for the new active
   // combination and selects + persists ITS default voice (never the
   // previous selection). set_speech_voice runs exactly once per click.
-  async function selectVoiceByFilter() {
+  async function selectVoiceByFilter(silent) {
     if (!voiceCatalog.length) return null;
     const chosen = renderFilteredVoiceCatalog(null, true);
     if (!chosen) return null;
     const result = await safeCall((api) => api.set_speech_voice(chosen),
       "No se pudo cambiar la voz Edge.");
-    if (result && result.ok) setStatus(`Voz Edge: ${result.voice}`);
+    if (result && result.ok && !silent) setStatus(`Voz Edge: ${result.voice}`);
     return chosen;
   }
 
-  function activateVoiceToggle(toggleId) {
+  function activateVoiceToggle(toggleId, silent) {
     for (const id of VOICE_TOGGLE_GROUPS[toggleId]) {
       $(id).setAttribute("aria-pressed", String(id === toggleId));
     }
-    selectVoiceByFilter();
+    return selectVoiceByFilter(silent);
+  }
+
+  // Legacy Select-VoiceLanguage: after a translation the Español/Inglés
+  // toggle follows the language of the result, keeping the chosen gender,
+  // and that language's default voice is selected.
+  function selectVoiceLanguage(language) {
+    return activateVoiceToggle(language === "en" ? "lang-en" : "lang-es", true);
   }
 
   $("gender-male").addEventListener("click", () => activateVoiceToggle("gender-male"));
@@ -1287,6 +1301,9 @@
           "No se pudo copiar al portapapeles.");
       }
       if (result.speech_language) speechLanguage = result.speech_language;
+      if (action === "translate_es_en" || action === "translate_en_es") {
+        await selectVoiceLanguage(action === "translate_es_en" ? "en" : "es");
+      }
       await renderPreviewNow();
       setTab("preview");
       setStatus(result.message);

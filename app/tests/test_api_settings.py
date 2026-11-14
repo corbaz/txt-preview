@@ -683,3 +683,21 @@ class TestModelChangeDropsImages(ApiSettingsTestCase):
         self.api._attachments = [Attachment(Kind.IMAGE, "foto.png", "/x/foto.png")]
         self.api.set_selected_model("qwen/qwen3.8-27b")
         self.assertEqual([a.name for a in self.api._attachments], ["foto.png"])
+
+
+class TestSpeechMessagesAreDeliveredOnce(ApiSettingsTestCase):
+    def setUp(self):
+        super().setUp()
+        self.api = main.Api(settings_dir=self.settings_dir)
+
+    def test_state_poll_does_not_repeat_a_message(self):
+        self.api._on_engine_message("info", "Reproduciendo bloque 1 de 2 · Juan")
+        self.assertEqual(self.api._speech_state()["message"],
+                         "Reproduciendo bloque 1 de 2 · Juan")
+        self.assertEqual(self.api._speech_state()["message"], "")
+
+    def test_stop_reports_lectura_detenida_and_drops_the_playing_message(self):
+        self.api._on_engine_message("info", "Reproduciendo bloque 1 de 2 · Juan")
+        self.assertEqual(self.api.stop_speech(),
+                         {"ok": True, "message": "Lectura detenida."})
+        self.assertEqual(self.api._speech_state()["message"], "")

@@ -632,6 +632,7 @@ class Api:
             with self._speech_lock:
                 self.engine.stop_voice_playback()
                 self.engine._clear_replay_cache()
+                self._last_message = ""
         except Exception:
             pass  # a broken engine must not block the AI request
 
@@ -939,6 +940,10 @@ class Api:
                 + json.dumps(status) + ")")
 
     # ---- Speech (T4/S6) ----------------------------------------------------
+    def _take_message(self) -> str:
+        message, self._last_message = self._last_message, ""
+        return message
+
     def _on_engine_message(self, level: str, message: str) -> None:
         self._last_message = self._edge_voice_message(message)
 
@@ -1052,7 +1057,8 @@ class Api:
     def stop_speech(self) -> dict:
         with self._speech_lock:
             self.engine.stop_voice_playback()
-            return {"ok": True, "message": self._last_message}
+            self._last_message = ""  # nothing is playing any more
+            return {"ok": True, "message": "Lectura detenida."}
 
     def pause_speech(self) -> dict:
         with self._speech_lock:
@@ -1165,7 +1171,7 @@ class Api:
             "highlight_word_index": highlight,
             "replay_position": round(self._replay_position(), 3),
             "replay_duration": round(engine.replay.duration, 3),
-            "message": self._last_message,
+            "message": self._take_message(),
             "voice_update_offered": bool(getattr(self, "_voice_update_offered", False)),
         }
 

@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## v:26.11.14-12.40
+
+### Mensajes de estado y traducción
+
+- El mensaje de estado refleja lo último que se hizo: al detener una lectura queda «Lectura detenida.» y ya no vuelve a aparecer «Reproduciendo bloque…». Cada mensaje de la lectura se muestra una sola vez.
+- Traducir ya no muestra a veces el texto anterior: una actualización vieja de la Vista previa podía pisar a la nueva.
+- Después de traducir, el selector de voz pasa al idioma del resultado (Inglés o Español), conserva Hombre/Mujer y elige la voz predeterminada de ese idioma.
+- Detener también muestra la Vista previa.
+
 ## v:26.11.14-12.37
 
 ### Inicio y barra de contexto como en la versión PowerShell
