@@ -821,8 +821,7 @@ class TestPlayVoiceAutoSwitch(UiContractTestCase):
 
     def test_play_handler_awaits_start_speech_and_applies_the_switch(self):
         window = self.handler_window("speech-play")
-        self.assertIn('await window.pywebview.api.start_speech($("editor").value',
-                      window)
+        self.assertIn("await api.start_speech(speechText", window)
         self.assertIn("applyVoiceSwitch(", window)
 
     def test_play_handler_prepares_the_preview_before_reading_the_words(self):
@@ -836,7 +835,13 @@ class TestPlayVoiceAutoSwitch(UiContractTestCase):
         # The wrapped words are read as start_speech's argument, i.e. strictly
         # after the awaited render (render → wrap → getSpeechWords → start).
         self.assertIn(
-            'api.start_speech($("editor").value, getSpeechWords())', window)
+            "api.start_speech(speechText, getSpeechWords())", window)
+        # txt.ps1 parity: Play reads what Vista previa shows (the AI answer
+        # or the editor) as plain text, and shows that tab.
+        self.assertIn("previewContent()", window)
+        self.assertIn("get_preview_plain_text()", window)
+        self.assertIn('setTab("preview")', window)
+        self.assertIn("No hay contenido en Vista previa para leer.", window)
 
     def test_apply_voice_switch_updates_the_selector_and_the_toggles(self):
         # S15/T22: the toggles move through the shared setVoiceToggles helper

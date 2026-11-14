@@ -174,7 +174,14 @@ class _MacBrowser:
 
     def _on_main(self, action) -> None:
         from PyObjCTools import AppHelper
-        AppHelper.callAfter(action)
+
+        def guarded():
+            try:
+                action()
+            except Exception as error:  # surfaced by the UI's state poll
+                self._state.update(error=MSG_UNAVAILABLE.format(detail=error))
+
+        AppHelper.callAfter(guarded)
 
     def _sync(self) -> None:
         url = self._view.URL()
@@ -190,7 +197,7 @@ class _MacBrowser:
             AppKit.NSMakeRect(0, 0, 10, 10), config)
         view.setHidden_(True)
         self._delegate = _mac_delegate_class().alloc().init()
-        self._delegate.owner = self
+        self._delegate.owner = self  # plain Python attribute on the instance
         view.setNavigationDelegate_(self._delegate)
         view.setUIDelegate_(self._delegate)
         self._view = view
@@ -202,6 +209,12 @@ class _MacBrowser:
             if self._view is None:
                 self._create()
             target = Foundation.NSURL.URLWithString_(url)
+            if target is None:  # characters NSURL rejects: percent-encode them
+                import urllib.parse
+                target = Foundation.NSURL.URLWithString_(
+                    urllib.parse.quote(url, safe=":/?#[]@!$&'()*+,;=%"))
+            if target is None:
+                raise ValueError(f"dirección no válida: {url}")
             self._view.loadRequest_(Foundation.NSURLRequest.requestWithURL_(target))
         self._on_main(action)
 
@@ -228,6 +241,15 @@ class _MacBrowser:
 _MAC_DELEGATE = None
 
 
+def _report_mac_failure(owner, error) -> None:
+    """Module-level on purpose: an NSObject subclass may only hold methods
+    whose signature matches an Objective-C selector."""
+    if error is not None and error.code() == -999:  # NSURLErrorCancelled
+        return
+    detail = str(error.localizedDescription()) if error is not None else "error"
+    owner._state.update(error=MSG_LOAD_FAILED.format(detail=detail))
+
+
 def _mac_delegate_class():
     """Navigation/UI delegate, defined lazily so importing this module never
     needs pyobjc."""
@@ -237,7 +259,6 @@ def _mac_delegate_class():
     import Foundation
 
     class TxtBrowserDelegate(Foundation.NSObject):
-        owner = None
 
         def webView_didCommitNavigation_(self, view, navigation):
             self.owner._sync()
@@ -246,16 +267,10 @@ def _mac_delegate_class():
             self.owner._sync()
 
         def webView_didFailProvisionalNavigation_withError_(self, view, navigation, error):
-            self._failed(error)
+            _report_mac_failure(self.owner, error)
 
         def webView_didFailNavigation_withError_(self, view, navigation, error):
-            self._failed(error)
-
-        def _failed(self, error):
-            if error is not None and error.code() == -999:  # NSURLErrorCancelled
-                return
-            detail = str(error.localizedDescription()) if error is not None else "error"
-            self.owner._state.update(error=MSG_LOAD_FAILED.format(detail=detail))
+            _report_mac_failure(self.owner, error)
 
         def webView_createWebViewWithConfiguration_forNavigationAction_windowFeatures_(
                 self, view, config, action, features):

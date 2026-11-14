@@ -342,12 +342,16 @@
   $("speech-play").addEventListener("click", async () => {
     if (!requireBridge()) return;
     try {
-      // S14: render the preview (and wrap the .sw spans) before reading the
-      // alignment words, even when the Editor tab is the visible one — the
-      // default tab is Editor, so the first Play used to send empty words
-      // (no live highlight, no click targets). No tab switch happens.
+      // txt.ps1 Play: reads the preview content as plain text, on Vista previa.
+      if (!previewContent().trim()) {
+        setStatus("No hay contenido en Vista previa para leer.", "warning");
+        return;
+      }
+      setTab("preview");
       await renderPreviewNow();
-      const result = await window.pywebview.api.start_speech($("editor").value, getSpeechWords());
+      const api = window.pywebview.api;
+      const speechText = await api.get_preview_plain_text();
+      const result = await api.start_speech(speechText, getSpeechWords());
       applyVoiceSwitch(result);
       // T25/S18: start_speech reports its own failures as {ok:false,message}
       // — surface them instead of leaving the click silent.
@@ -360,12 +364,14 @@
   });
 
   $("speech-pause").addEventListener("click", () => {
+    setTab("preview"); // txt.ps1: the reading controls show Vista previa
     const paused = speechState && speechState.mode === "Paused";
     safeCall((api) => (paused ? api.resume_speech() : api.pause_speech()),
       paused ? "No se pudo continuar la lectura." : "No se pudo pausar la lectura.");
   });
 
   $("speech-replay").addEventListener("click", () => {
+    setTab("preview"); // txt.ps1: the reading controls show Vista previa
     safeCall((api) => api.replay_start(0), "No se pudo repetir la lectura.");
   });
 

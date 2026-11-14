@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## v:26.11.14-12.33
+
+### Lectura de la Vista previa y Navegador en macOS
+
+- Play lee lo que muestra la Vista previa (la respuesta de la IA, o el Editor si no hay respuesta) como texto plano y pasa a esa pestaña; sin contenido avisa «No hay contenido en Vista previa para leer.». Pausar y Repetir también muestran la Vista previa.
+- macOS: el navegador integrado no llegaba a crearse por un error en su componente nativo, y por eso solo funcionaba «Abrir en navegador». Corregido; si aun así falla, el motivo aparece en la barra de estado.
+
 ## v:26.11.14-12.11
 
 ### Modelos de los bridges
