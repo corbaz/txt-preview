@@ -32,6 +32,9 @@ class FakeBackend:
     def place(self, rect, visible):
         self.calls.append(("place", rect, visible))
 
+    def set_theme(self, theme):
+        self.calls.append(("theme", theme))
+
 
 class TestToBrowserUrl(unittest.TestCase):
     def test_full_urls_are_kept(self):
@@ -100,6 +103,20 @@ class TestBrowserApi(unittest.TestCase):
                          {"url": "https://a.b/", "can_back": True,
                           "can_forward": False, "error": "falló"})
         self.assertEqual(self.api.browser_state()["error"], "")
+
+    def test_pages_follow_the_app_theme(self):
+        self.api.set_theme("light")
+        self.api.set_theme("dark")
+        self.assertEqual(self.backend.calls, [("theme", "light"), ("theme", "dark")])
+
+    def test_a_browser_created_later_starts_on_the_current_theme(self):
+        created = FakeBackend()
+        fresh = browser.EmbeddedBrowser(None, self._dir.name, platform="win32")
+        fresh.set_theme("light")
+        with mock.patch.object(browser, "_WindowsBrowser", return_value=created):
+            fresh.navigate("https://example.com")
+        self.assertEqual(created.calls, [("theme", "light"),
+                                         ("navigate", "https://example.com")])
 
     def test_open_external_uses_the_default_browser(self):
         with mock.patch("webbrowser.open") as opened:

@@ -78,13 +78,18 @@ class _WindowsBrowser:
         self._view = None
         self._ready = False
         self._pending_url = ""
+        self._theme = "dark"
 
     def _invoke(self, action) -> None:
         from System import Func, Type
+
+        def run():
+            action()  # Func[Type] must return None, whatever the action returns
+
         if self._form.InvokeRequired:
-            self._form.Invoke(Func[Type](action))
+            self._form.Invoke(Func[Type](run))
         else:
-            action()
+            run()
 
     def _create(self) -> None:
         from Microsoft.Web.WebView2.WinForms import (CoreWebView2CreationProperties,
@@ -112,9 +117,23 @@ class _WindowsBrowser:
         core.HistoryChanged += self._on_changed
         core.NewWindowRequested += self._on_new_window
         self._ready = True
+        self._apply_theme()
         if self._pending_url:
             core.Navigate(self._pending_url)
             self._pending_url = ""
+
+    def _apply_theme(self) -> None:
+        """Pages follow the app theme through prefers-color-scheme."""
+        try:
+            from Microsoft.Web.WebView2.Core import CoreWebView2PreferredColorScheme as Scheme
+            self._view.CoreWebView2.Profile.PreferredColorScheme = (
+                Scheme.Dark if self._theme == "dark" else Scheme.Light)
+        except Exception:
+            pass  # older WebView2 runtime: pages keep their default scheme
+
+    def set_theme(self, theme: str) -> None:
+        self._theme = theme
+        self._invoke(lambda: self._ready and self._apply_theme())
 
     def _on_changed(self, sender, args) -> None:
         self._state.update(url=str(self._view.Source.AbsoluteUri),
@@ -171,6 +190,7 @@ class _MacBrowser:
         self._state = state
         self._view = None
         self._delegate = None
+        self._theme = "dark"
 
     def _on_main(self, action) -> None:
         from PyObjCTools import AppHelper
@@ -201,7 +221,19 @@ class _MacBrowser:
         view.setNavigationDelegate_(self._delegate)
         view.setUIDelegate_(self._delegate)
         self._view = view
+        self._apply_theme()
         self._host.addSubview_(view)
+
+    def _apply_theme(self) -> None:
+        """The view's appearance drives prefers-color-scheme in WebKit."""
+        import AppKit
+        name = (AppKit.NSAppearanceNameDarkAqua if self._theme == "dark"
+                else AppKit.NSAppearanceNameAqua)
+        self._view.setAppearance_(AppKit.NSAppearance.appearanceNamed_(name))
+
+    def set_theme(self, theme: str) -> None:
+        self._theme = theme
+        self._on_main(lambda: self._view is not None and self._apply_theme())
 
     def navigate(self, url: str) -> None:
         def action():
@@ -293,6 +325,13 @@ class EmbeddedBrowser:
         self._window = window
         self._data_dir = os.path.join(settings_dir, "webview2-data")
         self._platform = platform or sys.platform
+        self._theme = "dark"
+
+    def set_theme(self, theme: str) -> None:
+        """Web pages follow the app theme (dark or light)."""
+        self._theme = "light" if theme == "light" else "dark"
+        if self._backend is not None:
+            self._backend.set_theme(self._theme)
 
     def _ensure_backend(self):
         if self._backend is None:
@@ -300,6 +339,7 @@ class EmbeddedBrowser:
             if self._platform not in ("win32", "darwin"):
                 raise RuntimeError("plataforma sin navegador integrado")
             self._backend = factory(self._window, self._data_dir, self.state)
+            self._backend.set_theme(self._theme)
         return self._backend
 
     def navigate(self, url: str) -> None:

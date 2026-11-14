@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## v:26.11.14-18.34
+
+### El Navegador respeta el tema oscuro o claro
+
+- Las páginas de la pestaña Navegador siguen el tema de la aplicación: con Tema Oscuro se piden en modo oscuro y con Tema Claro en modo claro, también al cambiar el tema con una página abierta. Vale para `txt.ps1` y para la app Python en Windows y macOS.
+- App Python en Windows: Atrás y Adelante ya no fallan cuando no hay historial.
+
 ## v:26.11.14-18.30
 
 ### Adjuntos: nombres como links con vista previa

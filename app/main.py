@@ -242,6 +242,7 @@ class Api:
     def set_theme(self, theme: str) -> dict:
         self._theme = theme if theme in ("light", "dark") else DEFAULT_THEME
         settings.set_theme(self._theme, self._settings_dir)
+        self._embedded_browser().set_theme(self._theme)  # pages follow the theme
         return {"ok": True, "theme": self._theme}
 
     # ---- Voice catalog (T4/S6) ---------------------------------------------
@@ -812,6 +813,7 @@ class Api:
             self._browser = browser.EmbeddedBrowser(
                 getattr(self, "_window", None),
                 self._settings_dir or settings.settings_dir())
+            self._browser.set_theme(self._theme)
         return self._browser
 
     def browser_open(self, address: str) -> dict:

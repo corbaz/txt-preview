@@ -41,6 +41,14 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn("$viewer.ReadOnly = $true", preview)
         self.assertIn("ShowDialog($form)", preview)
 
+    def test_browser_pages_follow_the_app_theme(self) -> None:
+        body = SCRIPT.split("function Update-BrowserColorScheme {", 1)[1][:700]
+        self.assertIn("Profile.PreferredColorScheme", body)
+        self.assertIn('if ([bool]$btnTheme.Tag) { "Dark" } else { "Light" }', body)
+        self.assertIn("Update-BrowserColorScheme", self._click_handler("btnTheme"))
+        init = SCRIPT.split("function Initialize-BrowserView {", 1)[1]
+        self.assertIn("Update-BrowserColorScheme", init.split("\n}\n", 1)[0])
+
     def test_web_and_vision_payloads_are_supported(self) -> None:
         self.assertIn('type = "browser_search"', SCRIPT)
         self.assertIn('type      = "image_url"', SCRIPT)

@@ -5751,6 +5751,20 @@ function Initialize-WebView2 {
     [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::SetLoaderDllFolderPath($folder)
 }
 
+# Web pages in the Navegador tab follow the app theme (prefers-color-scheme).
+function Update-BrowserColorScheme {
+    if ($null -eq $script:browserView -or $null -eq $script:browserView.CoreWebView2) {
+        return
+    }
+    $scheme = if ([bool]$btnTheme.Tag) { "Dark" } else { "Light" }
+    try {
+        $script:browserView.CoreWebView2.Profile.PreferredColorScheme =
+            [Microsoft.Web.WebView2.Core.CoreWebView2PreferredColorScheme]::$scheme
+    } catch {
+        # Older WebView2 runtimes have no color-scheme setting; pages keep their default.
+    }
+}
+
 function Update-BrowserButtons {
     $btnBrowserBack.Enabled = $null -ne $script:browserView -and $script:browserView.CanGoBack
     $btnBrowserForward.Enabled = $null -ne $script:browserView -and $script:browserView.CanGoForward
@@ -5787,6 +5801,7 @@ function Initialize-BrowserView {
 
     $lblBrowserEmpty.Visible = $false
     $script:browserView = $view
+    Update-BrowserColorScheme
     $core = $view.CoreWebView2
     $core.add_SourceChanged({
         $txtBrowserUrl.Text = $script:browserView.Source.AbsoluteUri
@@ -6432,6 +6447,7 @@ Set-Theme ([bool]$btnTheme.Tag)
 $btnTheme.Add_Click({
     $btnTheme.Tag = -not [bool]$btnTheme.Tag
     Set-Theme ([bool]$btnTheme.Tag)
+    Update-BrowserColorScheme
     if ($tabs.SelectedTab -eq $tabPreview) {
         Show-MarkdownPreview (Get-PreviewContent)
     }
