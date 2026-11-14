@@ -49,6 +49,14 @@ class SettingsContractTests(unittest.TestCase):
         init = SCRIPT.split("function Initialize-BrowserView {", 1)[1]
         self.assertIn("Update-BrowserColorScheme", init.split("\n}\n", 1)[0])
 
+    def test_copiar_teams_copies_rich_and_plain_text(self) -> None:
+        self.assertIn('$btnCopyTeams.Text = "Copiar Teams"', SCRIPT)
+        handler = self._click_handler("btnCopyTeams")
+        self.assertIn("[Windows.Forms.DataFormats]::Html", handler)
+        self.assertIn("[Windows.Forms.DataFormats]::UnicodeText", handler)
+        self.assertIn("Convert-MarkdownToTeamsHtml $previewContent", handler)
+        self.assertIn("Copiado con formato para Teams. Pegalo en el chat con Ctrl+V.", handler)
+
     def test_web_and_vision_payloads_are_supported(self) -> None:
         self.assertIn('type = "browser_search"', SCRIPT)
         self.assertIn('type      = "image_url"', SCRIPT)

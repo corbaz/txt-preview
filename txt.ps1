@@ -1248,24 +1248,30 @@ $btnCopyTxt.Text = "Copiar TXT"
 $btnCopyTxt.SetBounds(420, 54, 165, 34)
 $panel.Controls.Add($btnCopyTxt)
 
+# Copies Vista previa as rich text (tables, colors, links, images) for a Teams chat.
+$btnCopyTeams = New-Object Windows.Forms.Button
+$btnCopyTeams.Text = "Copiar Teams"
+$btnCopyTeams.SetBounds(593, 54, 120, 34)
+$panel.Controls.Add($btnCopyTeams)
+
 $btnMic = New-Object Windows.Forms.Button
 $btnMic.Text = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes("Micrófono"))
-$btnMic.SetBounds(593, 54, 120, 34)
+$btnMic.SetBounds(721, 54, 120, 34)
 $panel.Controls.Add($btnMic)
 
 $btnPdf = New-Object Windows.Forms.Button
 $btnPdf.Text = "PDF"
-$btnPdf.SetBounds(721, 54, 70, 34)
+$btnPdf.SetBounds(849, 54, 70, 34)
 $panel.Controls.Add($btnPdf)
 
 $btnMp3 = New-Object Windows.Forms.Button
 $btnMp3.Text = "MP3"
-$btnMp3.SetBounds(799, 54, 70, 34)
+$btnMp3.SetBounds(927, 54, 70, 34)
 $panel.Controls.Add($btnMp3)
 
 $btnLimpiar = New-Object Windows.Forms.Button
 $btnLimpiar.Text = "Limpiar chat"
-$btnLimpiar.SetBounds(877, 54, 120, 34)
+$btnLimpiar.SetBounds(1005, 54, 120, 34)
 $panel.Controls.Add($btnLimpiar)
 
 $btnTheme = New-Object Windows.Forms.Button
@@ -2803,7 +2809,7 @@ $speechAlignmentWindow = 8
 
 $actionButtons = @(
     $btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn,
-    $btnLeer, $btnPegar, $btnCopyMd, $btnCopyTxt, $btnMic, $btnPdf, $btnMp3, $btnLimpiar,
+    $btnLeer, $btnPegar, $btnCopyMd, $btnCopyTxt, $btnCopyTeams, $btnMic, $btnPdf, $btnMp3, $btnLimpiar,
     $btnTheme, $btnCerrar, $btnPauseVoice, $btnStopVoice, $btnSaveSettings, $btnRefreshModels, $btnUpdateVoices,
     $btnCheckUpdate, $btnInstallUpdate, $btnAttachFiles, $btnClearAttachments,
     $btnUseResult, $btnDismissResult, $btnReplay
@@ -6089,6 +6095,71 @@ function Convert-MarkdownToText {
     return $markdown
 }
 
+# Teams keeps inline styles of pasted HTML and drops style sheets, so every tag gets
+# its formatting inline. The colors are readable on the light and the dark Teams theme.
+function Convert-MarkdownToTeamsHtml {
+    param([string]$markdown)
+
+    $html = (ConvertFrom-Markdown -InputObject $markdown).Html
+    # A local image becomes a data URL: a chat cannot read a file path.
+    $html = [regex]::Replace($html, '(?i)(<img\b[^<>]*?\bsrc=")([^"]*)(")', {
+        param($match)
+        $source = $match.Groups[2].Value
+        if ($source -match '^(?i)(https?:|data:)') {
+            return $match.Value
+        }
+        $path = [Uri]::UnescapeDataString(($source -replace '^(?i)file:/{2,3}', ''))
+        $mediaType = switch ([IO.Path]::GetExtension($path).ToLowerInvariant()) {
+            ".png" { "image/png" }
+            { $_ -in ".jpg", ".jpeg" } { "image/jpeg" }
+            ".gif" { "image/gif" }
+            ".webp" { "image/webp" }
+            default { $null }
+        }
+        if (-not $mediaType -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            return $match.Value
+        }
+        $data = [Convert]::ToBase64String([IO.File]::ReadAllBytes($path))
+        return $match.Groups[1].Value + "data:$mediaType;base64,$data" + $match.Groups[3].Value
+    })
+
+    $heading = "color:#7579EB;font-weight:600;margin:12px 0 6px"
+    $cell = "border:1px solid #8A8A8A;padding:6px 10px"
+    $code = "font-family:Consolas,'Courier New',monospace;background-color:#F0F0F0;color:#242424"
+    $styles = [ordered]@{
+        h1 = "font-size:22px;$heading"; h2 = "font-size:19px;$heading"; h3 = "font-size:16px;$heading"
+        h4 = "font-size:14px;$heading"; h5 = "font-size:13px;$heading"; h6 = "font-size:12px;$heading"
+        table = "border-collapse:collapse;margin:8px 0"
+        th = "$cell;background-color:#5B5FC7;color:#FFFFFF;text-align:left"
+        td = $cell
+        pre = "$code;padding:8px 10px;margin:8px 0;white-space:pre-wrap"
+        blockquote = "border-left:4px solid #5B5FC7;margin:8px 0;padding:2px 10px"
+        img = "max-width:100%"
+        a = "text-decoration:underline"
+    }
+    foreach ($tag in $styles.Keys) {
+        $html = [regex]::Replace($html, "(?i)<$tag(?=[\s>])", "<$tag style=`"$($styles[$tag])`"")
+    }
+    # Inline code only: a <code> right inside <pre> keeps the block style of its <pre>.
+    $html = [regex]::Replace($html, '(?i)(?<!<pre[^<>]*>)<code(?=[\s>])', "<code style=`"$code;padding:1px 4px`"")
+    return $html
+}
+
+# Windows "HTML Format" payload: a header with the UTF-8 byte offsets of the fragment.
+function ConvertTo-ClipboardHtml {
+    param([string]$fragment)
+
+    $prefix = "<html><body><!--StartFragment-->"
+    $suffix = "<!--EndFragment--></body></html>"
+    $header = "Version:0.9`r`nStartHTML:{0:D10}`r`nEndHTML:{1:D10}`r`nStartFragment:{2:D10}`r`nEndFragment:{3:D10}`r`n"
+    $utf8 = [Text.Encoding]::UTF8
+    $startHtml = $utf8.GetByteCount(($header -f 0, 0, 0, 0))
+    $startFragment = $startHtml + $utf8.GetByteCount($prefix)
+    $endFragment = $startFragment + $utf8.GetByteCount($fragment)
+    $endHtml = $endFragment + $utf8.GetByteCount($suffix)
+    return ($header -f $startHtml, $endHtml, $startFragment, $endFragment) + $prefix + $fragment + $suffix
+}
+
 function Invoke-Translation {
     param(
         [string]$sourceLanguage,
@@ -6574,6 +6645,23 @@ $btnCopyTxt.Add_Click({
 
     Convert-MarkdownToText $previewContent | Set-Clipboard
     Show-Message "Texto sin formato copiado al portapapeles."
+})
+
+$btnCopyTeams.Add_Click({
+    $previewContent = Get-PreviewContent
+    if ([string]::IsNullOrWhiteSpace($previewContent)) {
+        Show-Message "No hay contenido para copiar." -Level Warning
+        return
+    }
+    try {
+        $data = New-Object Windows.Forms.DataObject
+        $data.SetData([Windows.Forms.DataFormats]::Html, (ConvertTo-ClipboardHtml (Convert-MarkdownToTeamsHtml $previewContent)))
+        $data.SetData([Windows.Forms.DataFormats]::UnicodeText, (Convert-MarkdownToText $previewContent))
+        [Windows.Forms.Clipboard]::SetDataObject($data, $true)
+        Show-Message "Copiado con formato para Teams. Pegalo en el chat con Ctrl+V."
+    } catch {
+        Show-Message "No se pudo copiar al portapapeles: $($_.Exception.Message)" -Level Error
+    }
 })
 
 $btnLeer.Add_Click({

@@ -480,6 +480,19 @@
     await copyMain(true, (api) => api.get_preview_plain_text());
   });
 
+  // «Copiar Teams»: what Vista previa shows, as rich text for a Teams chat.
+  $("copy-teams").addEventListener("click", async () => {
+    if (!previewContent().trim()) {
+      setStatus("No hay contenido para copiar.", "warning");
+      return;
+    }
+    await syncPreviewContent();
+    const result = await safeCall((api) => api.copy_for_teams(),
+      "No se pudo copiar al portapapeles.");
+    if (!result) return;
+    setStatus(result.ok ? result.message : result.error, result.ok ? "info" : "error");
+  });
+
   $("clear-chat").addEventListener("click", () => {
     $("editor").value = "";
     $("preview").innerHTML = "";

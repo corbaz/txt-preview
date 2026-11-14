@@ -45,6 +45,22 @@ POWERSHELL_READ_COMMAND = (
 POWERSHELL_WRITE_COMMAND = "Set-Clipboard -Value $env:TXT_CLIPBOARD_TEXT"
 
 
+# Rich copy: the payloads travel in temp files (an environment variable is
+# too small for embedded images) and the command itself stays fixed.
+HTML_FILE_ENV_VAR = "TXT_CLIPBOARD_HTML_FILE"
+TEXT_FILE_ENV_VAR = "TXT_CLIPBOARD_TEXT_FILE"
+POWERSHELL_WRITE_HTML_COMMAND = (
+    "Add-Type -AssemblyName System.Windows.Forms; "
+    "$utf8=[Text.UTF8Encoding]::new($false); "
+    "$html=[IO.File]::ReadAllText($env:TXT_CLIPBOARD_HTML_FILE,$utf8); "
+    "$text=[IO.File]::ReadAllText($env:TXT_CLIPBOARD_TEXT_FILE,$utf8); "
+    "$data=New-Object Windows.Forms.DataObject; "
+    "$data.SetData([Windows.Forms.DataFormats]::Html,$html); "
+    "$data.SetData([Windows.Forms.DataFormats]::UnicodeText,$text); "
+    "[Windows.Forms.Clipboard]::SetDataObject($data,$true)"
+)
+
+
 def _run(argv: list[str], runner: Callable[..., Any] | None,
          input_text: str | None = None,
          extra_env: dict[str, str] | None = None) -> Any:
@@ -141,3 +157,53 @@ def write_clipboard(text: str, platform: str | None = None,
         raise RuntimeError(MSG_WRITE_FAILED.format(detail=MSG_TIMEOUT)) from error
     except OSError as error:
         raise RuntimeError(MSG_WRITE_FAILED.format(detail=str(error))) from error
+
+
+def _write_mac_html(fragment: str, plain_text: str) -> None:
+    import AppKit
+    pasteboard = AppKit.NSPasteboard.generalPasteboard()
+    pasteboard.clearContents()
+    pasteboard.setString_forType_(fragment, AppKit.NSPasteboardTypeHTML)
+    pasteboard.setString_forType_(plain_text, AppKit.NSPasteboardTypeString)
+
+
+def write_clipboard_html(fragment: str, plain_text: str, platform: str | None = None,
+                         runner: Callable[..., Any] | None = None,
+                         mac_writer: Callable[[str, str], None] | None = None) -> None:
+    """Copy rich text: the HTML fragment plus its plain-text alternative, so
+    an app that understands formatting (Teams) pastes the formatted version."""
+    if not fragment or not plain_text:
+        raise RuntimeError(MSG_WRITE_EMPTY)
+    platform = sys.platform if platform is None else platform
+    if platform == "darwin":
+        try:
+            (mac_writer or _write_mac_html)(fragment, plain_text)
+        except Exception as error:
+            raise RuntimeError(MSG_WRITE_FAILED.format(detail=str(error))) from error
+        return
+    if not platform.startswith("win"):
+        raise RuntimeError(MSG_UNSUPPORTED)
+    import tempfile
+    from .teams import cf_html
+    paths = []
+    try:
+        for content in (cf_html(fragment), plain_text):
+            descriptor, path = tempfile.mkstemp(prefix="txt-teams-", suffix=".txt")
+            paths.append(path)
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+                handle.write(content)
+        completed = _run_with_retries(
+            ["powershell", "-NoProfile", "-NonInteractive", "-STA",
+             "-Command", POWERSHELL_WRITE_HTML_COMMAND],
+            runner, extra_env={HTML_FILE_ENV_VAR: paths[0], TEXT_FILE_ENV_VAR: paths[1]})
+        _completed_or_raise(completed, MSG_WRITE_FAILED)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(MSG_WRITE_FAILED.format(detail=MSG_TIMEOUT)) from error
+    except OSError as error:
+        raise RuntimeError(MSG_WRITE_FAILED.format(detail=str(error))) from error
+    finally:
+        for path in paths:
+            try:
+                os.remove(path)
+            except OSError:
+                pass

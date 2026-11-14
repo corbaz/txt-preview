@@ -33,7 +33,7 @@ APP = ROOT
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 
-from txt_core import bridges, browser, clipboard, groq, language, models, prompts, settings, updater, webapp
+from txt_core import bridges, browser, clipboard, groq, language, models, prompts, settings, teams, updater, webapp
 from txt_core.attachments import (
     IMAGE_EXTENSIONS,
     TEXT_EXTENSIONS,
@@ -760,6 +760,21 @@ class Api:
         except RuntimeError as error:
             return {"ok": False, "error": str(error)}
         return {"ok": True}
+
+    def copy_for_teams(self, runner=None, platform: str | None = None) -> dict:
+        """«Copiar Teams»: the preview content as rich text (tables, colors,
+        links, images) plus plain text, ready to paste in a Teams chat."""
+        if not self._preview_text.strip():
+            return {"ok": False, "error": "No hay contenido para copiar."}
+        try:
+            clipboard.write_clipboard_html(
+                teams.teams_html(self._preview_text),
+                markdown_to_text(self._preview_text),
+                platform=platform, runner=runner)
+        except RuntimeError as error:
+            return {"ok": False, "error": str(error)}
+        return {"ok": True,
+                "message": "Copiado con formato para Teams. Pegalo en el chat con Ctrl+V."}
 
     # ---- Micrófono dictation (T15/S8) ---------------------------------------
     def start_dictation(self) -> dict:

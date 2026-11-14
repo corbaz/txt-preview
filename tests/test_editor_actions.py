@@ -153,3 +153,25 @@ class AttachmentLinkTests(unittest.TestCase):
             "informe final.pdf|informe final.pdf",
             "0",
         ])
+
+
+@unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
+class CopyTeamsTests(unittest.TestCase):
+    def test_teams_html_has_inline_styles_and_a_valid_clipboard_header(self) -> None:
+        results = run_app_snippet(
+            "$md = \"# Titulo`n`n| A | B |`n|---|---|`n| 1 | [link](https://example.com) |`n`nusa ``x```n\"; "
+            "$html = Convert-MarkdownToTeamsHtml $md; "
+            "'RESULT=' + ($html -match '<table style=\"border-collapse:collapse;margin:8px 0\"'); "
+            "'RESULT=' + ($html -match '<th style=\"border:1px solid #8A8A8A;padding:6px 10px;background-color:#5B5FC7;color:#FFFFFF;text-align:left\"'); "
+            "'RESULT=' + ($html -match '<h1 style=\"font-size:22px;color:#7579EB'); "
+            "'RESULT=' + ($html -match '<a style=\"text-decoration:underline\" href=\"https://example.com\"'); "
+            "'RESULT=' + ($html -match '<code style=\"[^\"]*padding:1px 4px\">x</code>'); "
+            "$payload = ConvertTo-ClipboardHtml '<p>año</p>'; "
+            "$bytes = [Text.Encoding]::UTF8.GetBytes($payload); "
+            "$null = $payload -match 'StartFragment:([0-9]+)'; $start = [int]$Matches[1]; "
+            "$null = $payload -match 'EndFragment:([0-9]+)'; $end = [int]$Matches[1]; "
+            "'RESULT=' + [Text.Encoding]::UTF8.GetString($bytes, $start, $end - $start); "
+            "'RESULT=' + $btnCopyTeams.Text + '|' + ($btnCopyTeams.Left -gt $btnCopyTxt.Left) + '|' + ($btnMic.Left -gt $btnCopyTeams.Left)"
+        )
+        self.assertEqual(results, ["True", "True", "True", "True", "True", "<p>año</p>",
+                                   "Copiar Teams|True|True"])

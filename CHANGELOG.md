@@ -1,5 +1,19 @@
 # Historial de cambios
 
+## v:26.11.14-19.09
+
+### Botón «Copiar Teams»
+
+- Nuevo botón junto a «Copiar TXT», en `txt.ps1` y en la app Python: copia lo que muestra la Vista previa como texto enriquecido listo para pegar en un chat de Microsoft Teams, con tablas con borde y encabezado de color, títulos en color, links, código, citas e imágenes. También deja la versión en texto plano para las apps que no aceptan formato.
+- Las imágenes locales se incluyen dentro de lo copiado; las de la web conservan su dirección.
+
+### Más igualdad con la versión PowerShell (app Python)
+
+- Mensajes de velocidad: «Velocidad de lectura: X.» sin lectura activa y «Velocidad cambiada a X.» durante Repetir.
+- El botón Micrófono pasa a «Mic <Esc>» y deja el cursor al final del Editor.
+- Doble clic en una fila de la lista de modelos de Configuración selecciona ese modelo; si no es de chat, avisa.
+- Mientras la IA trabaja, la capa de espera cubre toda la ventana y no deja tocar otros botones.
+
 ## v:26.11.14-19.00
 
 ### Interfaz neumórfica (app Python)
