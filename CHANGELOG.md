@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## v:26.11.14-09.47
+
+### Mensajes MP3 legibles en cualquier configuración regional
+
+- El wrapper de exportación MP3 escribe ahora sus mensajes en UTF-8 explícito, de modo que "la síntesis falló" y otros avisos con acentos no se corrompen en Windows con configuración regional distinta a la española (fallo detectado por CI).
+
 ## v:26.11.14-09.10
 
 ### Certificados nativos en macOS y Python 3.14

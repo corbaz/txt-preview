@@ -44,6 +44,13 @@ async def collect_voice_lines() -> list[str]:
 
 def main() -> int:
     """Print the catalog; fail nonzero with a useful stderr on any error."""
+    # Voices are parsed by the app with UTF-8 text mode; force UTF-8 output so
+    # a legacy locale console cannot corrupt voice names or the error line.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
     try:
         for line in asyncio.run(collect_voice_lines()):
             print(line)

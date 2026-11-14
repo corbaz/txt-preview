@@ -60,6 +60,14 @@ def _discard_partial_media(media_file: Path) -> None:
 
 def main() -> int:
     """Synthesize and fail nonzero with a useful stderr on any error."""
+    # The parent process decodes our stderr as UTF-8 regardless of the CI
+    # locale, so make this child emit UTF-8 explicitly (a legacy cp1252
+    # console would otherwise mojibake accented Spanish messages).
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError):
+            pass
     parser = argparse.ArgumentParser()
     parser.add_argument("--voice", required=True)
     parser.add_argument("--rate", type=int, default=0)
