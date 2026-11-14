@@ -83,7 +83,7 @@
     const api = bridgeApi();
     if (!api) return;
     try {
-      const html = await api.render_preview($("editor").value);
+      const html = await api.render_preview(previewContent());
       $("preview").innerHTML = html;
       wrapSpeechWords();
     } catch (_) {
@@ -92,17 +92,67 @@
   }
 
   $("editor").addEventListener("input", () => {
-    // Editing the editor invalidates the AI response shown in Vista previa
-    // (legacy Copy MD/TXT rule: editor content until the preview shows an AI
-    // response again).
-    previewHasAiResponse = false;
     if (document.querySelector(".page[data-page='preview']").classList.contains("active")) {
       schedulePreview();
     }
   });
 
-  // Legacy copy rule state: true while Vista previa shows an AI response.
-  let previewHasAiResponse = false;
+  // Legacy $script:aiResult: the last AI answer shown in Vista previa; null
+  // means the preview mirrors the editor. Copy, PDF, MP3 and Play act on
+  // previewContent() (legacy Get-PreviewContent).
+  let aiResult = null;
+
+  function previewContent() {
+    return aiResult !== null ? aiResult : $("editor").value;
+  }
+
+  function showAiResult(markdown) {
+    aiResult = markdown;
+    $("preview-result-bar").hidden = false;
+  }
+
+  function clearAiResult() {
+    aiResult = null;
+    $("preview-result-bar").hidden = true;
+    if (document.querySelector(".page[data-page='preview']").classList.contains("active")) {
+      renderPreviewNow();
+    }
+  }
+
+  // Hands the preview content to Python before an action that works on it.
+  async function syncPreviewContent() {
+    const api = bridgeApi();
+    if (api) await api.set_preview_content(previewContent());
+  }
+
+  // Legacy Set-EditorText: replaces the whole editor as one undoable edit,
+  // so Ctrl+Z brings the previous text back.
+  function setEditorText(text) {
+    const editor = $("editor");
+    editor.focus();
+    editor.select();
+    let done = false;
+    try {
+      done = text
+        ? document.execCommand("insertText", false, text)
+        : document.execCommand("delete");
+    } catch (_) { done = false; }
+    if (!done || editor.value !== text) editor.value = text;
+    editor.setSelectionRange(text.length, text.length);
+  }
+
+  $("use-result").addEventListener("click", () => {
+    const answer = aiResult || "";
+    setTab("editor");
+    setEditorText(answer);
+    clearAiResult();
+    setStatus("Respuesta llevada al editor. Ctrl+Z recupera tu consulta.");
+  });
+
+  $("dismiss-result").addEventListener("click", () => {
+    clearAiResult();
+    setStatus("Vista previa muestra otra vez el contenido del Editor.");
+  });
 
   // ---- Speech word spans (T4) ---------------------------------------------
   const TOKEN = /\S+/g;
@@ -376,8 +426,8 @@
       setStatus("El portapapeles no contiene texto.");
       return;
     }
-    $("editor").value = result.text;
-    $("editor").setSelectionRange(result.text.length, result.text.length);
+    setTab("editor");
+    setEditorText(result.text);
     setStatus("Texto pegado desde el portapapeles.");
   });
 
@@ -385,13 +435,13 @@
   // shows an AI response, otherwise the editor text. fetchText picks the
   // preview source (api.get_preview_text / api.get_preview_plain_text).
   async function copyMain(plain, fetchText) {
-    let text = "";
-    if (previewHasAiResponse) {
+    let text = previewContent();
+    if (plain && text && text.trim()) {
+      await syncPreviewContent();
       const fetched = await safeCall((api) => fetchText(api),
         "No se pudo leer la vista previa.");
       text = fetched || "";
     }
-    if (!text || !text.trim()) text = $("editor").value;
     if (!text || !text.trim()) {
       setStatus("No hay contenido para copiar.");
       return;
@@ -418,7 +468,7 @@
   $("clear-chat").addEventListener("click", () => {
     $("editor").value = "";
     $("preview").innerHTML = "";
-    previewHasAiResponse = false;
+    clearAiResult();
     safeCall((api) => api.clear_attachments(),
       "No se pudieron quitar los adjuntos.");
     $("attachment-summary").textContent = "Sin archivos adjuntos para la próxima solicitud";
@@ -464,11 +514,13 @@
   }
 
   $("export-pdf").addEventListener("click", () => {
-    withBusy($("export-pdf"), "Generando PDF...", (api) => api.export_pdf());
+    withBusy($("export-pdf"), "Generando PDF...",
+      async (api) => { await syncPreviewContent(); return api.export_pdf(); });
   });
 
   $("export-mp3").addEventListener("click", () => {
-    withBusy($("export-mp3"), "Generando MP3...", (api) => api.export_mp3());
+    withBusy($("export-mp3"), "Generando MP3...",
+      async (api) => { await syncPreviewContent(); return api.export_mp3(); });
   });
 
   // ---- Navegador (txt.ps1 Open-BrowserUrl) --------------------------------
@@ -572,8 +624,17 @@
     openBrowserUrl(link.href);
   });
 
-  function setStatus(message) {
-    $("status-message").textContent = message;
+  const ERROR_TEXT = /^(No se pudo|No se pudieron|No se encontró|Error|Falta)/;
+  const WARNING_TEXT = /^(No hay|Ingresá|Escribí|El portapapeles no contiene|La lectura (ya|no)|Versión .* disponible)/;
+
+  function setStatus(message, level) {
+    const status = $("status-message");
+    const text = message || "";
+    const resolved = level
+      || (ERROR_TEXT.test(text) ? "error" : WARNING_TEXT.test(text) ? "warning" : "info");
+    status.textContent = text;
+    status.classList.toggle("error", resolved === "error");
+    status.classList.toggle("warning", resolved === "warning");
   }
 
   // ---- Configuración (T10/S2) ---------------------------------------------
@@ -877,7 +938,7 @@
     applySelectedModelCapabilities(select.value);
     showSelectedModelSummary();
     try {
-      $("attachment-summary").textContent = await api.get_attachment_summary();
+      $("attachment-summary").textContent = await bridgeApi().get_attachment_summary();
     } catch (_) { /* the summary is best effort */ }
     const option = select.selectedOptions[0];
     const provider = (option && option.dataset.provider) || "Groq";
@@ -1083,7 +1144,7 @@
     $("apply-update").hidden = true;
     $("update-status").textContent = "Buscando una versión nueva en origin/main...";
     try {
-      applyUpdateStatus(await api.check_for_updates());
+      applyUpdateStatus(await bridgeApi().check_for_updates());
     } catch (_) {
       $("update-status").textContent = "No se pudo comprobar si hay una versión nueva.";
     } finally {
@@ -1098,7 +1159,7 @@
     $("check-update").disabled = true;
     $("update-status").textContent = "Aplicando la actualización..."; // legacy
     try {
-      applyUpdateStatus(await api.apply_update());
+      applyUpdateStatus(await bridgeApi().apply_update());
     } catch (_) {
       $("update-status").textContent = "No se pudo aplicar la actualización.";
     } finally {
@@ -1189,24 +1250,26 @@
     try {
       const api = requireBridge();
       if (!api) return;
-      const model = await api.get_selected_model();
-      if (action === "consult") {
-        // S18/T25: Consultar always researches the web, regardless of the
-        // optional checkbox — say so while the request runs.
-        setStatus(`Investigando en la web… · ${model}`);
-      } else {
-        setStatus(`${AI_BUSY_LABELS[action] || "Consultando a la IA"} · ${model}...`);
-      }
-      // T25/S18: consult forces the web search; the checkbox only gates the
-      // other AI actions.
-      const useWeb = action === "consult" || $("web-search").checked;
+      // Legacy Start-Busy text: "<acción> · <Proveedor> · <modelo>...".
+      const option = $("model-select").selectedOptions[0];
+      const display = option ? option.textContent : await api.get_selected_model();
+      const busy = `${AI_BUSY_LABELS[action] || "Consultando a la IA"} · ${display}...`;
+      showWorkOverlay(busy);
+      setStatus(busy);
+      // txt.ps1: web search only when the checkbox is ticked.
+      const useWeb = $("web-search").checked;
       const result = await api.ask_ai(action, useWeb, $("editor").value);
       if (!result.ok) {
-        setStatus(result.error);
+        setStatus(result.error, result.level);
         return;
       }
       if (result.editor_action === "replace") {
-        $("editor").value = result.text;
+        // Corregir / Resumir / Traducir: the result replaces the editor
+        // (Ctrl+Z restores it) and the preview mirrors the editor again.
+        clearAiResult();
+        setEditorText(result.text);
+      } else {
+        showAiResult(result.text); // Consultar: the question stays in the editor
       }
       if (result.clipboard && result.text) {
         // Legacy Corregir copies the result; the native clipboard bridge
@@ -1215,15 +1278,13 @@
           "No se pudo copiar al portapapeles.");
       }
       if (result.speech_language) speechLanguage = result.speech_language;
-      // Vista previa now shows the AI response (legacy Copy MD/TXT rule).
-      previewHasAiResponse = true;
       await renderPreviewNow();
       setTab("preview");
       setStatus(result.message);
     } catch (_) {
       // T25/S18: a rejected AI request shows a controlled error and never
       // leaves an unhandled promise rejection behind.
-      setStatus("No se pudo completar la consulta a la IA.");
+      setStatus("Error al conectar con la API.", "error");
     } finally {
       hideWorkOverlay();
       if (button) button.disabled = false;
@@ -1290,7 +1351,7 @@
     setSpeechWordIndex, clearSpeechProgress,
     runAi, applyAttachments, getSpeechLanguage: () => speechLanguage,
     copyMain, withBusy,
-    applyTheme, applyModelCatalog, saveApiKey, showWorkOverlay, hideWorkOverlay,
+    applyTheme, applyModelCatalog, saveSettingsForm, showWorkOverlay, hideWorkOverlay,
     applySelectedModelCapabilities, capabilitiesFor,
     loadStartupModels, applyUpdateStatus,
     applyVoiceCatalog, refreshVoices, renderFilteredVoiceCatalog,

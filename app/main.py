@@ -105,6 +105,7 @@ MSG_DICTATION_MAC = ("El dictado es una función del sistema en macOS: activá e
                      "la tecla de dictado (micrófono).")
 MSG_DICTATION_UNSUPPORTED = "El dictado nativo no está disponible en esta plataforma."
 MSG_WINDOW_UNAVAILABLE = "La ventana no está disponible."
+MSG_PREVIEW_EMPTY = "*No hay contenido para mostrar.*"
 MSG_EDGE_TTS_OUTDATED = ("Las voces Edge necesitan una versión nueva de edge-tts. "
                          "Tocá «Actualizar voces» en Configuración.")
 MSG_WINDOW_CLOSE_FAILED = "No se pudo cerrar la ventana: {detail}"
@@ -494,9 +495,19 @@ class Api:
         return entries, status
 
     def render_preview(self, text: str) -> str:
-        """Sanitized markdown HTML for Vista previa."""
+        """Sanitized markdown HTML for Vista previa. `text` is the preview
+        content chosen by the UI (legacy Get-PreviewContent): the AI answer
+        while one is shown, otherwise the editor text."""
         self._preview_text = text
+        if not (text or "").strip():
+            return render_markdown(MSG_PREVIEW_EMPTY)  # legacy Show-MarkdownPreview
         return render_markdown(text)
+
+    def set_preview_content(self, text: str) -> dict:
+        """Copy, PDF, MP3 and Play act on what Vista previa shows even when
+        the tab was never opened: the UI hands the content over first."""
+        self._preview_text = text or ""
+        return {"ok": True}
 
     # ---- AI actions (T5/S1) -------------------------------------------------
     def get_selected_model(self) -> str:
@@ -589,11 +600,12 @@ class Api:
         capabilities = self._selected_capabilities()
         if not capabilities.chat:
             return {"ok": False, "error": MSG_MODEL_NOT_CHAT}
-        if web_search and not capabilities.web:
-            error = (MSG_CONSULT_REQUIRES_WEB_MODEL
-                     if action == "consult" else MSG_MODEL_NO_WEB)
-            return {"ok": False, "error": error}
+        # Legacy Stop-SpeechForAiRequest: an AI request stops the reading and
+        # drops the Repetir audio, which belongs to the previous text.
+        self._stop_speech_for_ai_request()
         try:
+            # txt.ps1: web search is used only when the checkbox is ticked and
+            # the model supports it; any chat model can run every action.
             response = self._send_ai_request(self._build_prompt(action, text), bool(web_search))
             result_text = groq.extract_response_text(response)
         except ValueError as error:
@@ -606,6 +618,14 @@ class Api:
         except Exception:
             return {"ok": False, "error": ERR_API_CONNECTION}
         return self._ai_result(action, result_text)
+
+    def _stop_speech_for_ai_request(self) -> None:
+        try:
+            with self._speech_lock:
+                self.engine.stop_voice_playback()
+                self.engine._clear_replay_cache()
+        except Exception:
+            pass  # a broken engine must not block the AI request
 
     def _build_prompt(self, action: str, text: str) -> str:
         if action == "consult":
@@ -1211,12 +1231,12 @@ def _windows_folder_tree(window, title: str, initial: str) -> str | None:
 def create_app() -> None:
     api = Api()
     window = webview.create_window(
-        "TXT Preview",
+        "Corrector de Prompt",
         webapp.create_wsgi_app(WWW),  # no-store + stamped assets: never a stale UI
         js_api=api,  # speech engine lives on the bridge (T4)
         width=1100,
         height=760,
-        min_size=(720, 480),
+        min_size=(1300, 600),
         maximized=True,  # S8: the original app always starts maximized
     )
     api._window = window

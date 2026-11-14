@@ -279,27 +279,35 @@ class TestS11ChatAndWebGating(unittest.TestCase):
     the web checkbox is set on a non-web model — the body is never silently
     sent without the requested tool. Resumir behavior stays untouched."""
 
-    def test_consult_with_web_on_non_web_groq_returns_clear_error(self):
+    def test_consult_on_non_web_groq_model_runs_without_the_search_tool(self):
+        """txt.ps1 parity: any chat model can run Consultar; browser_search is
+        only added when the model supports web."""
         api = api_with_env(self, GROQ_API_KEY="gsk_test")
         api._selected_model = "qwen/qwen3.8-27b"
-        with mock.patch.object(groq, "post_chat") as post:
+        with mock.patch.object(groq, "post_chat", return_value={"text": "respuesta"}) as post:
             result = api.ask_ai("consult", True, "consulta")
-        self.assertFalse(result["ok"])
-        self.assertIn("búsqueda web", result["error"])
-        self.assertIn("GPT-OSS", result["error"])
-        self.assertNotIn("Desmarcá", result["error"])
-        post.assert_not_called()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["text"], "respuesta")
+        self.assertNotIn("tools", post.call_args[0][1])
 
-    def test_consult_with_web_on_bridge_returns_clear_error(self):
+    def test_consult_on_a_bridge_model_reaches_the_bridge(self):
         api = api_with_env(self, GROQ_API_KEY="gsk_test")
         api._selected_model = "claude:claude-sonnet-4"
-        with mock.patch.object(groq, "post_chat") as post:
+        api._bridge_passwords["claude"] = "pw"
+        with mock.patch.object(main.bridges, "bridge_chat",
+                               return_value={"text": "desde el bridge"}) as chat:
             result = api.ask_ai("consult", True, "hola")
-        self.assertFalse(result["ok"])
-        self.assertIn("búsqueda web", result["error"])
-        self.assertIn("GPT-OSS", result["error"])
-        self.assertNotIn("Desmarcá", result["error"])
-        post.assert_not_called()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["text"], "desde el bridge")
+        chat.assert_called_once()
+
+    def test_ai_request_stops_the_reading_and_drops_the_replay_audio(self):
+        api = api_with_env(self, GROQ_API_KEY="gsk_test")
+        api.engine = mock.Mock()
+        with mock.patch.object(groq, "post_chat", return_value={"text": "x"}):
+            api.ask_ai("summarize", False, "texto")
+        api.engine.stop_voice_playback.assert_called_once()
+        api.engine._clear_replay_cache.assert_called_once()
 
     def test_action_on_non_chat_model_refuses_before_the_request(self):
         api = api_with_env(self, GROQ_API_KEY="gsk_test")

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TXT Preview</title>
+  <title>Corrector de Prompt</title>
   <link rel="stylesheet" href="css/app.css" />
 </head>
 <body data-theme="dark">
@@ -61,6 +61,12 @@
     </section>
 
     <section class="page" data-page="preview">
+      <!-- Legacy previewResultBar: only while Vista previa shows an AI answer. -->
+      <div id="preview-result-bar" hidden>
+        <span>Respuesta de la IA. Tu consulta sigue en el Editor.</span>
+        <button id="use-result" class="ghost">Llevar al editor</button>
+        <button id="dismiss-result" class="ghost">Ver el editor</button>
+      </div>
       <div id="preview" class="markdown-body"></div>
     </section>
 

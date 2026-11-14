@@ -1,5 +1,19 @@
 # Historial de cambios
 
+## v:26.11.14-12.03
+
+### Consultar, Vista previa y exportaciones como en la versión PowerShell
+
+- Consultar vuelve a mostrar la respuesta: antes la Vista previa repetía la pregunta y la respuesta se perdía.
+- La Vista previa muestra la barra «Respuesta de la IA. Tu consulta sigue en el Editor.» con «Llevar al editor» y «Ver el editor».
+- Copiar, PDF, MP3 y Play trabajan sobre lo que muestra la Vista previa (la respuesta de la IA o el texto del Editor), aunque la pestaña no se haya abierto.
+- Consultar usa la búsqueda web solo si la casilla está marcada, y funciona con cualquier modelo de chat, incluidos los bridges.
+- Corregir, Resumir, Traducir y Pegar reemplazan el Editor de forma que Ctrl+Z recupera el texto anterior.
+- Un pedido a la IA detiene la lectura en curso y descarta el audio de Repetir.
+- «Buscar actualización» y «Actualizar ahora» vuelven a funcionar, igual que el aviso de actualización al iniciar.
+- Los mensajes de estado usan amarillo para advertencias y rojo para errores; la vista previa vacía muestra «No hay contenido para mostrar.».
+- La ventana se titula «Corrector de Prompt» y tiene el mismo tamaño mínimo que la original.
+
 ## v:26.11.14-11.55
 
 ### Exportar PDF y MP3 eligiendo la carpeta en un árbol

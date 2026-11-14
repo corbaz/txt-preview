@@ -570,3 +570,20 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 #models-list tbody tr.selected { background: var(--accent); color: #fff; }
 
 #settings-status { margin: 0; font-size: 13px; min-height: 18px; }
+
+/* ---- AI answer bar over Vista previa (txt.ps1 previewResultBar) ---- */
+#preview-result-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 13px;
+}
+#preview-result-bar[hidden] { display: none; }
+#preview-result-bar span { flex: 1; }
+
+/* Status levels (txt.ps1 Show-Message): warnings yellow, errors red. */
+#status-message.warning { color: #e3b341; }
+#status-message.error { color: #f85149; }

@@ -337,7 +337,7 @@ class TestStartupMaximized(UiContractTestCase):
         args = [ast.unparse(arg).replace("'", '"') for arg in call.args]
         keywords = {kw.arg for kw in call.keywords}
         self.assertIn("min_size", keywords)
-        self.assertIn('"TXT Preview"', args[0])
+        self.assertIn('"Corrector de Prompt"', args[0])  # txt.ps1 $form.Text
 
 
 class TestApiSurface(UiContractTestCase):
@@ -408,7 +408,8 @@ class TestJavaScriptWiring(UiContractTestCase):
         self.assertIn('" / "', self.js_source)
 
     def test_copy_buttons_follow_the_preview_first_legacy_rule(self):
-        self.assertIn("previewHasAiResponse", self.js_source)
+        body = js_function(self.js_source, "copyMain")
+        self.assertIn("previewContent()", body)
 
 
 class TestClipboardBridgeWiring(UiContractTestCase):
@@ -1068,14 +1069,39 @@ class TestBridgeReadinessAndControlledErrors(UiContractTestCase):
 
     # -- Consultar always researches the web ----------------------------------
 
-    def test_consult_always_requests_web_search(self):
+    def test_web_search_follows_only_the_checkbox(self):
+        """txt.ps1 parity: Consultar does not force the web search."""
         body = js_function(self.js_source, "runAi")
-        self.assertIn('action === "consult"', body)
-        self.assertIn('action === "consult" || $("web-search").checked', body)
+        self.assertIn('const useWeb = $("web-search").checked;', body)
+        self.assertNotIn('action === "consult" ||', body)
 
-    def test_consult_shows_an_explicit_researching_status(self):
+    def test_busy_text_names_provider_and_model_like_the_legacy_app(self):
         body = js_function(self.js_source, "runAi")
-        self.assertIn("Investigando en la web", body)
+        self.assertIn("} · ${display}...`", body)
+        self.assertNotIn("Investigando en la web", body)
+
+    def test_consult_keeps_the_question_and_shows_the_answer_bar(self):
+        body = js_function(self.js_source, "runAi")
+        self.assertIn("showAiResult(result.text)", body)
+        self.assertIn("setEditorText(result.text)", body)
+        index = INDEX.read_text(encoding="utf-8")
+        for expected in ('id="preview-result-bar"',
+                         "Respuesta de la IA. Tu consulta sigue en el Editor.",
+                         ">Llevar al editor<", ">Ver el editor<"):
+            self.assertIn(expected, index)
+        self.assertIn("Respuesta llevada al editor. Ctrl+Z recupera tu consulta.",
+                      self.js_source)
+        self.assertIn("Vista previa muestra otra vez el contenido del Editor.",
+                      self.js_source)
+
+    def test_preview_renders_the_preview_content_not_just_the_editor(self):
+        body = js_function(self.js_source, "renderPreviewNow")
+        self.assertIn("api.render_preview(previewContent())", body)
+
+    def test_update_buttons_use_a_declared_bridge(self):
+        for button in ("check-update", "apply-update"):
+            window = self.handler_window(button)
+            self.assertNotRegex(window, r"await api\.(check_for_updates|apply_update)")
 
     def test_other_ai_actions_keep_the_web_checkbox(self):
         body = js_function(self.js_source, "runAi")

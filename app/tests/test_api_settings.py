@@ -654,3 +654,15 @@ class TestEdgeTtsUpdateOffer(ApiSettingsTestCase):
         self.assertEqual(result["message"],
                          "No se pudieron actualizar las voces Edge: ERROR: sin red")
         self.assertTrue(self.api._speech_state()["voice_update_offered"])
+
+
+class TestPreviewContent(ApiSettingsTestCase):
+    def test_empty_preview_shows_the_legacy_placeholder(self):
+        html = self.api.render_preview("  ")
+        self.assertIn("No hay contenido para mostrar.", html)
+        self.assertEqual(self.api.get_preview_text(), "  ")
+
+    def test_exports_follow_the_content_handed_by_the_ui(self):
+        self.api.set_preview_content("# Respuesta")
+        self.assertEqual(self.api.get_preview_text(), "# Respuesta")
+        self.assertEqual(self.api.get_preview_plain_text(), "Respuesta")
