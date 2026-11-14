@@ -52,7 +52,7 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 | T24 | S17 | Use native system TLS trust on macOS/Python 3.14 and control network failures | done (`67cefc2`, `76ab082`) |
 | T25 | S18 | Diagnose and restore macOS bridge actions and researched Consultar on Windows/macOS | done (`76ab082`, `2c0cdd4`) |
 | T26 | S17-S18 | Commit reviewable release slices and push v:26.11.14-08.34 to origin/main | in progress |
-| T27 | S17-S18 | CI green for v:26.11.14 releases: macOS keyring isolation, locale row and Windows test flakes | in progress |
+| T27 | S17-S18 | CI green for v:26.11.14 releases: macOS keyring isolation, locale row and Windows test flakes | done (`b7ad1cf`, `55482cc`) |
 
 ## Log
 
@@ -117,3 +117,5 @@ App conversion from Windows-only PowerShell/WinForms to a cross-platform Python 
 - L37: CI run 43593026760 failed on 577-test macOS because settings tests with injected crypto fell through to the real runner Keychain, and legacy PowerShell failed on a locale-dependent expectation plus two Windows test flakes (clipboard lock, Start-Process handle). Fixes: injected crypto now explicitly selects the isolated blob path without touching keyring (production macOS keyring/Windows DPAPI unchanged, pinned by a zero-keyring-calls test); legacy capability row normalizes only the thousands separator; clipboard test setups retry bounded; relaunch test waits for the child executable handle; README documents the mac `TXT` update/install/open function. Full local validation: 579/579 app tests + node/compileall/Doctor green and 123/123 legacy green. Release v:26.11.14-09.10 ready for commit, push and CI.
 
 - L38: CI run 43596181859 for b7ad1cf exposed a locale bug on Windows CI (Python 3.12): the MP3 export wrapper stderr was written in the child console codepage and decoded as UTF-8 by the parent, so accented Spanish detail became replacement characters. RED reproduced locally with PYTHONUTF8=0; fixed by reconfiguring stdout/stderr to UTF-8 in app/edge_tts_export.py (and app/edge_tts_voices.py for the catalog path). Focused suites green in legacy mode (3+36 tests); release bumped to v:26.11.14-09.47 pending full-suite confirmation, commit, push and CI.
+
+- L39: T27 closed: CI run 43596544987 on 55482cc (v:26.11.14-09.47) passed on windows-latest and macos-latest, including the legacy PowerShell suite. Delivered across b7ad1cf (macOS keyring test isolation with injected crypto, locale-safe capability row, bounded clipboard retries, child-handle wait, mac TXT function docs) and 55482cc (UTF-8 stderr in Edge wrappers). Mac user updates with git pull + ./install.sh or the documented TXT zsh function.
