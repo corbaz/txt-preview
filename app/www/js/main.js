@@ -1236,7 +1236,7 @@
     if (!chosen) return null;
     const result = await safeCall((api) => api.set_speech_voice(chosen),
       "No se pudo cambiar la voz Edge.");
-    if (result && result.ok && !silent) setStatus(`Voz Edge: ${result.voice}`);
+    if (result && result.ok && !silent) setStatus(result.message || `Voz Edge: ${result.voice}`);
     return chosen;
   }
 
@@ -1262,7 +1262,7 @@
   $("voice-select").addEventListener("change", async () => {
     const result = await safeCall((api) => api.set_speech_voice($("voice-select").value),
       "No se pudo cambiar la voz Edge.");
-    if (result && result.ok) setStatus(`Voz Edge: ${result.voice}`);
+    if (result && result.ok) setStatus(result.message || `Voz Edge: ${result.voice}`);
   });
 
   // ---- In-app update (T11/S4) ---------------------------------------------

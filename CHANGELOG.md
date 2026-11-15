@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## v:26.11.15-11.29
+
+### Cambio de voz durante la lectura (app Python)
+
+- Al elegir otra voz mientras se lee, la lectura continúa desde la posición actual con la voz nueva («Voz cambiada a X. Continuando desde la posición actual.»), como en la versión PowerShell. Si está en pausa, sigue en pausa.
+- Durante Repetir avisa que el audio ya está generado y que el cambio se aplica en la próxima lectura con Play.
+
 ## v:26.11.15-07.37
 
 ### Botón «Diagrama de flujo» (app Python)

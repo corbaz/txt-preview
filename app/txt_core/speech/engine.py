@@ -483,13 +483,32 @@ class SpeechEngine:
         finished = self.mode == "Idle" and bool(self.chunks)
         if not finished and self.mode not in ("Playing", "Paused"):
             return
+        self._restart_active_playback(
+            f"Velocidad cambiada a {_speed_label(percent)}.",
+            self.voice_display, self.voice_name)
+
+    def set_voice(self, voice_display: str, voice_name: str) -> None:
+        """Legacy Switch-ActiveSpeechVoice: a live Edge reading restarts from
+        the current position with the new voice. Repetir plays audio that is
+        already generated, so the new voice only applies to the next Play."""
+        if self.mode not in ("Playing", "Paused") or voice_name == self.voice_name:
+            return
+        if self.provider == "Replay":
+            self.emit("warning", "Repetir usa el audio ya generado; el cambio se aplica "
+                                 "en la próxima lectura con Play.")
+            return
+        self._restart_active_playback(f"Voz cambiada a {voice_display}.",
+                                      voice_display, voice_name)
+
+    def _restart_active_playback(self, message: str, voice_display: str | None,
+                                 voice_name: str | None) -> None:
+        """Legacy Restart-ActiveSpeechPlayback: read the remaining text again
+        from the current position, keeping the highlight and the pause."""
         was_paused = self.mode == "Paused"
-        speed_text = _speed_label(percent)
         char_position = self._edge_character_position()
         texts = [chunk.text for chunk in self.chunks]
         remaining = get_remaining_speech_text(texts, self.current_index, char_position)
         cursor = self.align_cursor
-        voice_display, voice_name = self.voice_display, self.voice_name
         raw_words = self._align_raw_words
         self.stop_voice_playback()
         if not remaining.strip():
@@ -500,14 +519,14 @@ class SpeechEngine:
         self.reset_alignment(cursor)
         self.initialize_alignment(raw_words)
         self.start_edge_session(remaining, voice_display, voice_name,
-                                rate_percent=percent)
+                                rate_percent=self.applied_speed)
         # Voice/speed restarts are partial readings: never replace Repetir.
         self.replay.eligible = False
         if was_paused:
             self.pause()
-            self.emit("info", f"Velocidad cambiada a {speed_text}. La lectura permanece pausada.")
+            self.emit("info", f"{message} La lectura permanece pausada.")
         else:
-            self.emit("info", f"Velocidad cambiada a {speed_text}. Continuando desde la posición actual.")
+            self.emit("info", f"{message} Continuando desde la posición actual.")
 
     def _edge_character_position(self) -> int:
         """Legacy Get-EdgeChunkCharacterPosition: character offset of the word

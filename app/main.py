@@ -296,7 +296,11 @@ class Api:
         voice = (name or "").strip() or DEFAULT_SPEECH_VOICE
         self._speech_voice = voice
         settings.set_speech_voice(voice, self._settings_dir)
-        return {"ok": True, "voice": voice}
+        # txt.ps1 Switch-ActiveSpeechVoice: a reading in progress continues
+        # from the current position with the new voice.
+        with self._speech_lock:
+            self.engine.set_voice(self._speech_voice_display(), voice)
+        return {"ok": True, "voice": voice, "message": self._take_message()}
 
     def _resolve_api_key(self) -> str:
         """Stored settings key first, GROQ_API_KEY env fallback (legacy order)."""

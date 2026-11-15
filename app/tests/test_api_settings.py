@@ -803,3 +803,42 @@ class TestCloseApp(ApiSettingsTestCase):
         self.assertEqual(self.api.close_app(), {"ok": True})
         self.assertEqual(lock_was_free, [True])
         self.api.engine.stop_voice_playback.assert_called()
+
+
+class TestVoiceChangeDuringReading(unittest.TestCase):
+    """txt.ps1 Switch-ActiveSpeechVoice."""
+
+    def setUp(self):
+        from txt_core.speech.engine import SpeechEngine
+        self.messages = []
+        self.engine = SpeechEngine(emit=lambda level, text: self.messages.append((level, text)))
+        self.engine.voice_name = "es-CR-JuanNeural"
+
+    def test_idle_engine_ignores_the_change(self):
+        with mock.patch.object(self.engine, "_restart_active_playback") as restart:
+            self.engine.set_voice("Edge · es-ES-ElviraNeural (Female)", "es-ES-ElviraNeural")
+        restart.assert_not_called()
+        self.assertEqual(self.messages, [])
+
+    def test_live_reading_restarts_with_the_new_voice(self):
+        self.engine.mode, self.engine.provider = "Playing", "Edge"
+        with mock.patch.object(self.engine, "_restart_active_playback") as restart:
+            self.engine.set_voice("Edge · es-ES-ElviraNeural (Female)", "es-ES-ElviraNeural")
+        restart.assert_called_once_with(
+            "Voz cambiada a Edge · es-ES-ElviraNeural (Female).",
+            "Edge · es-ES-ElviraNeural (Female)", "es-ES-ElviraNeural")
+
+    def test_same_voice_does_not_restart(self):
+        self.engine.mode, self.engine.provider = "Playing", "Edge"
+        with mock.patch.object(self.engine, "_restart_active_playback") as restart:
+            self.engine.set_voice("Edge · es-CR-JuanNeural (Male)", "es-CR-JuanNeural")
+        restart.assert_not_called()
+
+    def test_repetir_keeps_its_audio_and_warns(self):
+        self.engine.mode, self.engine.provider = "Playing", "Replay"
+        with mock.patch.object(self.engine, "_restart_active_playback") as restart:
+            self.engine.set_voice("Edge · es-ES-ElviraNeural (Female)", "es-ES-ElviraNeural")
+        restart.assert_not_called()
+        self.assertEqual(self.messages, [(
+            "warning",
+            "Repetir usa el audio ya generado; el cambio se aplica en la próxima lectura con Play.")])
