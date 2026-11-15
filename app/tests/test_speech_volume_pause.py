@@ -49,8 +49,7 @@ class TestVolume(SpeechEngineFixture, unittest.TestCase):
 
     def test_volume_changed_while_paused_applies_when_continuing(self):
         first = self.playing()
-        with mock.patch.object(engine_module, "PAUSE_BY_RESTART", False), \
-                mock.patch.object(engine_module.SuspendResume, "suspend"), \
+        with mock.patch.object(engine_module.SuspendResume, "suspend"), \
                 mock.patch.object(engine_module.SuspendResume, "resume") as resume:
             self.engine.pause()
             self.engine.set_volume(50)
@@ -62,43 +61,38 @@ class TestVolume(SpeechEngineFixture, unittest.TestCase):
         self.assertEqual(self.engine.mode, "Playing")
 
 
-class TestPauseByRestart(SpeechEngineFixture, unittest.TestCase):
-    def test_pause_stops_the_player_and_continue_starts_it_at_the_same_point(self):
+class TestPauseSuspends(SpeechEngineFixture, unittest.TestCase):
+    def test_pause_suspends_the_player_on_every_system_like_txt_ps1(self):
         self.engine.start_edge_session("hola mundo", "Edge · Voz", "es-CR-JuanNeural")
         self.ready_chunk(self.engine.chunks[0])
         self.engine.poll()
-        first = self.engine.player_process
-        self.engine.player_started_at = time.time() - 1.5
-        with mock.patch.object(engine_module, "PAUSE_BY_RESTART", True), \
-                mock.patch.object(engine_module.SuspendResume, "suspend") as suspend:
-            self.engine.pause()
-            suspend.assert_not_called()
-            self.assertIsNone(self.engine.player_process)
-            self.assertEqual(self.engine.mode, "Paused")
-            self.assertAlmostEqual(self.engine.elapsed_seconds(), 1.5, delta=0.1)
-            self.engine.poll()  # a tick while paused never starts the audio
-            self.assertIsNone(self.engine.player_process)
-            self.engine.resume()
-        second = self.engine.player_process
-        self.assertIsNot(second, first)
-        args = player_args(second)
-        self.assertAlmostEqual(float(args[args.index("-ss") + 1]), 1.5, delta=0.1)
-        self.assertEqual(self.engine.mode, "Playing")
-        self.assertEqual(self.engine.current_index, 0)
+        player = self.engine.player_process
+        for platform in ("darwin", "win32"):
+            with mock.patch.object(engine_module.sys, "platform", platform),                     mock.patch.object(engine_module.SuspendResume, "suspend") as suspend,                     mock.patch.object(engine_module.SuspendResume, "resume") as resume:
+                self.engine.pause()
+                self.assertIs(self.engine.player_process, player)
+                self.engine.resume()
+            suspend.assert_called_once_with(player.pid)
+            resume.assert_called_once_with(player.pid)
+            self.assertIs(self.engine.player_process, player)
+            self.assertEqual(self.engine.mode, "Playing")
 
-    def test_replay_continues_from_the_paused_position(self):
-        self.engine.replay.file = __file__  # any existing file
-        self.engine.replay.duration = 30.0
-        self.engine.start_replay_playback(4.0)
-        self.engine.player_started_at = time.time() - 2.0
-        with mock.patch.object(engine_module, "PAUSE_BY_RESTART", True):
-            self.engine.pause()
-            self.engine.resume()
-        args = player_args(self.engine.player_process)
-        self.assertAlmostEqual(float(args[args.index("-ss") + 1]), 6.0, delta=0.1)
-        self.assertEqual(self.engine.provider, "Replay")
-        self.assertEqual(self.engine.mode, "Playing")
-        self.engine.replay.file = ""  # never delete the test file
+    def test_stop_after_the_whole_audio_is_generated_plays_nothing(self):
+        """Detener only updates the Repetir length; nothing starts playing."""
+        self.engine.start_edge_session(" ".join(["palabra"] * 400), "Edge · Voz",
+                                       "es-CR-JuanNeural")
+        for chunk in self.engine.chunks:
+            self.ready_chunk(chunk)
+        self.engine.poll()
+        started = len(self.runner.processes)
+        self.engine.stop_voice_playback()
+        self.engine.poll()
+        self.assertEqual(len(self.runner.processes), started)
+        self.assertEqual(self.engine.mode, "Idle")
+        self.assertIsNone(self.engine.player_process)
+        self.assertTrue(self.engine.replay.file)
+        self.assertGreater(self.engine.replay.duration, 0)
+        self.engine._clear_replay_cache()
 
 
 class TestReplayReady(SpeechEngineFixture, unittest.TestCase):
@@ -121,6 +115,10 @@ class TestReplayReady(SpeechEngineFixture, unittest.TestCase):
         self.ready_chunk(self.engine.chunks[0])
         self.engine.poll()
         self.assertFalse(self.engine.replay_ready())
+
+    def test_volume_zero_is_mute(self):
+        self.engine.set_volume(0)
+        self.assertEqual(self.engine.volume, 0)
 
     def test_saved_audio_is_ready(self):
         self.engine.replay.file = "x.mp3"

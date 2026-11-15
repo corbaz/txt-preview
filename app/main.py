@@ -1146,6 +1146,9 @@ class Api:
         with self._speech_lock:
             try:
                 self.engine.stop_voice_playback()
+                # A new Play replaces the Repetir audio: Repetir goes back to
+                # 0:00 and stays off until the new audio is whole.
+                self.engine._clear_replay_cache()
                 switch = self._auto_switch_voice_for_text(text)
                 self._speech_words = raw_words or ""
                 # What Repetir reads again when the voice changed meanwhile.
@@ -1225,6 +1228,17 @@ class Api:
             self.engine.resume()
             return {"ok": True, "message": self._last_message}
 
+    def toggle_pause_speech(self) -> dict:
+        """Pausar/Continuar button (legacy btnPauseVoice): decided by the
+        engine state under the lock, never by a UI state that may be a tick
+        old (a stale «Pausar» used to send pause to a paused reading)."""
+        with self._speech_lock:
+            if self.engine.mode == "Paused":
+                self.engine.resume()
+            else:
+                self.engine.pause()
+            return {"ok": True, "mode": self.engine.mode, "message": self._last_message}
+
     def set_speech_speed(self, percent: int, announce: bool = True) -> dict:
         """Legacy Set-SpeechSpeed. `announce` is False for the startup default,
         which txt.ps1 applies without a status message."""
@@ -1275,8 +1289,8 @@ class Api:
         return result
 
     def set_speech_volume(self, percent: int) -> dict:
-        """Volumen slider (10 to 100 in steps of 10)."""
-        volume = max(10, min(100, int(round(int(percent) / 10.0)) * 10))
+        """Volumen slider (0 = mute, to 100 in steps of 10)."""
+        volume = max(0, min(100, int(round(int(percent) / 10.0)) * 10))
         with self._speech_lock:
             try:
                 self.engine.set_volume(volume)

@@ -568,9 +568,12 @@
 
   $("speech-pause").addEventListener("click", () => {
     setTab("preview"); // txt.ps1: the reading controls show Vista previa
-    const paused = speechState && speechState.mode === "Paused";
-    safeCall((api) => (paused ? api.resume_speech() : api.pause_speech()),
-      paused ? "No se pudo continuar la lectura." : "No se pudo pausar la lectura.");
+    safeCall((api) => api.toggle_pause_speech(), "No se pudo pausar o continuar la lectura.")
+      .then((result) => {
+        if (result && result.mode) {
+          $("speech-pause").textContent = result.mode === "Paused" ? "Continuar" : "Pausar";
+        }
+      });
   });
 
   $("speech-replay").addEventListener("click", () => {
@@ -604,24 +607,27 @@
       "No se pudo reiniciar la lectura en esa posición.");
   });
 
-  // Pausar and Continuar share one width (the wider label), so the row never
-  // moves when the label changes.
+  // Play, Pausar/Continuar and Detener share one width (the widest label),
+  // so they look even and the row never moves when the label changes.
   function lockPauseWidth() {
-    const button = $("speech-pause");
-    const label = button.textContent;
-    button.style.width = "";
-    button.textContent = "Continuar";
-    const width = button.getBoundingClientRect().width;
-    button.textContent = label;
+    const buttons = ["speech-play", "speech-pause", "speech-stop"].map($);
+    const pause = $("speech-pause");
+    const label = pause.textContent;
+    buttons.forEach((button) => { button.style.width = ""; });
+    pause.textContent = "Continuar";
+    const width = Math.max(...buttons.map((button) => button.getBoundingClientRect().width));
+    pause.textContent = label;
     if (width > 0) {
-      button.style.width = Math.ceil(width) + "px";
-      button.style.flexShrink = "0";
+      buttons.forEach((button) => {
+        button.style.width = Math.ceil(width) + "px";
+        button.style.flexShrink = "0";
+      });
     }
   }
   lockPauseWidth();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(lockPauseWidth);
 
-  // ---- Volume slider (bottom deck row 4): 10% to 100% in steps of 10 --------
+  // ---- Volume slider (bottom deck row 4): 0% (mute) to 100% in steps of 10 --
   const volumeSlider = $("volume");
   volumeSlider.addEventListener("input", () => {
     $("volume-value").textContent = volumeSlider.value + "%";

@@ -195,7 +195,7 @@ class VolumeSliderTests(unittest.TestCase):
             "Set-SpeechVolume; 'RESULT=' + $speechState.Volume + '|' + ((Get-PlayerVolumeArguments) -join ' ') + '|' + $msgBox.Text; "
             "'RESULT=' + ($lblVolume.Left -gt $lblReplayTime.Left) + '|' + ($lblVolumeValue.Right -lt ($versionLabel.Right - [Windows.Forms.TextRenderer]::MeasureText($versionLabel.Text, $versionLabel.Font).Width))"
         )
-        self.assertEqual(results[0], "10|100|100|100%")
+        self.assertEqual(results[0], "0|100|100|100%")
         self.assertEqual(results[1], "50|50%")
         self.assertTrue(results[2].startswith("50|-volume 50|"), results[2])
         self.assertEqual(results[3], "True|True")

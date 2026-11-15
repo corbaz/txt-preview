@@ -1225,12 +1225,12 @@ $panel.Controls.Add($btnTraducirEn)
 
 $btnLeer = New-Object Windows.Forms.Button
 $btnLeer.Text = "Play"
-$btnLeer.SetBounds(668, 96, 80, 34)
+$btnLeer.SetBounds(668, 96, 100, 34)
 $panel.Controls.Add($btnLeer)
 
 $btnPauseVoice = New-Object Windows.Forms.Button
 $btnPauseVoice.Text = "Pausar"
-$btnPauseVoice.SetBounds(756, 96, 100, 34)
+$btnPauseVoice.SetBounds(776, 96, 100, 34)
 $panel.Controls.Add($btnPauseVoice)
 
 $btnPegar = New-Object Windows.Forms.Button
@@ -1277,12 +1277,12 @@ $panel.Controls.Add($btnLimpiar)
 $btnTheme = New-Object Windows.Forms.Button
 $btnTheme.Text = "Modo: Dark"
 $btnTheme.Tag = $true
-$btnTheme.SetBounds(984, 96, 150, 34)
+$btnTheme.SetBounds(1004, 96, 150, 34)
 $panel.Controls.Add($btnTheme)
 
 $btnCerrar = New-Object Windows.Forms.Button
 $btnCerrar.Text = "Cerrar"
-$btnCerrar.SetBounds(1142, 96, 110, 34)
+$btnCerrar.SetBounds(1162, 96, 110, 34)
 $panel.Controls.Add($btnCerrar)
 
 $lblVoice = New-Object Windows.Forms.Label
@@ -1335,7 +1335,7 @@ $voiceToggles = @($rbMale, $rbFemale, $rbSpanish, $rbEnglish)
 
 $btnStopVoice = New-Object Windows.Forms.Button
 $btnStopVoice.Text = "Detener"
-$btnStopVoice.SetBounds(864, 96, 100, 34)
+$btnStopVoice.SetBounds(884, 96, 100, 34)
 $panel.Controls.Add($btnStopVoice)
 
 $lblSpeed = New-Object Windows.Forms.Label
@@ -1383,7 +1383,7 @@ $lblReplayTime.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
 $lblReplayTime.SetBounds(771, 138, 90, 34)
 $panel.Controls.Add($lblReplayTime)
 
-# Volume of the reading: 10% to 100% in steps of 10.
+# Volume of the reading: 0% (mute) to 100% in steps of 10.
 $lblVolume = New-Object Windows.Forms.Label
 $lblVolume.Text = "Volumen"
 $lblVolume.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
@@ -1391,7 +1391,7 @@ $lblVolume.SetBounds(869, 138, 65, 34)
 $panel.Controls.Add($lblVolume)
 
 $volumeSlider = New-Object ModernSlider
-$volumeSlider.Minimum = 10
+$volumeSlider.Minimum = 0
 $volumeSlider.Maximum = 100
 $volumeSlider.Value = 100
 $volumeSlider.SmallChange = 10
@@ -3627,6 +3627,13 @@ function Start-SelectedVoicePlayback {
         [switch]$SelectionOnly,
         [int]$SelectionStartWord = -1
     )
+
+    if (-not $ContinueHighlight) {
+        # A new Play replaces the Repetir audio: any audio stops first, then Repetir goes back
+        # to 0:00 and stays off until the new audio is whole.
+        Stop-VoicePlayback
+        Clear-SpeechReplayCache
+    }
 
     if (-not $ContinueHighlight) {
         $speechState.HighlightTotalLength = $text.Length

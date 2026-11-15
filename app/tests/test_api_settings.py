@@ -911,8 +911,8 @@ class TestRepetirWithANewVoice(ApiSettingsTestCase):
 
 
 class TestVolumeAndRepetirApi(ApiSettingsTestCase):
-    def test_volume_goes_in_steps_of_ten_between_10_and_100(self):
-        for asked, applied in ((55, 60), (0, 10), (140, 100), (70, 70)):
+    def test_volume_goes_in_steps_of_ten_between_0_and_100(self):
+        for asked, applied in ((55, 60), (0, 0), (-5, 0), (140, 100), (70, 70)):
             result = self.api.set_speech_volume(asked)
             self.assertEqual(result["volume"], applied)
             self.assertEqual(result["message"], f"Volumen: {applied}%.")
@@ -961,3 +961,20 @@ class TestPasteClipboardImage(ApiSettingsTestCase):
         self.assertEqual(len(attached), 1)
         self.assertTrue(attached[0].name.startswith("portapapeles-"))
         os.remove(attached[0].path)
+
+
+class TestPlayAndPauseButtons(ApiSettingsTestCase):
+    def test_a_new_play_resets_repetir_until_the_new_audio_is_whole(self):
+        with mock.patch.object(self.api, "_auto_switch_voice_for_text", return_value=None):
+            self.api.start_speech("hola mundo", "hola" + chr(10) + "mundo")
+        self.api.engine._clear_replay_cache.assert_called_once_with()
+        self.api.engine.start_edge_session.assert_called_once()
+
+    def test_pause_button_follows_the_engine_state_not_the_ui(self):
+        self.api.engine.mode = "Paused"
+        self.api.toggle_pause_speech()
+        self.api.engine.resume.assert_called_once_with()
+        self.api.engine.pause.assert_not_called()
+        self.api.engine.mode = "Playing"
+        self.api.toggle_pause_speech()
+        self.api.engine.pause.assert_called_once_with()

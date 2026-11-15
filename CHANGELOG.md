@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## v:26.11.15-19.40
+
+### Volumen hasta 0 %, Repetir se reinicia con cada Play y pausa como en Windows
+
+- Volumen: llega a 0 % (silencio), en las dos apps.
+- Play, Pausar/Continuar y Detener tienen el mismo ancho y la misma separación (las dos apps).
+- Un Play nuevo deja Repetir en 0:00 y deshabilitado hasta que el audio nuevo esté completo (las dos apps).
+- macOS: Pausar y Continuar vuelven a suspender y reanudar el reproductor, como en Windows. El botón decide según el estado real de la lectura y no según la pantalla.
+
 ## v:26.11.15-18.57
 
 ### Volumen, Repetir, pausa en macOS, imágenes desde el portapapeles y dictado en macOS

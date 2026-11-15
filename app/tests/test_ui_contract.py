@@ -316,11 +316,11 @@ class TestBottomDeck(UiContractTestCase):
             "",
         ])
 
-    def test_volume_slider_goes_from_10_to_100_in_steps_of_10(self):
+    def test_volume_slider_goes_from_0_to_100_in_steps_of_10(self):
         volume = self.deck.find("input", node_id="volume")
         self.assertEqual((volume.attrs.get("min"), volume.attrs.get("max"),
                           volume.attrs.get("step"), volume.attrs.get("value")),
-                         ("10", "100", "10", "100"))
+                         ("0", "100", "10", "100"))
 
     def test_repetir_starts_disabled_until_a_whole_audio_exists(self):
         self.assertIn("disabled", self.deck.find("button", node_id="speech-replay").attrs)

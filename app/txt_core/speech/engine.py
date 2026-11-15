@@ -62,10 +62,6 @@ def _speed_label(percent: int) -> str:
 REPO = Path(__file__).resolve().parents[3]
 EDGE_TTS_WORDS_SCRIPT = REPO / "edge_tts_words.py"
 TERMINATE_WAIT_SECONDS = 3
-# macOS (and Linux) pause by stopping the player and starting it again at the
-# same position: a stopped (SIGSTOP) player did not always go quiet on macOS.
-# Windows keeps suspending the process, like txt.ps1.
-PAUSE_BY_RESTART = sys.platform != "win32"
 VOLUME_DEFAULT = 100
 
 
@@ -174,8 +170,6 @@ class SpeechEngine:
         self.player_process: Any = None
         self.player_started_at: float | None = None
         self.pause_started_at: float | None = None
-        # Pause by restart: where the stopped player was (seconds of playback).
-        self.paused_elapsed: float | None = None
         self.applied_speed = 100
         self.volume = VOLUME_DEFAULT
         self.player_volume = VOLUME_DEFAULT  # volume the running player started with
@@ -232,8 +226,6 @@ class SpeechEngine:
 
     # ---- Clock -------------------------------------------------------------
     def elapsed_seconds(self) -> float | None:
-        if self.paused_elapsed is not None:
-            return self.paused_elapsed
         if self.player_process is None or self.player_started_at is None:
             return None
         position_time = self.pause_started_at if self.pause_started_at is not None else time.time()
@@ -403,7 +395,6 @@ class SpeechEngine:
         )
         self.player_started_at = time.time()
         self.pause_started_at = None
-        self.paused_elapsed = None
         self.replay_offset = offset
         self.replay_tempo = tempo
         self.provider = "Replay"
@@ -443,11 +434,10 @@ class SpeechEngine:
         )
         self.player_started_at = time.time() - max(0.0, offset)
         self.pause_started_at = None
-        self.paused_elapsed = None
 
     def _restart_player(self, elapsed: float) -> None:
-        """Start the current audio again `elapsed` seconds of playback in:
-        continuing after a pause by restart, or a new volume."""
+        """Start the current audio again `elapsed` seconds of playback in
+        (a new volume needs a new player)."""
         _terminate_process(self.player_process)
         self.player_process = None
         if self.provider == "Replay":
@@ -500,12 +490,9 @@ class SpeechEngine:
             self.emit("warning", "No hay una lectura activa para pausar.")
             return
         if self.player_process is not None and self.player_process.poll() is None:
-            if PAUSE_BY_RESTART:
-                self.paused_elapsed = self.elapsed_seconds() or 0.0
-                _terminate_process(self.player_process)
-                self.player_process = None
-            else:
-                SuspendResume.suspend(self.player_process.pid)
+            # Like txt.ps1 on every system: the player process is suspended
+            # (NtSuspendProcess on Windows, SIGSTOP on macOS).
+            SuspendResume.suspend(self.player_process.pid)
             self.pause_started_at = time.time()
         self.mode = "Paused"
         self.emit("info", "Lectura pausada.")
@@ -514,10 +501,9 @@ class SpeechEngine:
         if self.mode != "Paused":
             self.emit("warning", "La lectura no está pausada.")
             return
-        if self.paused_elapsed is not None or (
-                self.player_process is not None and self.player_process.poll() is None
+        if (self.player_process is not None and self.player_process.poll() is None
                 and self.player_volume != self.volume):
-            # Stopped by the pause, or the volume changed while paused.
+            # The volume changed while paused: continue at the same point with it.
             elapsed = self.elapsed_seconds() or 0.0
             self.pause_started_at = None
             self._restart_player(elapsed)
@@ -623,7 +609,6 @@ class SpeechEngine:
         self.player_process = None
         self.player_started_at = None
         self.pause_started_at = None
-        self.paused_elapsed = None
         self.reset_alignment()
         if was_replay:
             self.replay_highlight_checked = False
