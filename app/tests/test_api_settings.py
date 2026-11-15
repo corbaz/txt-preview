@@ -857,3 +857,57 @@ class TestQuitOnClose(ApiSettingsTestCase):
         self.assertEqual(timer.call_args[0][:2], (1.5, main.os._exit))
         self.assertEqual(timer.call_args[1]["args"], (0,))
         timer.return_value.start.assert_called_once()
+
+
+class TestMacPauseSignals(unittest.TestCase):
+    def test_suspend_and_resume_use_named_signals(self):
+        """Signal numbers differ per system: 19 is SIGCONT on macOS."""
+        import signal
+        from txt_core.speech import engine
+        if not hasattr(signal, "SIGSTOP"):
+            self.skipTest("POSIX signals only")
+        with mock.patch.object(engine.sys, "platform", "darwin"), \
+                mock.patch.object(engine.os, "kill") as kill:
+            engine.SuspendResume.suspend(4321)
+            engine.SuspendResume.resume(4321)
+        self.assertEqual(kill.call_args_list,
+                         [mock.call(4321, signal.SIGSTOP), mock.call(4321, signal.SIGCONT)])
+
+    def test_source_never_uses_signal_numbers(self):
+        source = (Path(main.__file__).parent / "txt_core" / "speech" / "engine.py").read_text(
+            encoding="utf-8")
+        self.assertIn("os.kill(pid, signal.SIGSTOP)", source)
+        self.assertIn("os.kill(pid, signal.SIGCONT)", source)
+        self.assertNotRegex(source, r"os\.kill\(pid, \d+\)")
+
+
+class TestRepetirWithANewVoice(ApiSettingsTestCase):
+    def setUp(self):
+        super().setUp()
+        self.api.engine.replay.voice_display = "Edge · es-CR-JuanNeural (Male)"
+        self.api.engine.provider = None
+        self.api.engine.mode = "Idle"
+        self.api._replay_source = ("hola mundo", "hola\nmundo")
+
+    def test_same_voice_replays_the_recorded_audio(self):
+        self.api.replay_start(3.0)
+        self.api.engine.start_replay_playback.assert_called_once_with(3.0)
+        self.api.engine.start_edge_session.assert_not_called()
+
+    def test_changed_voice_reads_the_text_again_with_the_new_voice(self):
+        self.api._speech_voice = "es-ES-ElviraNeural"
+        with mock.patch.object(self.api, "_auto_switch_voice_for_text", return_value=None):
+            result = self.api.replay_start(3.0)
+        self.api.engine.start_replay_playback.assert_not_called()
+        args = self.api.engine.start_edge_session.call_args[0]
+        self.assertEqual(args[0], "hola mundo")
+        self.assertEqual(args[2], "es-ES-ElviraNeural")
+        self.assertEqual(result["message"], "Repitiendo con la voz nueva · es-ES-ElviraNeural")
+
+    def test_changing_the_voice_while_repetir_plays_starts_over_with_it(self):
+        self.api.engine.provider, self.api.engine.mode = "Replay", "Playing"
+        with mock.patch.object(self.api, "_auto_switch_voice_for_text", return_value=None):
+            result = self.api.set_speech_voice("es-ES-ElviraNeural")
+        self.assertEqual(self.api.engine.start_edge_session.call_args[0][2], "es-ES-ElviraNeural")
+        self.api.engine.set_voice.assert_not_called()
+        self.assertEqual(result["message"], "Repitiendo con la voz nueva · es-ES-ElviraNeural")

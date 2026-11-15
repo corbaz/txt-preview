@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+import signal
 import sys
 import tempfile
 import time
@@ -96,7 +97,9 @@ class SuspendResume:
             finally:
                 ctypes.WinDLL("kernel32").CloseHandle(handle)  # type: ignore[attr-defined]
         else:
-            os.kill(pid, 19)  # SIGSTOP
+            # By name: the numbers differ per system (19 is SIGSTOP on Linux
+            # but SIGCONT on macOS, where Pausar did nothing).
+            os.kill(pid, signal.SIGSTOP)
 
     @staticmethod
     def resume(pid: int) -> None:
@@ -113,7 +116,7 @@ class SuspendResume:
             finally:
                 ctypes.WinDLL("kernel32").CloseHandle(handle)  # type: ignore[attr-defined]
         else:
-            os.kill(pid, 18)  # SIGCONT
+            os.kill(pid, signal.SIGCONT)
 
 
 @dataclass

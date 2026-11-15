@@ -1,5 +1,15 @@
 # Historial de cambios
 
+## v:26.11.15-16.31
+
+### Diagramas más robustos, pausa en macOS y Repetir con la voz nueva (app Python)
+
+- Diagramas: las flechas van en ángulo recto también en la distribución clásica.
+- Diagramas: la app pone comillas a los textos que el modelo escribió sin ellas; un paréntesis, dos puntos o una barra dentro del texto hacía fallar el dibujo.
+- Diagramas: si la distribución ordenada no puede dibujar un diagrama, se usa la clásica en lugar de fallar. El dibujo de «Syntax error» de Mermaid ya no queda encima de la aplicación, y el aviso indica en qué línea del código está el error.
+- macOS: Pausar ahora detiene el audio. La app enviaba la señal por número y en macOS ese número es «continuar».
+- Repetir: si cambiaste la voz, el texto se lee de nuevo con la voz elegida en lugar de reproducir la grabación con la voz anterior; lo mismo si cambiás la voz mientras Repetir está sonando.
+
 ## v:26.11.15-13.36
 
 ### Cerrar en macOS, reinicio automático y diagramas más grandes en Teams

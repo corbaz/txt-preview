@@ -299,6 +299,12 @@ class Api:
         # txt.ps1 Switch-ActiveSpeechVoice: a reading in progress continues
         # from the current position with the new voice.
         with self._speech_lock:
+            if (self.engine.provider == "Replay"
+                    and self.engine.mode in ("Playing", "Paused")
+                    and self._replay_voice_changed()):
+                # Repetir in progress: start over with the voice just chosen.
+                message = self._repeat_with_current_voice().get("message", "")
+                return {"ok": True, "voice": voice, "message": message}
             self.engine.set_voice(self._speech_voice_display(), voice)
         return {"ok": True, "voice": voice, "message": self._take_message()}
 
@@ -1108,6 +1114,8 @@ class Api:
                 self.engine.stop_voice_playback()
                 switch = self._auto_switch_voice_for_text(text)
                 self._speech_words = raw_words or ""
+                # What Repetir reads again when the voice changed meanwhile.
+                self._replay_source = (text, self._speech_words)
                 self.engine.initialize_alignment(self._speech_words)
                 self.engine.start_edge_session(
                     text, self._speech_voice_display(), self._speech_voice,
@@ -1214,8 +1222,28 @@ class Api:
                     self._last_message = f"Velocidad de lectura: {speed_text}."
             return {"ok": True, "message": self._take_message()}
 
+    def _replay_voice_changed(self) -> bool:
+        """True when the Repetir audio was recorded with another voice than
+        the one selected now."""
+        recorded = self.engine.replay.voice_display
+        return bool(recorded and getattr(self, "_replay_source", None)
+                    and recorded != self._speech_voice_display())
+
+    def _repeat_with_current_voice(self) -> dict:
+        """Repetir after a voice change: the recorded audio has the old
+        voice, so the same text is read again with the selected one (and
+        becomes the new Repetir audio)."""
+        text, raw_words = self._replay_source
+        result = self.start_speech(text, raw_words)
+        if result.get("ok"):
+            self._last_message = ""
+            result["message"] = f"Repitiendo con la voz nueva · {self._speech_voice_display()}"
+        return result
+
     def replay_start(self, offset_seconds: float = 0.0) -> dict:
         with self._speech_lock:
+            if self._replay_voice_changed():
+                return self._repeat_with_current_voice()
             try:
                 self.engine.start_replay_playback(float(offset_seconds))
                 return {"ok": True, "message": self._last_message}

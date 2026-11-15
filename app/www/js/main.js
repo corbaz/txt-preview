@@ -109,7 +109,9 @@
       theme: "base",
       // SVG text labels (no foreignObject) so a diagram can become a PNG.
       flowchart: {
-        htmlLabels: false, curve: "basis", useMaxWidth: true,
+        htmlLabels: false, useMaxWidth: true,
+        // Right-angle arrows in both layouts.
+        curve: renderer === "dagre-wrapper" ? "step" : "linear",
         // "elk": tidy columns with orthogonal arrows; "dagre-wrapper": the
         // classic top-down layout (see drawDiagram for when each is used).
         defaultRenderer: renderer || "elk",
@@ -172,14 +174,26 @@
     }
   }
 
+  // Mermaid leaves its own "Syntax error" drawing in the page when a render
+  // fails; it must never stay on top of the app.
+  function removeDiagramLeftovers() {
+    document.querySelectorAll('[id^="dtxt-diagram-"], body > [id^="txt-diagram-"]')
+      .forEach((leftover) => leftover.remove());
+  }
+
   // ELK gives the tidiest drawing, but with loops back to the start it can
   // turn the flow upside down. A flowchart must read from the top, so when
   // the start is not near the top the classic layout is used instead.
   async function drawDiagram(source) {
     window.mermaid.initialize(diagramTheme("elk"));
     await window.mermaid.parse(source); // throws before anything is drawn
-    let { svg } = await window.mermaid.render(`txt-diagram-${++diagramCounter}`, source);
-    if (diagramStartPosition(svg) > 0.4) {
+    let svg = "";
+    try {
+      ({ svg } = await window.mermaid.render(`txt-diagram-${++diagramCounter}`, source));
+    } catch (_) {
+      removeDiagramLeftovers(); // ELK could not lay this one out: classic layout
+    }
+    if (!svg || diagramStartPosition(svg) > 0.4) {
       window.mermaid.initialize(diagramTheme("dagre-wrapper"));
       ({ svg } = await window.mermaid.render(`txt-diagram-${++diagramCounter}`, source));
     }
@@ -198,9 +212,14 @@
         figure.className = "mermaid-diagram";
         figure.innerHTML = svg;
         code.parentElement.replaceWith(figure);
-      } catch (_) {
-        // The code stays visible so it can be fixed in the editor.
-        setStatus("No se pudo dibujar el diagrama: el código Mermaid tiene un error.", "error");
+      } catch (error) {
+        removeDiagramLeftovers();
+        // The code stays visible so it can be fixed in the editor; Mermaid's
+        // message says on which line the error is.
+        const line = /line (\d+)/i.exec(String((error && error.message) || ""));
+        setStatus("No se pudo dibujar el diagrama: "
+          + (line ? `error de sintaxis en la línea ${line[1]} del código.`
+            : "el código Mermaid tiene un error."), "error");
       }
     }
   }
@@ -1696,7 +1715,7 @@
     applyTheme, applyModelCatalog, saveSettingsForm, showWorkOverlay, hideWorkOverlay,
     applySelectedModelCapabilities, capabilitiesFor,
     loadStartupModels, applyUpdateStatus, offerStartupUpdate,
-    renderDiagrams, diagramPictures,
+    renderDiagrams, diagramPictures, drawDiagram,
     applyVoiceCatalog, refreshVoices, renderFilteredVoiceCatalog,
     selectVoiceByFilter, applySpeechState, applyVoiceSwitch, speedLabel,
   };

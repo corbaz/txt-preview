@@ -21,6 +21,24 @@ class TestRepairMermaid(unittest.TestCase):
         self.assertEqual(prompts.repair_mermaid('I2({❓ "¿Qué operación?"})'),
                          'I2{"❓ ¿Qué operación?"}')
 
+    def test_labels_without_quotes_get_them(self):
+        """Unquoted text breaks on brackets, colons or slashes inside it."""
+        self.assertEqual(
+            prompts.repair_mermaid("A[Validar (datos)] --> B{¿Ok: sí/no?}"),
+            'A["Validar (datos)"] --> B{"¿Ok: sí/no?"}')
+        self.assertEqual(prompts.repair_mermaid("C([Inicio]) --> D[(Base de datos)]"),
+                         'C(["Inicio"]) --> D[("Base de datos")]')
+        self.assertEqual(prompts.repair_mermaid("E -->|Sí (ok)| F[Paso 2: leer(x)]"),
+                         'E -->|"Sí (ok)"| F["Paso 2: leer(x)"]')
+
+    def test_text_already_inside_quotes_is_never_rewritten(self):
+        code = 'A1 -- "Sí (a)" --> B1["Leer(x) y guardar[y]"] -->|"ya"| C1'
+        self.assertEqual(prompts.repair_mermaid(code), code)
+
+    def test_style_and_comment_lines_are_not_touched(self):
+        code = "%% nota [x] (y)" + chr(10) + "classDef a fill:#fff;" + chr(10) + "style A fill:#000"
+        self.assertEqual(prompts.repair_mermaid(code), code)
+
     def test_correct_code_is_left_alone(self):
         code = "\n".join([
             'subgraph UI ["Interfaz de Usuario"]',

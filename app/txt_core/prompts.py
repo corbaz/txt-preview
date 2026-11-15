@@ -144,13 +144,60 @@ _LABEL_PREFIX = re.compile(
 _ROUND_BRACE = re.compile(r'\(\{("[^"\n]*")\}\)')
 
 
+# Node shapes, longest brackets first; the last item is what the text of that
+# shape may not contain (its own brackets, a quote or a line break).
+_SHAPES = (
+    ("([", "])", r'[^"\n\[\]\x00]'), ("[(", ")]", r'[^"\n()\x00]'), ("((", "))", r'[^"\n()\x00]'),
+    ("{{", "}}", r'[^"\n{}\x00]'), ("[[", "]]", r'[^"\n\[\]\x00]'),
+    ("[", "]", r'[^"\n\[\]\x00]'), ("(", ")", r'[^"\n()\x00]'), ("{", "}", r'[^"\n{}\x00]'),
+)
+_UNQUOTED_LABELS = tuple(
+    re.compile(r"(\b[A-Za-z_][\w-]*)" + re.escape(opener) + r'(?!["\[({\x00])[ \t]*('
+               + allowed + r"*?)[ \t]*" + re.escape(closer))
+    for opener, closer, allowed in _SHAPES)
+_SHAPE_BRACKETS = tuple((opener, closer) for opener, closer, _ in _SHAPES)
+_UNQUOTED_EDGE_LABEL = re.compile(r'\|[ \t]*([^|"\n]+?)[ \t]*\|')
+_QUOTED = re.compile(r'"[^"\n]*"')
+_PLACEHOLDER = re.compile(r"\x00(\d+)\x00")
+_NOT_NODE_LINE = re.compile(r"^\s*(%%|classDef\b|class\b|style\b|linkStyle\b|click\b|direction\b)")
+
+
+def _quote_labels(line: str) -> str:
+    """Text without quotes breaks on any bracket, colon or slash inside it
+    (`A[Validar (datos)]`); quoted text is always valid, so every label
+    gets its quotes."""
+    if _NOT_NODE_LINE.match(line):
+        return line
+    # Quoted text is set aside while the line is rewritten, so nothing inside
+    # a label (old or just quoted) is taken for another node.
+    quoted: list[str] = []
+
+    def hide(text: str) -> str:
+        def stash(match: re.Match) -> str:
+            quoted.append(match.group(0))
+            return f"\x00{len(quoted) - 1}\x00"
+        return _QUOTED.sub(stash, text)
+
+    line = hide(line)
+    for pattern, (opener, closer) in zip(_UNQUOTED_LABELS, _SHAPE_BRACKETS):
+        line = hide(pattern.sub(
+            lambda match: f'{match.group(1)}{opener}"{match.group(2)}"{closer}'
+            if match.group(2).strip() else match.group(0), line))
+    line = _UNQUOTED_EDGE_LABEL.sub(
+        lambda match: match.group(0) if "\x00" in match.group(1) else f'|"{match.group(1)}"|',
+        line)
+    return _PLACEHOLDER.sub(lambda match: quoted[int(match.group(1))], line)
+
+
 def repair_mermaid(code: str) -> str:
     """Fix the node syntax slips models make most, which Mermaid rejects:
     padded labels (`[ "Inicio" ]`), an emoji before the quoted text
-    (`([🚀 "Inicio"])`) and the made-up shape `({"..."})`."""
+    (`([🚀 "Inicio"])`), the made-up shape `({"..."})` and labels written
+    without quotes."""
     code = _LABEL_PREFIX.sub(r'\1"\2 \3"\4', code)
     code = _SPACE_BEFORE_CLOSE.sub(r'"\1', _SPACE_AFTER_OPEN.sub(r'\1"', code))
-    return _ROUND_BRACE.sub(r"{\1}", code)
+    code = _ROUND_BRACE.sub(r"{\1}", code)
+    return "\n".join(_quote_labels(line) for line in code.split("\n"))
 
 
 def ensure_mermaid_block(answer: str) -> str:
