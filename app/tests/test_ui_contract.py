@@ -311,8 +311,19 @@ class TestBottomDeck(UiContractTestCase):
             "1,00x",
             "Repetir",
             "0:00 / 0:00",
+            "Volumen",
+            "100%",
             "",
         ])
+
+    def test_volume_slider_goes_from_10_to_100_in_steps_of_10(self):
+        volume = self.deck.find("input", node_id="volume")
+        self.assertEqual((volume.attrs.get("min"), volume.attrs.get("max"),
+                          volume.attrs.get("step"), volume.attrs.get("value")),
+                         ("10", "100", "10", "100"))
+
+    def test_repetir_starts_disabled_until_a_whole_audio_exists(self):
+        self.assertIn("disabled", self.deck.find("button", node_id="speech-replay").attrs)
 
     def test_speed_slider_legacy_range(self):
         speed = self.deck.find("input", node_id="speed")

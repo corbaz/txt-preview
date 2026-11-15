@@ -1,5 +1,18 @@
 # Historial de cambios
 
+## v:26.11.15-18.57
+
+### Volumen, Repetir, pausa en macOS, imágenes desde el portapapeles y dictado en macOS
+
+- Volumen: nuevo control a la derecha de Repetir, del 10 % al 100 % en pasos de 10 (las dos apps). Si el audio está sonando, sigue desde el mismo punto con el volumen nuevo; si está en pausa, lo toma al continuar.
+- Repetir se habilita solo cuando ya está todo el audio generado, con su duración final (las dos apps). En la app Python, Repetir durante una lectura completa ahora la detiene y repite ese audio, como la PS1.
+- macOS: Pausar detiene el reproductor y Continuar lo vuelve a iniciar en el mismo punto; ya no depende de suspender el proceso, que a veces no se callaba.
+- Pausar y Continuar tienen el mismo ancho: la fila de botones ya no se mueve (app Python).
+- Pegar (y Ctrl+V en el editor) con una imagen en el portapapeles la adjunta para la próxima acción de IA. Si el modelo no tiene visión, avisa que hay que cambiar a un modelo con visión (las dos apps).
+- macOS: el botón Micrófono pone el cursor en el editor e inicia el dictado del sistema; si macOS no lo inicia, el editor queda listo para escribir y el aviso explica cómo activarlo.
+- Diagramas: los títulos de las áreas tienen espacio arriba y ya no quedan pegados al borde.
+- macOS: install.sh guarda todo el detalle en install.log; por pantalla solo salen errores, advertencias y avisos.
+
 ## v:26.11.15-16.31
 
 ### Diagramas más robustos, pausa en macOS y Repetir con la voz nueva (app Python)

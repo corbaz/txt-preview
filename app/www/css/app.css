@@ -407,6 +407,9 @@ input[type="range"]::-moz-range-progress { height: 4px; border-radius: 2px; back
 input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--panel); border: 2px solid var(--accent); }
 
 #speed-value, #seek-time { min-width: 65px; }
+#speed, #seek { width: 190px; }
+#volume { width: 110px; }
+#volume-value { min-width: 40px; }
 
 .version {
   position: absolute;
@@ -420,7 +423,7 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius
 
 /* On narrow windows the centered rows can reach the deck edges; reserve the
    bottom-right corner so the pinned version never covers row-4 sliders. */
-@media (max-width: 1280px) {
+@media (max-width: 1440px) {
   #deck { padding-right: 150px; }
 }
 

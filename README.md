@@ -34,7 +34,7 @@ Si ya lo tenías clonado, en vez del clone hacé `git pull` y volvé a correr `.
 Para actualizar, reparar dependencias y abrir la app con un solo alias (clone en `~/txt-preview`):
 
 ```bash
-echo 'alias txtpreview="cd ~/txt-preview && git pull --ff-only && ./install.sh && ./run.sh"' >> ~/.zshrc
+echo 'alias txtpreview="cd ~/txt-preview && git pull --ff-only -q && ./install.sh && ./run.sh"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -45,7 +45,9 @@ Después solo ejecutá `txtpreview`.
 1. Pide Homebrew: si no lo tenés, te muestra el comando para instalarlo y te pide volver a ejecutar el script.
 2. Instala Python y FFmpeg con `brew install python` y `brew install ffmpeg` (solo si faltan).
 3. Instala los paquetes de la app: `pip install --user -r app/requirements.txt edge-tts`, incluido `truststore` para las conexiones TLS de Groq y Edge TTS.
-4. Corre el doctor de dependencias y te muestra cómo abrir la app.
+4. Corre el doctor de dependencias.
+
+Todo el detalle queda en `install.log`, en la misma carpeta; por pantalla solo salen los errores, las advertencias y los avisos (por ejemplo, el informe del doctor cuando falta algo).
 
 Si Python 3.14 muestra `CERTIFICATE_VERIFY_FAILED` o `Basic Constraints of CA cert not marked critical`, actualizá el clon y repetí el instalador; no desactives la verificación TLS:
 

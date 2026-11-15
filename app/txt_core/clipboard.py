@@ -216,3 +216,53 @@ def write_clipboard_html(fragment: str, plain_text: str, platform: str | None = 
                 os.remove(path)
             except OSError:
                 pass
+
+
+# Clipboard images: saved as PNG at the path in this variable (PowerShell
+# prints "1" when it saved one, nothing when the clipboard holds no image).
+IMAGE_FILE_ENV_VAR = "TXT_CLIPBOARD_IMAGE_FILE"
+POWERSHELL_READ_IMAGE_COMMAND = (
+    "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; "
+    "if ([Windows.Forms.Clipboard]::ContainsImage()) { "
+    "$image = [Windows.Forms.Clipboard]::GetImage(); "
+    "try { $image.Save($env:TXT_CLIPBOARD_IMAGE_FILE, [Drawing.Imaging.ImageFormat]::Png) } "
+    "finally { $image.Dispose() }; '1' }"
+)
+
+
+def _save_mac_image(path: str) -> bool:
+    import AppKit
+    pasteboard = AppKit.NSPasteboard.generalPasteboard()
+    data = pasteboard.dataForType_(AppKit.NSPasteboardTypePNG)
+    if data is None:
+        tiff = pasteboard.dataForType_(AppKit.NSPasteboardTypeTIFF)
+        if tiff is None:
+            return False
+        bitmap = AppKit.NSBitmapImageRep.imageRepWithData_(tiff)
+        if bitmap is None:
+            return False
+        data = bitmap.representationUsingType_properties_(AppKit.NSBitmapImageFileTypePNG, {})
+    return bool(data is not None and data.writeToFile_atomically_(path, True))
+
+
+def read_clipboard_image(path: str, platform: str | None = None,
+                         runner: Callable[..., Any] | None = None,
+                         mac_reader: Callable[[str], bool] | None = None) -> bool:
+    """Save the clipboard image as a PNG at `path`; False when the
+    clipboard holds no image."""
+    platform = sys.platform if platform is None else platform
+    try:
+        if platform.startswith("win"):
+            completed = _run_with_retries(
+                ["powershell", "-NoProfile", "-NonInteractive", "-STA",
+                 "-Command", POWERSHELL_READ_IMAGE_COMMAND],
+                runner, extra_env={IMAGE_FILE_ENV_VAR: path})
+            _completed_or_raise(completed, MSG_READ_FAILED)
+            return (completed.stdout or "").strip() == "1" and os.path.isfile(path)
+        if platform == "darwin":
+            return bool((mac_reader or _save_mac_image)(path))
+        return False
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(MSG_READ_FAILED.format(detail=MSG_TIMEOUT)) from error
+    except OSError as error:
+        raise RuntimeError(MSG_READ_FAILED.format(detail=str(error))) from error

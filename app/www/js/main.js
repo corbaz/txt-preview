@@ -200,6 +200,28 @@
     return svg;
   }
 
+  // Mermaid sets an area's title right on its top edge: the frame grows
+  // upwards so the title gets room above it (and the drawing grows with it).
+  const CLUSTER_TITLE_ROOM = 12;
+  function padClusterTitles(svg) {
+    if (!svg) return;
+    let grown = false;
+    // "cluster": classic layout; "subgraph": ELK.
+    svg.querySelectorAll("g.cluster > rect, g.subgraph > rect.subgraph").forEach((rect) => {
+      const y = parseFloat(rect.getAttribute("y"));
+      const height = parseFloat(rect.getAttribute("height"));
+      if (Number.isNaN(y) || Number.isNaN(height)) return;
+      rect.setAttribute("y", String(y - CLUSTER_TITLE_ROOM));
+      rect.setAttribute("height", String(height + CLUSTER_TITLE_ROOM));
+      grown = true;
+    });
+    const box = (svg.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(Number);
+    if (grown && box.length === 4 && box.every((n) => !Number.isNaN(n))) {
+      svg.setAttribute("viewBox", [box[0], box[1] - CLUSTER_TITLE_ROOM, box[2],
+        box[3] + CLUSTER_TITLE_ROOM].join(" "));
+    }
+  }
+
   async function renderDiagrams(sequence) {
     const blocks = Array.from(document.querySelectorAll("#preview pre > code.language-mermaid"));
     if (!blocks.length || !window.mermaid) return;
@@ -211,6 +233,7 @@
         const figure = document.createElement("div");
         figure.className = "mermaid-diagram";
         figure.innerHTML = svg;
+        padClusterTitles(figure.querySelector("svg"));
         code.parentElement.replaceWith(figure);
       } catch (error) {
         removeDiagramLeftovers();
@@ -475,6 +498,10 @@
       clearSpeechProgress();
     }
     $("speech-pause").textContent = state.mode === "Paused" ? "Continuar" : "Pausar";
+    // Legacy Update-ReplayControls: Repetir only with a whole audio and its
+    // final length; the position slider only with a saved one.
+    $("speech-replay").disabled = !state.replay_ready;
+    $("seek").disabled = !(state.replay_duration > 0);
     // Replay slider mirrors speech_tick: duration → max, position → value.
     if (typeof state.replay_duration === "number") {
       const seek = $("seek");
@@ -577,6 +604,37 @@
       "No se pudo reiniciar la lectura en esa posición.");
   });
 
+  // Pausar and Continuar share one width (the wider label), so the row never
+  // moves when the label changes.
+  function lockPauseWidth() {
+    const button = $("speech-pause");
+    const label = button.textContent;
+    button.style.width = "";
+    button.textContent = "Continuar";
+    const width = button.getBoundingClientRect().width;
+    button.textContent = label;
+    if (width > 0) {
+      button.style.width = Math.ceil(width) + "px";
+      button.style.flexShrink = "0";
+    }
+  }
+  lockPauseWidth();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(lockPauseWidth);
+
+  // ---- Volume slider (bottom deck row 4): 10% to 100% in steps of 10 --------
+  const volumeSlider = $("volume");
+  volumeSlider.addEventListener("input", () => {
+    $("volume-value").textContent = volumeSlider.value + "%";
+    paintSlider(volumeSlider);
+  });
+  volumeSlider.addEventListener("change", async () => {
+    paintSlider(volumeSlider);
+    const result = await safeCall((api) => api.set_speech_volume(Number(volumeSlider.value)),
+      "No se pudo cambiar el volumen.");
+    if (result && result.message) setStatus(result.message, result.ok ? undefined : "error");
+  });
+  paintSlider(volumeSlider);
+
   // ---- Speed slider (bottom deck row 4) ------------------------------------
   const speedSlider = $("speed");
   const speedValue = $("speed-value");
@@ -599,7 +657,34 @@
   // ---- Editor tools (bottom deck row 2) ------------------------------------
   // T25/S18: the native clipboard lives behind the bridge — the page in
   // WKWebView (macOS) has no browser clipboard API to rely on.
+  // Legacy Invoke-ClipboardPaste: an image in the clipboard becomes an
+  // image attachment (only a model with vision can take it). Returns true
+  // when the clipboard held an image.
+  async function pasteClipboardImage() {
+    const result = await safeCall((api) => api.paste_clipboard_image(),
+      "No se pudo leer el portapapeles.");
+    if (!result || !result.image) return false; // no image: paste the text
+    if (!result.ok) {
+      setStatus(result.error, "warning");
+      return true;
+    }
+    setTab("editor");
+    await refreshAttachmentSummary();
+    setStatus(result.message);
+    return true;
+  }
+
+  // Ctrl+V of an image in the editor: same as Pegar (a text area cannot
+  // hold a picture).
+  $("editor").addEventListener("paste", (event) => {
+    const items = Array.from((event.clipboardData && event.clipboardData.items) || []);
+    if (!items.some((item) => item.kind === "file" && item.type.startsWith("image/"))) return;
+    event.preventDefault();
+    pasteClipboardImage();
+  });
+
   $("paste-editor").addEventListener("click", async () => {
+    if (await pasteClipboardImage()) return;
     const result = await safeCall((api) => api.read_clipboard(),
       "No se pudo leer el portapapeles.");
     if (!result) return;
@@ -685,16 +770,18 @@
   // ---- Micrófono (legacy Win+H dictation) -----------------------------------
   $("mic-button").addEventListener("click", async () => {
     if (!requireBridge()) return;
+    // txt.ps1: the caret goes to the end of the editor, where the dictated
+    // text lands (first, so the dictation finds the editor focused; if it
+    // cannot start, the editor is ready to type).
+    setTab("editor");
+    const editor = $("editor");
+    editor.focus();
+    editor.setSelectionRange(editor.value.length, editor.value.length);
     try {
       const result = await window.pywebview.api.start_dictation();
       if (result && result.ok) {
-        // txt.ps1: the button reads "Mic <Esc>" and the caret goes to the
-        // end of the editor, where the dictated text lands.
-        $("mic-button").textContent = "Mic <Esc>";
-        setTab("editor");
-        const editor = $("editor");
+        $("mic-button").textContent = "Mic <Esc>"; // txt.ps1
         editor.focus();
-        editor.setSelectionRange(editor.value.length, editor.value.length);
       }
       if (result && result.message) setStatus(result.message);
     } catch (_) {

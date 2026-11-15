@@ -21,6 +21,7 @@ import socket
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -96,13 +97,17 @@ MSG_ADDED_ATTACHMENTS = (
     "Los adjuntos visibles sobre el editor se enviarán en la próxima acción de IA."
 )
 MSG_CLEARED_ATTACHMENTS = "Se quitaron los archivos adjuntos del contexto."
+MSG_PASTE_IMAGE_NEEDS_VISION = ("El portapapeles tiene una imagen y el modelo elegido no tiene "
+                                "visión: debés cambiar a un modelo con visión para adjuntarla.")
 # Legacy Micrófono button (txt.ps1 6669-6678): Win+H toggles Windows speech
 # dictation; Esc stops it.
 MSG_DICTATION_ON = "Dictado activado. Presioná Esc para detenerlo."
 MSG_DICTATION_FAILED = "No se pudo activar el dictado: {detail}"
-MSG_DICTATION_MAC = ("El dictado es una función del sistema en macOS: activá el "
-                     "dictado en Configuración del Sistema → Teclado y presioná "
-                     "la tecla de dictado (micrófono).")
+MSG_DICTATION_MAC = ("No se pudo iniciar el dictado de macOS: el editor quedó listo para "
+                     "escribir. Para dictar, activá el dictado en Configuración del "
+                     "Sistema → Teclado y presioná la tecla de dictado (micrófono).")
+MSG_DICTATION_MAC_ON = ("Dictado de macOS activado en el editor. Presioná Esc o la tecla "
+                        "de dictado para detenerlo.")
 MSG_DICTATION_UNSUPPORTED = "El dictado nativo no está disponible en esta plataforma."
 MSG_WINDOW_UNAVAILABLE = "La ventana no está disponible."
 MSG_PREVIEW_EMPTY = "*No hay contenido para mostrar.*"
@@ -776,6 +781,35 @@ class Api:
             return {"ok": False, "error": str(error)}
         return {"ok": True, "text": text}
 
+    def paste_clipboard_image(self, runner=None, platform: str | None = None,
+                              mac_reader=None) -> dict:
+        """Pegar with an image in the clipboard (legacy Invoke-ClipboardPaste):
+        it becomes an image attachment, saved as a PNG in TEMP. A model
+        without vision cannot take it, and the message says what to do.
+        {"image": False} means there is no image: paste the text instead."""
+        path = os.path.join(tempfile.gettempdir(),
+                            "portapapeles-" + time.strftime("%Y%m%d-%H%M%S")
+                            + f"-{int(time.time() * 1000) % 1000:03d}.png")
+        try:
+            found = clipboard.read_clipboard_image(path, platform=platform, runner=runner,
+                                                   mac_reader=mac_reader)
+        except RuntimeError as error:
+            return {"ok": False, "image": False, "error": str(error)}
+        if not found:
+            return {"ok": True, "image": False}
+        if not self._selected_capabilities().vision:
+            _remove_quietly(path)
+            return {"ok": False, "image": True,
+                    "error": MSG_PASTE_IMAGE_NEEDS_VISION}
+        result = self.add_attachments([path])
+        if result["errors"]:
+            _remove_quietly(path)
+            return {"ok": False, "image": True,
+                    "error": "No se pudo adjuntar la imagen: "
+                             + result["errors"][0].removeprefix("No se pudo adjuntar: ")}
+        return {"ok": True, "image": True, "summary": result["summary"],
+                "message": "Imagen del portapapeles adjuntada para la próxima acción de IA."}
+
     def write_clipboard(self, text: str, runner=None,
                         platform: str | None = None) -> dict:
         """Copiar MD/TXT and Corregir: copy through the native clipboard.
@@ -820,16 +854,16 @@ class Api:
                         "message": MSG_DICTATION_FAILED.format(detail=error)}
             return {"ok": True, "message": MSG_DICTATION_ON}
         if sys.platform == "darwin":
+            # The page already put the caret in the editor: Edit › Start
+            # Dictation (startDictation:) dictates into it. When macOS does
+            # not start it, the editor stays ready to type.
             try:
-                subprocess.run(
-                    ["osascript", "-e",
-                     'display dialog "' + MSG_DICTATION_MAC
-                     + '" with title "TXT Preview"'],
-                    check=False, timeout=10, capture_output=True)
-            except Exception as error:
-                return {"ok": False,
-                        "message": MSG_DICTATION_FAILED.format(detail=error)}
-            return {"ok": True, "message": MSG_DICTATION_MAC}
+                started = _start_mac_dictation()
+            except Exception:
+                started = False
+            if started:
+                return {"ok": True, "message": MSG_DICTATION_MAC_ON}
+            return {"ok": False, "message": MSG_DICTATION_MAC}
         return {"ok": False, "message": MSG_DICTATION_UNSUPPORTED}
 
     # ---- Cerrar (T15/S8) -----------------------------------------------------
@@ -1240,8 +1274,23 @@ class Api:
             result["message"] = f"Repitiendo con la voz nueva · {self._speech_voice_display()}"
         return result
 
+    def set_speech_volume(self, percent: int) -> dict:
+        """Volumen slider (10 to 100 in steps of 10)."""
+        volume = max(10, min(100, int(round(int(percent) / 10.0)) * 10))
+        with self._speech_lock:
+            try:
+                self.engine.set_volume(volume)
+            except Exception as error:
+                return {"ok": False, "message": f"No se pudo cambiar el volumen: {error}"}
+            self._last_message = ""
+        return {"ok": True, "volume": volume, "message": f"Volumen: {volume}%."}
+
     def replay_start(self, offset_seconds: float = 0.0) -> dict:
         with self._speech_lock:
+            if self.engine.provider == "Edge":
+                # Legacy Start-ReplayPlayback stops first: a reading whose
+                # blocks are all generated becomes the Repetir audio.
+                self.engine.stop_voice_playback()
             if self._replay_voice_changed():
                 return self._repeat_with_current_voice()
             try:
@@ -1321,6 +1370,7 @@ class Api:
             "highlight_word_index": highlight,
             "replay_position": round(self._replay_position(), 3),
             "replay_duration": round(engine.replay.duration, 3),
+            "replay_ready": bool(engine.replay_ready()),
             "message": self._take_message(),
             "voice_update_offered": bool(getattr(self, "_voice_update_offered", False)),
         }
@@ -1359,6 +1409,36 @@ class Api:
                 engine.pause()
         except Exception as error:
             self._last_message = f"No se pudo saltar a la palabra elegida: {error}"
+
+
+def _start_mac_dictation(timeout: float = 2.0) -> bool:
+    """Send Edit › Start Dictation to the focused editor on the main thread;
+    False when macOS did not take it (dictation off, or no text field)."""
+    import AppKit
+    from PyObjCTools import AppHelper
+    done = threading.Event()
+    result: list[bool] = []
+
+    def start() -> None:
+        try:
+            app = AppKit.NSApplication.sharedApplication()
+            app.activateIgnoringOtherApps_(True)
+            result.append(bool(app.sendAction_to_from_("startDictation:", None, None)))
+        except Exception:
+            result.append(False)
+        finally:
+            done.set()
+
+    AppHelper.callAfter(start)
+    done.wait(timeout)
+    return bool(result and result[0])
+
+
+def _remove_quietly(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def _windows_folder_tree(window, title: str, initial: str) -> str | None:

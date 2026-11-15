@@ -504,22 +504,19 @@ class TestDictationAndClose(ApiSettingsTestCase):
         self.assertEqual(result["message"],
                          "No se pudo activar el dictado: sin teclado")
 
-    def test_start_dictation_macos_shows_instruction_via_osascript(self):
-        with mock.patch("sys.platform", "darwin"), \
-                mock.patch.object(main.subprocess, "run") as run:
+    def test_start_dictation_macos_starts_system_dictation_in_the_editor(self):
+        with mock.patch("sys.platform", "darwin"),                 mock.patch.object(main, "_start_mac_dictation", return_value=True),                 mock.patch.object(main.subprocess, "run") as run:
             result = self.api.start_dictation()
-        self.assertEqual(run.call_args.args[0][0], "osascript")
+        run.assert_not_called()  # no blocking dialog any more
         self.assertTrue(result["ok"])
-        self.assertIn("dictado", result["message"])
+        self.assertEqual(result["message"], main.MSG_DICTATION_MAC_ON)
 
-    def test_start_dictation_macos_reports_osascript_failure(self):
-        with mock.patch("sys.platform", "darwin"), \
-                mock.patch.object(main.subprocess, "run",
-                                  side_effect=OSError("sin osascript")):
-            result = self.api.start_dictation()
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["message"],
-                         "No se pudo activar el dictado: sin osascript")
+    def test_start_dictation_macos_not_started_leaves_the_editor_to_type(self):
+        for outcome in ({"return_value": False}, {"side_effect": RuntimeError("sin AppKit")}):
+            with mock.patch("sys.platform", "darwin"),                     mock.patch.object(main, "_start_mac_dictation", **outcome):
+                result = self.api.start_dictation()
+            self.assertFalse(result["ok"])
+            self.assertIn("el editor quedó listo para escribir", result["message"])
 
     def test_start_dictation_other_platform_never_pretends_success(self):
         with mock.patch("sys.platform", "linux"):
@@ -911,3 +908,56 @@ class TestRepetirWithANewVoice(ApiSettingsTestCase):
         self.assertEqual(self.api.engine.start_edge_session.call_args[0][2], "es-ES-ElviraNeural")
         self.api.engine.set_voice.assert_not_called()
         self.assertEqual(result["message"], "Repitiendo con la voz nueva · es-ES-ElviraNeural")
+
+
+class TestVolumeAndRepetirApi(ApiSettingsTestCase):
+    def test_volume_goes_in_steps_of_ten_between_10_and_100(self):
+        for asked, applied in ((55, 60), (0, 10), (140, 100), (70, 70)):
+            result = self.api.set_speech_volume(asked)
+            self.assertEqual(result["volume"], applied)
+            self.assertEqual(result["message"], f"Volumen: {applied}%.")
+            self.api.engine.set_volume.assert_called_with(applied)
+
+    def test_repetir_during_a_reading_stops_it_first(self):
+        """Legacy Start-ReplayPlayback: stopping saves a fully generated
+        reading as the Repetir audio."""
+        self.api.engine.provider = "Edge"
+        self.api.engine.replay.voice_display = ""
+        self.api.replay_start(0)
+        self.api.engine.stop_voice_playback.assert_called_once_with()
+        self.api.engine.start_replay_playback.assert_called_once_with(0.0)
+
+
+class TestPasteClipboardImage(ApiSettingsTestCase):
+    def fake_image(self, path):
+        with open(path, "wb") as handle:
+            handle.write(b"\x89PNG\r\n\x1a\nfake")
+        return True
+
+    def test_no_image_means_paste_the_text(self):
+        result = self.api.paste_clipboard_image(platform="darwin", mac_reader=lambda path: False)
+        self.assertEqual(result, {"ok": True, "image": False})
+
+    def test_model_without_vision_says_to_change_the_model(self):
+        saved = []
+        with mock.patch.object(self.api, "_selected_capabilities",
+                               return_value=mock.Mock(vision=False)):
+            result = self.api.paste_clipboard_image(
+                platform="darwin", mac_reader=lambda path: saved.append(path) or self.fake_image(path))
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["image"])
+        self.assertIn("debés cambiar a un modelo con visión", result["error"])
+        self.assertFalse(os.path.exists(saved[0]))  # the temporary PNG is removed
+
+    def test_model_with_vision_attaches_the_image(self):
+        with mock.patch.object(self.api, "_selected_capabilities",
+                               return_value=mock.Mock(vision=True, text_files=True)):
+            result = self.api.paste_clipboard_image(platform="darwin", mac_reader=self.fake_image)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["message"],
+                         "Imagen del portapapeles adjuntada para la próxima acción de IA.")
+        with self.api._attachments_lock:
+            attached = list(self.api._attachments)
+        self.assertEqual(len(attached), 1)
+        self.assertTrue(attached[0].name.startswith("portapapeles-"))
+        os.remove(attached[0].path)

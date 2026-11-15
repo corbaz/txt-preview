@@ -198,9 +198,12 @@
         <span class="deck-label">Velocidad de lectura</span>
         <input type="range" id="speed" min="50" max="200" value="100" aria-label="Velocidad de lectura" />
         <span id="speed-value" class="deck-label">1,00x</span>
-        <button id="speech-replay" class="btn">Repetir</button>
-        <input type="range" id="seek" min="0" max="0" value="0" aria-label="Posición de la lectura" />
+        <button id="speech-replay" class="btn" disabled>Repetir</button>
+        <input type="range" id="seek" min="0" max="0" value="0" aria-label="Posición de la lectura" disabled />
         <span id="seek-time" class="deck-label">0:00 / 0:00</span>
+        <span class="deck-label">Volumen</span>
+        <input type="range" id="volume" min="10" max="100" step="10" value="100" aria-label="Volumen" />
+        <span id="volume-value" class="deck-label">100%</span>
         <span id="version-badge" class="version"></span>
       </div>
     </div>

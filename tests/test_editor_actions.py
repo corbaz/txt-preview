@@ -185,3 +185,23 @@ class VersionLabelTests(unittest.TestCase):
             "Set-Theme $false; 'RESULT=' + ($versionLabel.ForeColor -eq (Get-ThemeColor 'Accent')) + '|' + ($lblAppVersion.ForeColor -eq (Get-ThemeColor 'Accent'))"
         )
         self.assertEqual(results, ["True|True", "True|True"])
+
+
+class VolumeSliderTests(unittest.TestCase):
+    def test_volume_goes_in_steps_of_ten_and_reaches_the_players(self) -> None:
+        results = run_app_snippet(
+            "'RESULT=' + $volumeSlider.Minimum + '|' + $volumeSlider.Maximum + '|' + $volumeSlider.Value + '|' + $lblVolumeValue.Text; "
+            "$volumeSlider.Value = 47; 'RESULT=' + $volumeSlider.Value + '|' + $lblVolumeValue.Text; "
+            "Set-SpeechVolume; 'RESULT=' + $speechState.Volume + '|' + ((Get-PlayerVolumeArguments) -join ' ') + '|' + $msgBox.Text; "
+            "'RESULT=' + ($lblVolume.Left -gt $lblReplayTime.Left) + '|' + ($lblVolumeValue.Right -lt ($versionLabel.Right - [Windows.Forms.TextRenderer]::MeasureText($versionLabel.Text, $versionLabel.Font).Width))"
+        )
+        self.assertEqual(results[0], "10|100|100|100%")
+        self.assertEqual(results[1], "50|50%")
+        self.assertTrue(results[2].startswith("50|-volume 50|"), results[2])
+        self.assertEqual(results[3], "True|True")
+
+
+class PasteImageTests(unittest.TestCase):
+    def test_a_model_without_vision_says_to_change_the_model(self) -> None:
+        results = run_app_snippet("'RESULT=' + $pasteImageNeedsVisionMessage")
+        self.assertIn("debés cambiar a un modelo con visión", results[0])

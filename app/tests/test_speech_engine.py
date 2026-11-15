@@ -128,7 +128,7 @@ class TestPoll(SpeechEngineFixture, unittest.TestCase):
                          [EdgeWordMark(0.0, 0, "hola")])
         ffplay = self.runner.processes[1].args
         self.assertEqual(ffplay[0], "fakeffplay")
-        self.assertEqual(ffplay[1:-1], ["-nodisp", "-autoexit", "-loglevel", "error"])
+        self.assertEqual(ffplay[1:-1], ["-nodisp", "-autoexit", "-loglevel", "error", "-volume", "100"])
         self.assertEqual(ffplay[-1], chunk.media_file)
 
     def test_player_exit_zero_advances_to_next_chunk(self):
@@ -436,7 +436,7 @@ class TestReplayStart(SpeechEngineFixture, unittest.TestCase):
             file=handle.name, duration=10.0, voice_display="Elvira (es-ES)")
         self.engine.start_replay_playback(0.0)
         self.assertEqual(self.runner.processes[-1].args, [
-            "fakeffplay", "-nodisp", "-autoexit", "-loglevel", "error",
+            "fakeffplay", "-nodisp", "-autoexit", "-loglevel", "error", "-volume", "100",
             "-af", "atempo=1.5", handle.name,
         ])
         self.assertEqual(self.engine.mode, "Playing")

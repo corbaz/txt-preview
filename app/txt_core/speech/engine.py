@@ -62,6 +62,11 @@ def _speed_label(percent: int) -> str:
 REPO = Path(__file__).resolve().parents[3]
 EDGE_TTS_WORDS_SCRIPT = REPO / "edge_tts_words.py"
 TERMINATE_WAIT_SECONDS = 3
+# macOS (and Linux) pause by stopping the player and starting it again at the
+# same position: a stopped (SIGSTOP) player did not always go quiet on macOS.
+# Windows keeps suspending the process, like txt.ps1.
+PAUSE_BY_RESTART = sys.platform != "win32"
+VOLUME_DEFAULT = 100
 
 
 def _terminate_process(process: Any) -> None:
@@ -169,7 +174,11 @@ class SpeechEngine:
         self.player_process: Any = None
         self.player_started_at: float | None = None
         self.pause_started_at: float | None = None
+        # Pause by restart: where the stopped player was (seconds of playback).
+        self.paused_elapsed: float | None = None
         self.applied_speed = 100
+        self.volume = VOLUME_DEFAULT
+        self.player_volume = VOLUME_DEFAULT  # volume the running player started with
 
         self.align_words: list[str] = []
         self.align_words_key: str | None = None
@@ -223,6 +232,8 @@ class SpeechEngine:
 
     # ---- Clock -------------------------------------------------------------
     def elapsed_seconds(self) -> float | None:
+        if self.paused_elapsed is not None:
+            return self.paused_elapsed
         if self.player_process is None or self.player_started_at is None:
             return None
         position_time = self.pause_started_at if self.pause_started_at is not None else time.time()
@@ -379,7 +390,7 @@ class SpeechEngine:
             return
         offset = min(max(0.0, offset_seconds), max(0.0, self.replay.duration - 0.2))
         tempo = max(1, self.applied_speed) / 100.0
-        arguments = [self.ffplay_command, "-nodisp", "-autoexit", "-loglevel", "error"]
+        arguments = self._player_arguments()
         if offset > 0:
             arguments += ["-ss", f"{offset:.3f}"]
         tempo_filter = build_atempo_filter(tempo)
@@ -392,6 +403,7 @@ class SpeechEngine:
         )
         self.player_started_at = time.time()
         self.pause_started_at = None
+        self.paused_elapsed = None
         self.replay_offset = offset
         self.replay_tempo = tempo
         self.provider = "Replay"
@@ -409,15 +421,50 @@ class SpeechEngine:
         chunk = self.chunks[self.current_index]
         if chunk.status != "Ready":
             return
-        self.player_process = self._runner(
-            [self.ffplay_command, "-nodisp", "-autoexit", "-loglevel", "error", chunk.media_file],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        self.player_started_at = time.time()
-        self.pause_started_at = None
+        self._play_chunk(chunk, 0.0)
         self.mode = "Playing"
         chunk.status = "Playing"
         self.emit("info", f"Reproduciendo bloque {self.current_index + 1} de {len(self.chunks)} · {self.voice_display}")
+
+    def _player_arguments(self) -> list[str]:
+        """ffplay without window, closing at the end, at the chosen volume."""
+        self.player_volume = self.volume
+        return [self.ffplay_command, "-nodisp", "-autoexit", "-loglevel", "error",
+                "-volume", str(self.volume)]
+
+    def _play_chunk(self, chunk: Chunk, offset: float) -> None:
+        """Start the player on a chunk, `offset` seconds in."""
+        arguments = self._player_arguments()
+        if offset > 0:
+            arguments += ["-ss", f"{offset:.3f}"]
+        arguments.append(chunk.media_file)
+        self.player_process = self._runner(
+            arguments, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        self.player_started_at = time.time() - max(0.0, offset)
+        self.pause_started_at = None
+        self.paused_elapsed = None
+
+    def _restart_player(self, elapsed: float) -> None:
+        """Start the current audio again `elapsed` seconds of playback in:
+        continuing after a pause by restart, or a new volume."""
+        _terminate_process(self.player_process)
+        self.player_process = None
+        if self.provider == "Replay":
+            self.start_replay_playback(self.replay_offset + elapsed * self.replay_tempo)
+        elif self.current_index < len(self.chunks):
+            self._play_chunk(self.chunks[self.current_index], elapsed)
+        self.mode = "Playing"
+
+    def set_volume(self, percent: int) -> None:
+        """New player volume. A playing audio restarts at the same position
+        with it; a paused one takes it when it continues."""
+        self.volume = max(0, min(100, int(percent)))
+        if self.mode != "Playing" or self.player_volume == self.volume:
+            return
+        if self.player_process is None or self.player_process.poll() is not None:
+            return
+        self._restart_player(self.elapsed_seconds() or 0.0)
 
     def _finish_edge_reading(self) -> None:
         """Natural end of an Edge reading (legacy Start-CurrentEdgeChunk tail):
@@ -453,7 +500,12 @@ class SpeechEngine:
             self.emit("warning", "No hay una lectura activa para pausar.")
             return
         if self.player_process is not None and self.player_process.poll() is None:
-            SuspendResume.suspend(self.player_process.pid)
+            if PAUSE_BY_RESTART:
+                self.paused_elapsed = self.elapsed_seconds() or 0.0
+                _terminate_process(self.player_process)
+                self.player_process = None
+            else:
+                SuspendResume.suspend(self.player_process.pid)
             self.pause_started_at = time.time()
         self.mode = "Paused"
         self.emit("info", "Lectura pausada.")
@@ -462,7 +514,14 @@ class SpeechEngine:
         if self.mode != "Paused":
             self.emit("warning", "La lectura no está pausada.")
             return
-        if self.player_process is not None and self.player_process.poll() is None:
+        if self.paused_elapsed is not None or (
+                self.player_process is not None and self.player_process.poll() is None
+                and self.player_volume != self.volume):
+            # Stopped by the pause, or the volume changed while paused.
+            elapsed = self.elapsed_seconds() or 0.0
+            self.pause_started_at = None
+            self._restart_player(elapsed)
+        elif self.player_process is not None and self.player_process.poll() is None:
             SuspendResume.resume(self.player_process.pid)
             if self.pause_started_at is not None and self.player_started_at is not None:
                 self.player_started_at += time.time() - self.pause_started_at
@@ -564,11 +623,20 @@ class SpeechEngine:
         self.player_process = None
         self.player_started_at = None
         self.pause_started_at = None
+        self.paused_elapsed = None
         self.reset_alignment()
         if was_replay:
             self.replay_highlight_checked = False
 
     # ---- Replay cache ------------------------------------------------------
+    def replay_ready(self) -> bool:
+        """Repetir has a whole audio with its final length: a saved one, or
+        a Play reading whose blocks are all generated (Repetir saves it)."""
+        if self.replay.file:
+            return True
+        return bool(self.provider == "Edge" and self.replay.eligible and self.chunks
+                    and all(c.status in ("Ready", "Playing", "Played") for c in self.chunks))
+
     def cache_clear_files(self) -> None:
         for chunk in self.chunks:
             _remove_file(chunk.media_file)

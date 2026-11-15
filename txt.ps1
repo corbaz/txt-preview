@@ -1351,19 +1351,19 @@ $speedSlider.Value = 100
 $speedSlider.SmallChange = 5
 $speedSlider.LargeChange = 25
 $speedSlider.AutoSize = $false
-$speedSlider.SetBounds(172, 139, 250, 32)
+$speedSlider.SetBounds(172, 139, 200, 32)
 $panel.Controls.Add($speedSlider)
 
 $lblSpeedValue = New-Object Windows.Forms.Label
 $lblSpeedValue.Text = "1,00x"
 $lblSpeedValue.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
-$lblSpeedValue.SetBounds(430, 138, 65, 34)
+$lblSpeedValue.SetBounds(380, 138, 65, 34)
 $panel.Controls.Add($lblSpeedValue)
 
 # Repetir plays the last generated audio again; the slider seeks inside it.
 $btnReplay = New-Object Windows.Forms.Button
 $btnReplay.Text = "Repetir"
-$btnReplay.SetBounds(505, 138, 100, 34)
+$btnReplay.SetBounds(455, 138, 100, 34)
 $panel.Controls.Add($btnReplay)
 
 $replaySlider = New-Object ModernSlider
@@ -1374,14 +1374,37 @@ $replaySlider.Value = 0
 $replaySlider.SmallChange = 10
 $replaySlider.LargeChange = 50
 $replaySlider.AutoSize = $false
-$replaySlider.SetBounds(613, 139, 250, 32)
+$replaySlider.SetBounds(563, 139, 200, 32)
 $panel.Controls.Add($replaySlider)
 
 $lblReplayTime = New-Object Windows.Forms.Label
 $lblReplayTime.Text = "0:00 / 0:00"
 $lblReplayTime.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
-$lblReplayTime.SetBounds(871, 138, 110, 34)
+$lblReplayTime.SetBounds(771, 138, 90, 34)
 $panel.Controls.Add($lblReplayTime)
+
+# Volume of the reading: 10% to 100% in steps of 10.
+$lblVolume = New-Object Windows.Forms.Label
+$lblVolume.Text = "Volumen"
+$lblVolume.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+$lblVolume.SetBounds(869, 138, 65, 34)
+$panel.Controls.Add($lblVolume)
+
+$volumeSlider = New-Object ModernSlider
+$volumeSlider.Minimum = 10
+$volumeSlider.Maximum = 100
+$volumeSlider.Value = 100
+$volumeSlider.SmallChange = 10
+$volumeSlider.LargeChange = 10
+$volumeSlider.AutoSize = $false
+$volumeSlider.SetBounds(936, 139, 110, 32)
+$panel.Controls.Add($volumeSlider)
+
+$lblVolumeValue = New-Object Windows.Forms.Label
+$lblVolumeValue.Text = "100%"
+$lblVolumeValue.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+$lblVolumeValue.SetBounds(1050, 138, 50, 34)
+$panel.Controls.Add($lblVolumeValue)
 
 $versionLabel = New-Object Windows.Forms.Label
 $versionLabel.Text = $appVersion
@@ -2759,6 +2782,8 @@ $speechState = @{
     PlayerProcess            = $null
     PlayerStartedAt          = $null
     PauseStartedAt           = $null
+    Volume                   = 100
+    PlayerVolume             = 100
     WindowsText              = ""
     WindowsCharacterPosition = 0
     HighlightTotalLength     = 0
@@ -2969,6 +2994,10 @@ function Invoke-EditorShortcut {
 
     if ($keyData -eq ([Windows.Forms.Keys]::Control -bor [Windows.Forms.Keys]::Return)) {
         Invoke-PrimaryAiAction
+        return $true
+    }
+    if ($keyData -eq ([Windows.Forms.Keys]::Control -bor [Windows.Forms.Keys]::V) -and [Windows.Forms.Clipboard]::ContainsImage()) {
+        Invoke-ClipboardPaste
         return $true
     }
     return $false
@@ -3351,6 +3380,8 @@ function Start-EdgeChunkGeneration {
 }
 
 function Start-CurrentEdgeChunk {
+    param([double]$offsetSeconds = 0.0)
+
     if ($speechState.Mode -eq "Paused") {
         return
     }
@@ -3393,12 +3424,16 @@ function Start-CurrentEdgeChunk {
         $playStartInfo.UseShellExecute = $false
         $playStartInfo.CreateNoWindow = $true
         $playStartInfo.RedirectStandardError = $true
-        foreach ($argument in @("-nodisp", "-autoexit", "-loglevel", "error", $chunk.MediaFile)) {
+        $playArguments = @("-nodisp", "-autoexit", "-loglevel", "error") + (Get-PlayerVolumeArguments)
+        if ($offsetSeconds -gt 0) {
+            $playArguments += @("-ss", $offsetSeconds.ToString("0.###", [Globalization.CultureInfo]::InvariantCulture))
+        }
+        foreach ($argument in ($playArguments + @($chunk.MediaFile))) {
             [void]$playStartInfo.ArgumentList.Add($argument)
         }
 
         $speechState.PlayerProcess = [Diagnostics.Process]::Start($playStartInfo)
-        $speechState.PlayerStartedAt = [DateTime]::UtcNow
+        $speechState.PlayerStartedAt = [DateTime]::UtcNow.AddSeconds(-[Math]::Max(0.0, $offsetSeconds))
         $speechState.PauseStartedAt = $null
         $speechState.Mode = "Playing"
         $chunk.Status = "Playing"
@@ -3463,6 +3498,15 @@ function Update-EdgeVoicePlayback {
         }
 
         $speechState.CurrentIndex++
+    }
+
+    # Repetir is available as soon as the whole audio exists with its final length.
+    if (
+        -not $btnReplay.Enabled -and $speechState.CacheEligible -and $ffplayCommand -and
+        @($speechState.Chunks).Count -gt 0 -and
+        @($speechState.Chunks | Where-Object { $_.Status -notin @("Ready", "Playing", "Played") }).Count -eq 0
+    ) {
+        $btnReplay.Enabled = $true
     }
 
     Start-CurrentEdgeChunk
@@ -3548,7 +3592,7 @@ function Start-WindowsSpeechSession {
     $speechSynth.SelectVoice($voiceName)
     $rate = [Math]::Round((($speedSlider.Value / 100.0) - 1.0) * 10.0, [MidpointRounding]::AwayFromZero)
     $speechSynth.Rate = [int][Math]::Min(10, [Math]::Max(-10, $rate))
-    $speechSynth.Volume = 100
+    $speechSynth.Volume = $speechState.Volume
     [void]$speechSynth.SpeakAsync($text)
     if ($speechState.CacheEligible -and $ffplayCommand) {
         # System.Speech cannot replay or seek live speech, so a second synthesizer renders the
@@ -4069,6 +4113,68 @@ $speedSlider.Add_MouseUp({ Set-SpeechSpeed })
 $speedSlider.Add_MouseWheel({ Set-SpeechSpeed })
 $speedSlider.Add_KeyUp({ Set-SpeechSpeed })
 
+function Get-PlayerVolumeArguments {
+    $speechState.PlayerVolume = $speechState.Volume
+    return @("-volume", [string]$speechState.Volume)
+}
+
+# Starts the current audio again at the same point (a new volume needs a new player).
+function Restart-PlayerAtPosition {
+    param([double]$elapsed)
+
+    if ($speechState.Provider -eq "Replay") {
+        $position = [Math]::Min($speechState.ReplayDuration, $speechState.ReplayOffset + $elapsed * $speechState.ReplayTempo)
+        # Playing, so Start-ReplayPlayback does not pause it again.
+        $speechState.Mode = "Playing"
+        Start-ReplayPlayback $position
+        return
+    }
+    Stop-TrackedProcess $speechState.PlayerProcess
+    $speechState.PlayerProcess = $null
+    $speechState.PlayerStartedAt = $null
+    $speechState.PauseStartedAt = $null
+    $speechState.Mode = "Generating"
+    $speechState.Chunks[$speechState.CurrentIndex].Status = "Ready"
+    Start-CurrentEdgeChunk $elapsed
+}
+
+function Update-SpeechVolumeLabel {
+    $rounded = [int]([Math]::Round($volumeSlider.Value / 10.0) * 10)
+    if ($rounded -ne $volumeSlider.Value) {
+        # Steps of 10: the corrected value raises ValueChanged again.
+        $volumeSlider.Value = [Math]::Min($volumeSlider.Maximum, [Math]::Max($volumeSlider.Minimum, $rounded))
+        return
+    }
+    $lblVolumeValue.Text = "$($volumeSlider.Value)%"
+}
+
+function Set-SpeechVolume {
+    $volume = [int]$volumeSlider.Value
+    if ($volume -eq $speechState.Volume) {
+        return
+    }
+    $speechState.Volume = $volume
+    $speechSynth.Volume = $volume
+    if (
+        $speechState.Provider -in @("Edge", "Replay") -and $speechState.Mode -eq "Playing" -and
+        $null -ne $speechState.PlayerProcess -and -not $speechState.PlayerProcess.HasExited -and
+        $speechState.PlayerVolume -ne $volume
+    ) {
+        try {
+            Restart-PlayerAtPosition (Get-EdgeChunkElapsedSeconds)
+        } catch {
+            Show-Message "No se pudo cambiar el volumen: $($_.Exception.Message)" -Level Error
+            return
+        }
+    }
+    Show-Message "Volumen: $volume%."
+}
+
+$volumeSlider.Add_ValueChanged({ Update-SpeechVolumeLabel })
+$volumeSlider.Add_MouseUp({ Set-SpeechVolume })
+$volumeSlider.Add_MouseWheel({ Set-SpeechVolume })
+$volumeSlider.Add_KeyUp({ Set-SpeechVolume })
+
 function Suspend-VoicePlayback {
     if ($speechState.Mode -eq "Idle") {
         Show-Message "No hay una lectura activa para pausar." -Level Warning
@@ -4106,6 +4212,12 @@ function Resume-VoicePlayback {
         if ($speechState.Provider -eq "Windows") {
             $speechSynth.Resume()
             $speechState.Mode = "Playing"
+        } elseif (
+            $null -ne $speechState.PlayerProcess -and -not $speechState.PlayerProcess.HasExited -and
+            $speechState.PlayerVolume -ne $speechState.Volume
+        ) {
+            # The volume changed while paused: continue at the same point with it.
+            Restart-PlayerAtPosition (Get-EdgeChunkElapsedSeconds)
         } elseif ($null -ne $speechState.PlayerProcess -and -not $speechState.PlayerProcess.HasExited) {
             $result = [AudioProcessControl]::NtResumeProcess($speechState.PlayerProcess.Handle)
             if ($result -ne 0) {
@@ -4500,7 +4612,7 @@ function Start-ReplayPlayback {
         # Seeking restarts ffplay at the new offset; -ss before the input seeks without decoding the skipped audio.
         $tempo = Get-ReplayTempo
         $arguments = [Collections.Generic.List[string]]::new()
-        foreach ($argument in @("-nodisp", "-autoexit", "-loglevel", "error", "-ss", $offsetText)) {
+        foreach ($argument in (@("-nodisp", "-autoexit", "-loglevel", "error") + (Get-PlayerVolumeArguments) + @("-ss", $offsetText))) {
             $arguments.Add($argument)
         }
         $tempoFilter = Get-AtempoFilter $tempo
@@ -6243,6 +6355,13 @@ function Update-ToolbarLayout {
         $rowLeft = ($rowControls | ForEach-Object { $toolbarBaseLeft[$_] } | Measure-Object -Minimum).Minimum
         $rowRight = ($rowControls | ForEach-Object { $toolbarBaseLeft[$_] + $_.Width } | Measure-Object -Maximum).Maximum
         $offset = [Math]::Max(0, [int](($panel.ClientSize.Width - ($rowRight - $rowLeft)) / 2)) - $rowLeft
+        if ([int][Math]::Floor($versionLabel.Top / $toolbarRowHeight) -eq [int][Math]::Floor($rowControls[0].Top / $toolbarRowHeight)) {
+            $versionWidth = [Windows.Forms.TextRenderer]::MeasureText($versionLabel.Text, $versionLabel.Font).Width
+            $limit = $versionLabel.Right - $versionWidth - 12
+            if ($rowRight + $offset -gt $limit) {
+                $offset = [Math]::Max(8 - $rowLeft, $limit - $rowRight)
+            }
+        }
         foreach ($control in $rowControls) {
             $control.Left = $toolbarBaseLeft[$control] + $offset
         }
@@ -6419,10 +6538,12 @@ function Add-ImageAttachment {
 }
 
 # Clipboard images have no file, so they are saved as PNG in TEMP to reuse the image path.
+$pasteImageNeedsVisionMessage = "El portapapeles tiene una imagen y el modelo elegido no tiene visión: debés cambiar a un modelo con visión para adjuntarla."
+
 function Add-ClipboardImageAttachment {
     $capabilities = Get-SelectedModelCapabilities
     if (-not $capabilities.Vision) {
-        throw "El modelo elegido no admite imágenes."
+        throw $pasteImageNeedsVisionMessage
     }
     $image = [Windows.Forms.Clipboard]::GetImage()
     $path = Join-Path ([IO.Path]::GetTempPath()) ("portapapeles-{0:yyyyMMdd-HHmmss-fff}.png" -f (Get-Date))
@@ -6600,6 +6721,10 @@ $btnTraducirEn.Add_Click({ Invoke-Translation "español" "inglés" })
 
 function Invoke-ClipboardPaste {
     if ([Windows.Forms.Clipboard]::ContainsImage()) {
+        if (-not (Get-SelectedModelCapabilities).Vision) {
+            Show-Message $pasteImageNeedsVisionMessage -Level Warning
+            return
+        }
         try {
             Add-ClipboardImageAttachment
             $tabs.SelectedTab = $tabEditor
