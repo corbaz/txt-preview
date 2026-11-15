@@ -117,6 +117,7 @@ def flowchart_prompt(text: str) -> str:
         "`[texto]` para pasos y `[(texto)]` para datos.\n"
         "- Escribí el texto de cada nodo entre comillas dobles, breve y en español, con las comillas "
         "pegadas al corchete: `A1([\"Inicio\"])`, nunca `A1([ \"Inicio\" ])`.\n"
+        "- Las decisiones llevan una pregunta de cuatro palabras como máximo.\n"
         "- Rotulá las flechas que salen de una decisión (por ejemplo `-- \"Sí\" -->` y `-- \"No\" -->`).\n"
         "- Usá identificadores simples sin espacios ni acentos (A1, Validar, Guardar).\n"
         "- Cubrí el flujo completo, incluidos los caminos de error, con entre 8 y 24 nodos.\n"

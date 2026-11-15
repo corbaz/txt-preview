@@ -108,7 +108,30 @@
       securityLevel: "strict",
       theme: "base",
       // SVG text labels (no foreignObject) so a diagram can become a PNG.
-      flowchart: { htmlLabels: false, curve: "basis", useMaxWidth: true },
+      flowchart: {
+        htmlLabels: false, curve: "basis", useMaxWidth: true,
+        // ELK lays the areas out as tidy columns with orthogonal arrows.
+        defaultRenderer: "elk",
+        nodeSpacing: 46, rankSpacing: 58, padding: 16, diagramPadding: 18,
+      },
+      // Depth and weight: soft shadows, rounded steps and areas, bold labels.
+      themeCSS: `
+        .node rect, .node polygon, .node path, .node circle, .node ellipse {
+          filter: drop-shadow(0 5px 7px rgba(0, 0, 0, ${light ? 0.22 : 0.45}));
+        }
+        .node rect { rx: 12px; ry: 12px; }
+        .node text, .nodeLabel { font-weight: 600; }
+        .edgePath .path, .flowchart-link { stroke-width: 2.2px; }
+        .edgeLabel text { font-weight: 600; }
+        .cluster rect, rect.subgraph {
+          fill: ${light ? "#DDE3EE" : "#2C313C"};
+          stroke: ${light ? "#9AA5BD" : "#566076"};
+          stroke-width: 1.5px; stroke-dasharray: 7 5; rx: 18px; ry: 18px;
+        }
+        .cluster text, .subgraph text {
+          fill: ${light ? "#4F55E3" : "#B3B9FF"}; font-weight: 700; font-size: 16px;
+        }
+      `,
       themeVariables: {
         fontFamily: 'system-ui, "Segoe UI", sans-serif',
         fontSize: "15px",
@@ -1627,6 +1650,7 @@
     applyTheme, applyModelCatalog, saveSettingsForm, showWorkOverlay, hideWorkOverlay,
     applySelectedModelCapabilities, capabilitiesFor,
     loadStartupModels, applyUpdateStatus, offerStartupUpdate,
+    renderDiagrams, diagramPictures,
     applyVoiceCatalog, refreshVoices, renderFilteredVoiceCatalog,
     selectVoiceByFilter, applySpeechState, applyVoiceSwitch, speedLabel,
   };

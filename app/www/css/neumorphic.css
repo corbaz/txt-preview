@@ -253,3 +253,19 @@ body[data-theme="light"] { --line: rgba(31, 37, 51, 0.26); --table-head: rgba(79
   overflow: auto;
 }
 .mermaid-diagram svg { max-width: 100%; height: auto; }
+
+/* ---- Selects ----------------------------------------------------------------
+   macOS draws its own flat control and ignores the well shadow unless the
+   native appearance is turned off; the arrow is then drawn here. */
+#model-select, #voice-select {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 30px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  background-color: var(--bg);
+}

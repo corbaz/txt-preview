@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## v:26.11.15-12.22
+
+### Diagramas de flujo con mejor diseño y selectores con relieve en macOS
+
+- Los diagramas se distribuyen con el motor ELK, incluido en Mermaid: columnas ordenadas y flechas en ángulo recto en lugar de curvas cruzadas.
+- Más presencia visual: sombras suaves, pasos y áreas con bordes redondeados, áreas con borde punteado y título destacado, textos y flechas más gruesos.
+- La IA recibe la indicación de escribir decisiones de cuatro palabras como máximo, para que los rombos no queden enormes.
+- macOS: los selectores de modelo y de voz ahora tienen el mismo bajorrelieve que el resto de la interfaz; el sistema dibujaba su propio control plano.
+
 ## v:26.11.15-11.29
 
 ### Cambio de voz durante la lectura (app Python)
