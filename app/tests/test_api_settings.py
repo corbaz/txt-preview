@@ -780,3 +780,26 @@ class TestSpeedMessages(ApiSettingsTestCase):
             result = self.api.set_speech_speed(125)
         self.assertEqual(result, {"ok": True, "message": "Velocidad cambiada a 1,25x."})
         engine.start_replay_playback.assert_called_once_with(2.0)
+
+
+class TestCloseApp(ApiSettingsTestCase):
+    def test_window_is_destroyed_without_holding_the_speech_lock(self):
+        """Destroying the window runs its closing handler on the UI thread,
+        which stops the speech again and needs the lock."""
+        import threading
+        lock_was_free = []
+
+        def destroy():
+            def probe():
+                got = self.api._speech_lock.acquire(timeout=2)
+                lock_was_free.append(got)
+                if got:
+                    self.api._speech_lock.release()
+            other = threading.Thread(target=probe)  # stands in for the UI thread
+            other.start()
+            other.join(5)
+
+        self.api._window = mock.Mock(destroy=destroy)
+        self.assertEqual(self.api.close_app(), {"ok": True})
+        self.assertEqual(lock_was_free, [True])
+        self.api.engine.stop_voice_playback.assert_called()

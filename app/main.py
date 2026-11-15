@@ -804,9 +804,13 @@ class Api:
     # ---- Cerrar (T15/S8) -----------------------------------------------------
     def close_app(self) -> dict:
         """Cerrar button: stop any reading first so the audio never outlives
-        the app (S12), then destroy the window (legacy $form.Close()). The
-        stop→destroy sequence holds the speech lock (S14): the window is
-        never destroyed while another thread is mid-stop."""
+        the app (S12), then destroy the window (legacy $form.Close()).
+
+        The window is destroyed after the speech lock is released and from a
+        separate thread: destroying it runs the window's closing handler on
+        the UI thread, which stops the speech again and needs that lock, and
+        destroy() itself may wait for a window that cannot close while this
+        call is pending. Doing it in place hung the app."""
         window = getattr(self, "_window", None)
         if window is None:
             return {"ok": False, "message": MSG_WINDOW_UNAVAILABLE}
@@ -815,12 +819,24 @@ class Api:
                 self.stop_speech()
             except Exception:  # a broken engine must not trap the app open
                 pass
+        # destroy() can block its caller until the window is gone, and the
+        # window cannot go while this bridge call is still pending: it runs on
+        # a daemon thread, awaited only briefly to report an immediate failure.
+        failure: list[Exception] = []
+
+        def destroy() -> None:
             try:
                 window.destroy()
             except Exception as error:
-                return {"ok": False,
-                        "message": MSG_WINDOW_CLOSE_FAILED.format(detail=error)}
-            return {"ok": True}
+                failure.append(error)
+
+        closer = threading.Thread(target=destroy, daemon=True)
+        closer.start()
+        closer.join(0.5)
+        if failure:
+            return {"ok": False,
+                    "message": MSG_WINDOW_CLOSE_FAILED.format(detail=failure[0])}
+        return {"ok": True}
 
     # ---- Navegador (txt.ps1 Open-BrowserUrl / Initialize-BrowserView) -------
     def _embedded_browser(self) -> browser.EmbeddedBrowser:

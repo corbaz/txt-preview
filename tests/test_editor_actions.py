@@ -175,3 +175,13 @@ class CopyTeamsTests(unittest.TestCase):
         )
         self.assertEqual(results, ["True", "True", "True", "True", "True", "<p>año</p>",
                                    "Copiar Teams|True|True"])
+
+
+@unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
+class VersionLabelTests(unittest.TestCase):
+    def test_version_uses_the_accent_color_in_both_themes(self) -> None:
+        results = run_app_snippet(
+            "Set-Theme $true; 'RESULT=' + ($versionLabel.ForeColor -eq (Get-ThemeColor 'Accent')) + '|' + $versionLabel.Font.Bold; "
+            "Set-Theme $false; 'RESULT=' + ($versionLabel.ForeColor -eq (Get-ThemeColor 'Accent')) + '|' + ($lblAppVersion.ForeColor -eq (Get-ThemeColor 'Accent'))"
+        )
+        self.assertEqual(results, ["True|True", "True|True"])

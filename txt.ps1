@@ -5184,6 +5184,11 @@ function Set-Theme {
     foreach ($control in $infoControls) {
         Set-InfoStyle $control
     }
+    # The version stands out in the accent color of the active theme.
+    foreach ($control in @($versionLabel, $lblAppVersion)) {
+        $control.ForeColor = Get-ThemeColor "Accent"
+        $control.Font = New-Object Drawing.Font($uiStrongFontName, ($infoFontSize + 1), [Drawing.FontStyle]::Bold)
+    }
     Update-CapabilityBadges
     $checkWebSearch.BackColor = Get-ThemeColor "Elevated"
     $checkWebSearch.ForeColor = Get-ThemeColor "Text"

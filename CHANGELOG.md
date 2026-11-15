@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## v:26.11.15-06.48
+
+### Cerrar, Vista previa y número de versión
+
+- App Python: el botón Cerrar vuelve a cerrar la aplicación. Antes la dejaba colgada: la ventana esperaba a que terminara el pedido de cierre y el pedido esperaba a la ventana.
+- App Python, Vista previa: las tablas vuelven a mostrarse con bordes y encabezado de color, hay más separación antes y después de títulos y tablas, y las líneas divisorias son visibles. El tema neumórfico las había dejado sin líneas.
+- App Python, Vista previa: una dirección web escrita como texto es ahora un link que abre en la pestaña Navegador (también en «Copiar Teams»).
+- El número de versión se muestra en el color de acento del tema activo y en negrita, en `txt.ps1` y en la app Python.
+
 ## v:26.11.15-06.20
 
 ### «Copiar Teams»: acentos y colores

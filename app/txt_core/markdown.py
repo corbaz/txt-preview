@@ -34,6 +34,28 @@ _VOID_TAGS = frozenset({"br", "hr", "img"})
 _DANGEROUS_ATTR = re.compile(r"^(on[a-z]+|javascript:)", re.IGNORECASE)
 
 
+# A web address written as plain text becomes a link, as chat apps do; never
+# inside an existing link or inside code.
+_NO_AUTOLINK_TAGS = frozenset({"a", "code", "pre"})
+_BARE_URL = re.compile(r"https?://[^\s<>\"']+")
+_URL_TRAILING = ".,;:!?)]}»”"
+
+
+def _link_bare_url(match: re.Match) -> str:
+    url = match.group(0)
+    trailing = ""
+    while url and url[-1] in _URL_TRAILING:
+        # A closing bracket belongs to the address when it has its opening one.
+        if url[-1] == ")" and url.count("(") >= url.count(")"):
+            break
+        trailing = url[-1] + trailing
+        url = url[:-1]
+    if url.endswith("&gt"):  # the escaped ">" of surrounding text
+        return match.group(0)
+    href = url.replace('"', "&quot;")
+    return f'<a href="{href}">{url}</a>{trailing}'
+
+
 class _Sanitizer(HTMLParser):
     """Rewrites an HTML fragment keeping only allowlisted tags/attributes.
 
@@ -82,7 +104,10 @@ class _Sanitizer(HTMLParser):
             self.out.append(f"&lt;{tag}/&gt;")
 
     def handle_data(self, data: str) -> None:
-        self.out.append(data.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+        escaped = data.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if not any(tag in _NO_AUTOLINK_TAGS for tag in self.open_tags):
+            escaped = _BARE_URL.sub(_link_bare_url, escaped)
+        self.out.append(escaped)
 
     def close(self) -> None:
         super().close()

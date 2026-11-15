@@ -217,3 +217,27 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 /* txt.ps1 disables the whole window while the AI works: the busy overlay
    covers every control, not only the editor canvas. */
 #work-overlay { position: fixed; z-index: 30; }
+
+/* ---- Vista previa content ---------------------------------------------------
+   The soft surface has no control borders, but content does need lines:
+   tables, rules and quotes get their own line color. */
+:root { --line: rgba(255, 255, 255, 0.22); --table-head: rgba(154, 162, 255, 0.14); }
+body[data-theme="light"] { --line: rgba(31, 37, 51, 0.26); --table-head: rgba(79, 85, 227, 0.10); }
+
+.markdown-body table { border-collapse: collapse; margin: 0 0 1.2em; }
+.markdown-body th, .markdown-body td { border: 1px solid var(--line); padding: 7px 12px; }
+.markdown-body th { background: var(--table-head); color: var(--accent); font-weight: 600; text-align: left; }
+.markdown-body hr { border: none; border-top: 1px solid var(--line); margin: 1.4em 0; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { margin-top: 1.5em; margin-bottom: 0.6em; }
+.markdown-body h1:first-child, .markdown-body h2:first-child, .markdown-body h3:first-child { margin-top: 0; }
+.markdown-body a { color: var(--accent); cursor: pointer; }
+.markdown-body img { max-width: 100%; border-radius: 10px; }
+
+/* ---- Version: always noticeable, in the accent color of the theme ---------- */
+.version {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+#app-version-label { color: var(--accent); font-weight: 700; }
