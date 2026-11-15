@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## v:26.11.15-07.28
+
+### Actualizaciones que no se instalaban
+
+- «Hay cambios locales» ya no bloquea la actualización por archivos que no son del código: solo cuentan los cambios en archivos del repositorio, y no cuenta el permiso de ejecución que el instalador le pone a `run.sh` en macOS. Vale para `txt.ps1` y para la app Python.
+- App Python: la versión publicada se compara con la versión que está corriendo, no con el archivo `VERSION`. Si los archivos ya se actualizaron pero la app no se reinició, ahora ofrece «Actualizar ahora» y reinicia, en lugar de decir que está actualizada mientras sigue corriendo la versión anterior.
+
 ## v:26.11.15-06.48
 
 ### Cerrar, Vista previa y número de versión

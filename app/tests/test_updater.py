@@ -155,6 +155,31 @@ class TestCheckUpdateRealRepo(RepoFixture):
             status.detail,
             "La versión publicada no usa el formato esperado v:yy.mm.dd-HH.mm.")
 
+    def test_untracked_files_do_not_block_installing(self):
+        self.bump_origin_version()
+        (self.work / "notas.txt").write_text("borrador", encoding="utf-8")
+        (self.work / ".DS_Store").write_bytes(b"x")
+        status = updater.apply_update(self.work)
+        self.assertTrue(status.updated)
+        self.assertEqual(status.local_version, REMOTE_VERSION)
+
+    def test_files_updated_under_a_running_app_still_offer_the_update(self):
+        """The check compares with the RUNNING version: after a pull without
+        a restart the update is offered, and installing it only needs the
+        restart (the pull is a no-op)."""
+        self.bump_origin_version()
+        git(self.work, "pull", "--ff-only", "origin", "main")
+        self.assertEqual(updater.check_update(self.work).state, "up_to_date")
+        status = updater.check_update(self.work, LOCAL_VERSION)
+        self.assertEqual(status.state, "available")
+        self.assertEqual(status.local_version, LOCAL_VERSION)
+        # Local edits cannot block it: there is nothing left to pull.
+        (self.work / "README.md").write_text("x", encoding="utf-8")
+        git(self.work, "add", "README.md")
+        installed = updater.apply_update(self.work, LOCAL_VERSION)
+        self.assertTrue(installed.updated)
+        self.assertEqual(installed.local_version, REMOTE_VERSION)
+
     def test_versions_compare_by_their_digits(self):
         self.assertTrue(updater.compare_versions("v:26.11.14-12.03", "v:26.11.14-09.47"))
         self.assertFalse(updater.compare_versions("v:26.11.14-09.47", "v:26.11.14-09.47"))

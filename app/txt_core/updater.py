@@ -112,15 +112,25 @@ def _fetch_error(stderr: str) -> str:
 
 
 def _is_dirty(repo: Path) -> bool | None:
-    code, stdout, _ = _run_git(repo, ["status", "--porcelain"])
+    """Changes to tracked files only: files the app or the system leave next
+    to the code (caches, .DS_Store) never block an update."""
+    # core.fileMode=false: an executable bit set by the installer (run.sh on
+    # macOS) is not a local change either.
+    code, stdout, _ = _run_git(repo, ["-c", "core.fileMode=false", "status",
+                                      "--porcelain", "--untracked-files=no"])
     if code != 0:
         return None
     return bool(stdout.strip())
 
 
-def check_update(repo_root: str | Path) -> UpdateStatus:
+def check_update(repo_root: str | Path, running_version: str | None = None) -> UpdateStatus:
     """Legacy Get-AvailableAppUpdate: main branch, fetch, VERSION compare.
-    Local changes do not affect the check; they only block installing."""
+    Local changes do not affect the check; they only block installing.
+
+    The published version is compared with the version this process is
+    RUNNING (txt.ps1 $appVersion), not with the VERSION file: when the files
+    were already updated but the app was not restarted, the update is still
+    offered, and installing it leads to the restart."""
     repo = Path(repo_root)
     if not (repo / ".git").exists():
         return UpdateStatus(STATE_NO_GIT, "", "", MSG_NO_GIT_CLONE)
@@ -139,7 +149,8 @@ def check_update(repo_root: str | Path) -> UpdateStatus:
     local_file = repo / VERSION_FILE_NAME
     if not local_file.exists():
         return UpdateStatus(STATE_ERROR, remote_version, "", MSG_LOCAL_VERSION)
-    local_version = local_file.read_text(encoding="utf-8").strip()
+    local_version = (running_version or "").strip() \
+        or local_file.read_text(encoding="utf-8").strip()
 
     code, stdout, _ = _run_git(repo, ["branch", "--show-current"])
     if code != 0:
@@ -153,13 +164,23 @@ def check_update(repo_root: str | Path) -> UpdateStatus:
     return UpdateStatus(state, remote_version, local_version, detail)
 
 
-def apply_update(repo_root: str | Path) -> UpdateStatus:
+def apply_update(repo_root: str | Path, running_version: str | None = None) -> UpdateStatus:
     """Legacy Install-AppUpdate: main branch, clean worktree, then
     `git pull --ff-only`."""
     repo = Path(repo_root)
-    verified = check_update(repo)
+    verified = check_update(repo, running_version)
     if verified.state != STATE_AVAILABLE:
         return verified
+
+    local_file = repo / VERSION_FILE_NAME
+    on_disk = (local_file.read_text(encoding="utf-8").strip()
+               if local_file.exists() else "")
+    if on_disk == verified.remote_version:
+        # The files are already at the published version (updated under the
+        # running app): nothing to pull, only the restart is missing.
+        return UpdateStatus(
+            STATE_UP_TO_DATE, verified.remote_version, on_disk,
+            "Actualización instalada. Cerrá y abrí la aplicación.", updated=True)
 
     dirty = _is_dirty(repo)
     if dirty is None:
@@ -169,7 +190,8 @@ def apply_update(repo_root: str | Path) -> UpdateStatus:
         return UpdateStatus(STATE_DIRTY, verified.remote_version,
                             verified.local_version, MSG_DIRTY)
 
-    code, _, stderr = _run_git(repo, ["pull", "--ff-only", "origin", BRANCH])
+    code, _, stderr = _run_git(repo, ["-c", "core.fileMode=false", "pull",
+                                      "--ff-only", "origin", BRANCH])
     if code != 0:
         return UpdateStatus(
             STATE_ERROR, verified.remote_version, verified.local_version,

@@ -152,6 +152,11 @@ def read_version() -> str:
     return "dev"
 
 
+# The version of the code this process loaded; the VERSION file may move on
+# under a running app (git pull, a manual update).
+RUNNING_VERSION = read_version()
+
+
 class Api:
     """Bridge exposed to the frontend as window.pywebview.api."""
 
@@ -197,7 +202,7 @@ class Api:
 
     # ---- Existing bridge ---------------------------------------------------
     def app_version(self) -> str:
-        return read_version()
+        return RUNNING_VERSION  # the version actually running, not the file
 
     def platform(self) -> str:
         return sys.platform
@@ -979,12 +984,12 @@ class Api:
     # ---- In-app update (T11/S4) ---------------------------------------------
     def check_for_updates(self) -> dict:
         """Legacy Update-AppUpdateControls check: origin/main VERSION vs local."""
-        self._update_status = updater.check_update(REPO)
+        self._update_status = updater.check_update(REPO, RUNNING_VERSION)
         return self._update_status.as_dict()
 
     def apply_update(self) -> dict:
         """Legacy Install-AppUpdate: verify, then git pull --ff-only."""
-        self._update_status = updater.apply_update(REPO)
+        self._update_status = updater.apply_update(REPO, RUNNING_VERSION)
         return self._update_status.as_dict()
 
     def _startup_update_check(self, delay: float = 1.5) -> None:

@@ -2308,7 +2308,8 @@ function Install-AppUpdate {
         throw "La actualización automática requiere estar en la rama main."
     }
 
-    $statusResult = Invoke-GitCommand @("status", "--porcelain")
+    # Tracked files only: caches and system files next to the code never block an update.
+    $statusResult = Invoke-GitCommand @("-c", "core.fileMode=false", "status", "--porcelain", "--untracked-files=no")
     if ($statusResult.ExitCode -ne 0) {
         throw "No se pudo revisar el estado del repositorio."
     }

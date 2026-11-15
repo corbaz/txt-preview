@@ -157,7 +157,10 @@ class SettingsContractTests(unittest.TestCase):
 
     def test_update_is_fast_forward_only_and_preserves_local_changes(self) -> None:
         self.assertEqual(SCRIPT.count('Invoke-GitCommand @("branch", "--show-current")'), 2)
-        self.assertIn('Invoke-GitCommand @("status", "--porcelain")', SCRIPT)
+        # Tracked files only, and an executable bit is not a change: caches,
+        # system files and installer chmods never block an update.
+        self.assertIn('Invoke-GitCommand @("-c", "core.fileMode=false", "status", '
+                      '"--porcelain", "--untracked-files=no")', SCRIPT)
         self.assertIn('Invoke-GitCommand @("pull", "--ff-only", "origin", "main")', SCRIPT)
         self.assertIn("Hay cambios locales", SCRIPT)
         git_helper = re.search(r"function Invoke-GitCommand \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
