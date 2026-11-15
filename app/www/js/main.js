@@ -101,7 +101,7 @@
   // ---- Diagrams: ```mermaid blocks are drawn in Vista previa ---------------
   let diagramCounter = 0;
 
-  function diagramTheme() {
+  function diagramTheme(renderer) {
     const light = document.body.dataset.theme === "light";
     return {
       startOnLoad: false,
@@ -110,8 +110,9 @@
       // SVG text labels (no foreignObject) so a diagram can become a PNG.
       flowchart: {
         htmlLabels: false, curve: "basis", useMaxWidth: true,
-        // ELK lays the areas out as tidy columns with orthogonal arrows.
-        defaultRenderer: "elk",
+        // "elk": tidy columns with orthogonal arrows; "dagre-wrapper": the
+        // classic top-down layout (see drawDiagram for when each is used).
+        defaultRenderer: renderer || "elk",
         nodeSpacing: 46, rankSpacing: 58, padding: 16, diagramPadding: 18,
       },
       // Depth and weight: soft shadows, rounded steps and areas, bold labels.
@@ -151,15 +152,47 @@
     };
   }
 
+  // Where the flow starts inside a drawn diagram, as a fraction of its
+  // height (0 = top). Measured off-screen, so a hidden preview works too.
+  function diagramStartPosition(svg) {
+    const holder = document.createElement("div");
+    holder.style.cssText = "position:absolute;left:-99999px;top:0;width:1200px;visibility:hidden";
+    holder.innerHTML = svg;
+    document.body.appendChild(holder);
+    try {
+      const drawing = holder.querySelector("svg");
+      const start = holder.querySelector("g.node.inicio") || holder.querySelector("g.node");
+      if (!drawing || !start) return 0;
+      const whole = drawing.getBoundingClientRect();
+      const node = start.getBoundingClientRect();
+      if (!whole.height) return 0;
+      return (node.top + node.height / 2 - whole.top) / whole.height;
+    } finally {
+      holder.remove();
+    }
+  }
+
+  // ELK gives the tidiest drawing, but with loops back to the start it can
+  // turn the flow upside down. A flowchart must read from the top, so when
+  // the start is not near the top the classic layout is used instead.
+  async function drawDiagram(source) {
+    window.mermaid.initialize(diagramTheme("elk"));
+    await window.mermaid.parse(source); // throws before anything is drawn
+    let { svg } = await window.mermaid.render(`txt-diagram-${++diagramCounter}`, source);
+    if (diagramStartPosition(svg) > 0.4) {
+      window.mermaid.initialize(diagramTheme("dagre-wrapper"));
+      ({ svg } = await window.mermaid.render(`txt-diagram-${++diagramCounter}`, source));
+    }
+    return svg;
+  }
+
   async function renderDiagrams(sequence) {
     const blocks = Array.from(document.querySelectorAll("#preview pre > code.language-mermaid"));
     if (!blocks.length || !window.mermaid) return;
-    window.mermaid.initialize(diagramTheme());
     for (const code of blocks) {
       const source = code.textContent;
       try {
-        await window.mermaid.parse(source); // throws before anything is drawn
-        const { svg } = await window.mermaid.render(`txt-diagram-${++diagramCounter}`, source);
+        const svg = await drawDiagram(source);
         if (sequence !== previewRenderSequence) return; // a newer render replaced the preview
         const figure = document.createElement("div");
         figure.className = "mermaid-diagram";
@@ -183,13 +216,19 @@
         const height = Math.ceil(box && box.height ? box.height : svg.getBoundingClientRect().height);
         if (!width || !height) { pictures.push(""); continue; }
         const copy = svg.cloneNode(true);
+        copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
         copy.setAttribute("width", width);
         copy.setAttribute("height", height);
         copy.removeAttribute("style");
         const xml = new XMLSerializer().serializeToString(copy);
-        const image = new Image();
-        image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
-        await image.decode();
+        // load/error events, not image.decode(): WebKit (macOS) rejects
+        // decode() for SVG sources even when the image draws fine.
+        const image = await new Promise((resolve, reject) => {
+          const picture = new Image();
+          picture.onload = () => resolve(picture);
+          picture.onerror = () => reject(new Error("svg"));
+          picture.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+        });
         const scale = 2; // sharp on high-density screens
         const padding = 16;
         const canvas = document.createElement("canvas");
@@ -603,6 +642,12 @@
     const result = await safeCall((api) => api.copy_for_teams(diagrams),
       "No se pudo copiar al portapapeles.");
     if (!result) return;
+    if (result.ok && diagrams.some((picture) => !picture)) {
+      // Never silently paste code where a drawing was expected.
+      setStatus("Copiado para Teams, pero un diagrama no se pudo convertir a imagen y va como código.",
+        "warning");
+      return;
+    }
     setStatus(result.ok ? result.message : result.error, result.ok ? "info" : "error");
   });
 

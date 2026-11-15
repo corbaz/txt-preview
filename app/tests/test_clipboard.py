@@ -255,3 +255,21 @@ class TestApiClipboardContract(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMacLocale(unittest.TestCase):
+    """pbcopy/pbpaste need an explicit UTF-8 locale: an app started from
+    Finder has none and accents were copied as garbage."""
+
+    def test_pbcopy_and_pbpaste_run_with_a_utf8_locale(self):
+        seen = []
+
+        def runner(argv, **kwargs):
+            seen.append((argv[0], kwargs.get("env", {})))
+            return mock.Mock(returncode=0, stdout="menú", stderr="")
+
+        clipboard.write_clipboard("Menú ✅", platform="darwin", runner=runner)
+        self.assertEqual(clipboard.read_clipboard(platform="darwin", runner=runner), "menú")
+        for name, env in seen:
+            self.assertEqual(env.get("LC_ALL"), "en_US.UTF-8", name)
+            self.assertEqual(env.get("LANG"), "en_US.UTF-8", name)

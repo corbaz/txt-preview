@@ -1,5 +1,15 @@
 # Historial de cambios
 
+## v:26.11.15-13.24
+
+### Diagramas que no se dibujaban y copia en macOS
+
+- La app repara sola los errores de sintaxis más comunes de los modelos, que hacían fallar el dibujo: emoji escrito antes de las comillas (`([🚀 "Inicio"])`), la forma inexistente `({ … })` y etiquetas con espacios de más.
+- Cuando el modelo devuelve el diagrama sin marcarlo como código, la leyenda escrita debajo ya no se mezcla con el diagrama.
+- Si la distribución ordenada deja el inicio del flujo abajo o en el medio, la app vuelve a la distribución clásica de arriba hacia abajo.
+- macOS: «Copiar Teams» ya no pega el código del diagrama en lugar de la imagen; la conversión a imagen fallaba en el motor web de macOS. Si un diagrama no se puede convertir, la app lo avisa.
+- macOS: Copiar MD, Copiar TXT y Pegar ya no rompen acentos ni emoji.
+
 ## v:26.11.15-12.22
 
 ### Diagramas de flujo con mejor diseño y selectores con relieve en macOS

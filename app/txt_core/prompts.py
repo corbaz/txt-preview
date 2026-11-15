@@ -130,23 +130,37 @@ def flowchart_prompt(text: str) -> str:
 _SPACE_AFTER_OPEN = re.compile(r'([\[({])[ \t]+"')
 _SPACE_BEFORE_CLOSE = re.compile(r'"[ \t]+([\])}])')
 _DIAGRAM_START = re.compile(r"^(flowchart|graph)\s", re.MULTILINE)
-# A line of prose after the diagram: a bullet, a heading or a "Leyenda:" title.
-_PROSE_LINE = re.compile(r"^\s*([*#]|-\s|\d+\.\s|[^\[\](){}<>|=;]+:\s*$)")
+_FENCED_DIAGRAM = re.compile(r"```mermaid[ \t]*\n(?P<code>.*?)\n?```", re.DOTALL)
+# What a line of flowchart code looks like; anything else after a blank line
+# is the legend the model wrote under the diagram.
+_MERMAID_LINE = re.compile(
+    r"^\s*(%%|subgraph\b|end\b|classDef\b|class\b|style\b|linkStyle\b|click\b|direction\b"
+    r"|[\w.-]+\s*(:::|[\[({>]|-[-.]|==|~~~|&))")
+# An emoji or word written before the quoted text of a node:
+# `A([🚀 "Inicio"])` instead of `A(["🚀 Inicio"])`.
+_LABEL_PREFIX = re.compile(
+    r'([\[({]+)[ \t]*([^\s"\[\](){}|][^"\[\](){}|\n]*?)[ \t]*"([^"\n]*)"[ \t]*([\])}]+)')
+# `({ ... })` is not a Mermaid shape; the model means a decision.
+_ROUND_BRACE = re.compile(r'\(\{("[^"\n]*")\}\)')
 
 
 def repair_mermaid(code: str) -> str:
-    """Models often pad node labels (`[ "Inicio" ]`); Mermaid only accepts
-    the quote right next to the bracket (`["Inicio"]`)."""
-    return _SPACE_BEFORE_CLOSE.sub(r'"\1', _SPACE_AFTER_OPEN.sub(r'\1"', code))
+    """Fix the node syntax slips models make most, which Mermaid rejects:
+    padded labels (`[ "Inicio" ]`), an emoji before the quoted text
+    (`([🚀 "Inicio"])`) and the made-up shape `({"..."})`."""
+    code = _LABEL_PREFIX.sub(r'\1"\2 \3"\4', code)
+    code = _SPACE_BEFORE_CLOSE.sub(r'"\1', _SPACE_AFTER_OPEN.sub(r'\1"', code))
+    return _ROUND_BRACE.sub(r"{\1}", code)
 
 
 def ensure_mermaid_block(answer: str) -> str:
     """The preview draws ```mermaid blocks: a model that answers with bare
     Mermaid code gets the fence added (any legend after it stays as text),
-    and padded labels are repaired."""
-    stripped = repair_mermaid((answer or "").strip())
+    and the usual syntax slips inside the diagram are repaired."""
+    stripped = (answer or "").strip()
     if "```mermaid" in stripped:
-        return stripped
+        return _FENCED_DIAGRAM.sub(
+            lambda match: f"```mermaid\n{repair_mermaid(match.group('code'))}\n```", stripped)
     if stripped.startswith("```"):
         lines = stripped.splitlines()
         body = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
@@ -157,10 +171,11 @@ def ensure_mermaid_block(answer: str) -> str:
     lines = stripped[start.start():].splitlines()
     end = len(lines)
     for index in range(1, len(lines)):
-        if not lines[index - 1].strip() and _PROSE_LINE.match(lines[index]):
+        if (lines[index].strip() and not lines[index - 1].strip()
+                and not _MERMAID_LINE.match(lines[index])):
             end = index
             break
-    code = "\n".join(lines[:end]).strip()
+    code = repair_mermaid("\n".join(lines[:end]).strip())
     legend = "\n".join(lines[end:]).strip()
     block = f"```mermaid\n{code}\n```"
     return f"{block}\n\n{legend}" if legend else block

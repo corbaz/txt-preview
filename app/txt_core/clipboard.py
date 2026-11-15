@@ -37,6 +37,11 @@ MSG_WRITE_FAILED = "No se pudo copiar al portapapeles ({detail})."
 # (ArgumentNullException); an empty copy is rejected uniformly instead.
 MSG_WRITE_EMPTY = "No hay texto para copiar al portapapeles."
 
+# pbcopy/pbpaste convert through the process locale. An app started from
+# Finder has none, so accents and emoji were copied as garbage;
+# the UTF-8 locale is set explicitly for them.
+MAC_UTF8_ENV = {"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "LC_CTYPE": "UTF-8"}
+
 # Fixed PowerShell commands: no quoting of user text is ever needed.
 POWERSHELL_READ_COMMAND = (
     "$texto=[string](Get-Clipboard -Raw); "
@@ -129,7 +134,7 @@ def read_clipboard(platform: str | None = None,
             stdout = (completed.stdout or "").strip()
             return base64.b64decode(stdout.encode("ascii")).decode("utf-8")
         if platform == "darwin":
-            completed = _run_with_retries(["pbpaste"], runner)
+            completed = _run_with_retries(["pbpaste"], runner, extra_env=MAC_UTF8_ENV)
             _completed_or_raise(completed, MSG_READ_FAILED)
             return completed.stdout or ""
         raise RuntimeError(MSG_UNSUPPORTED)
@@ -152,7 +157,8 @@ def write_clipboard(text: str, platform: str | None = None,
                  "-Command", POWERSHELL_WRITE_COMMAND],
                 runner, extra_env={CLIPBOARD_ENV_VAR: text})
         elif platform == "darwin":
-            completed = _run_with_retries(["pbcopy"], runner, input_text=text)
+            completed = _run_with_retries(["pbcopy"], runner, input_text=text,
+                                          extra_env=MAC_UTF8_ENV)
         else:
             raise RuntimeError(MSG_UNSUPPORTED)
         _completed_or_raise(completed, MSG_WRITE_FAILED)
