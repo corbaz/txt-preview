@@ -842,3 +842,18 @@ class TestVoiceChangeDuringReading(unittest.TestCase):
         self.assertEqual(self.messages, [(
             "warning",
             "Repetir usa el audio ya generado; el cambio se aplica en la próxima lectura con Play.")])
+
+
+class TestQuitOnClose(ApiSettingsTestCase):
+    """Cerrar quits for certain (macOS kept the app alive in the Dock)."""
+
+    def test_close_schedules_the_process_exit_only_in_the_real_app(self):
+        self.api._window = mock.Mock()
+        with mock.patch.object(main.threading, "Timer") as timer:
+            self.api.close_app()
+            timer.assert_not_called()  # tests and embedders never get killed
+            self.api._quit_on_close = True
+            self.api.close_app()
+        self.assertEqual(timer.call_args[0][:2], (1.5, main.os._exit))
+        self.assertEqual(timer.call_args[1]["args"], (0,))
+        timer.return_value.start.assert_called_once()

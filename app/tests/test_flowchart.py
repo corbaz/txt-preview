@@ -97,10 +97,24 @@ class TestDiagramRendering(unittest.TestCase):
         self.assertNotIn("onclick", unsafe)
 
     def test_teams_copy_replaces_each_diagram_with_its_picture(self):
-        picture = "data:image/png;base64,AAAA"
+        import base64
+        import struct
+        png = (b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR"
+               + struct.pack(">II", 1600, 2400) + b"\x08\x06\x00\x00\x00")
+        picture = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
         html = teams.teams_html("Intro\n\n" + DIAGRAM, [picture])
-        self.assertIn(f'<img style="max-width:100%" src="{picture}" alt="Diagrama de flujo"/>', html)
+        # Shown at its preview size (the PNG is drawn at 2x), not as a thumbnail.
+        self.assertIn(f'<img style="width:800px;height:1200px" src="{picture}" '
+                      'alt="Diagrama de flujo" width="800" height="1200"/>', html)
         self.assertNotIn("language-mermaid", html)
+
+    def test_wide_diagram_pictures_are_capped_to_a_chat_width(self):
+        import base64
+        import struct
+        png = (b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR"
+               + struct.pack(">II", 4000, 1000) + b"\x08\x06\x00\x00\x00")
+        picture = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+        self.assertIn('width="1000" height="250"', teams.teams_html(DIAGRAM, [picture]))
 
     def test_teams_copy_keeps_the_code_when_there_is_no_picture(self):
         for diagrams in (None, [""], ["javascript:alert(1)"]):

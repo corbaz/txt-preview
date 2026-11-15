@@ -6384,7 +6384,7 @@ $startupUpdateTimer.Add_Tick({
 
 $btnInstallUpdate.Add_Click({
     $confirmation = [Windows.Forms.MessageBox]::Show(
-        "Se actualizará TXT Preview a $script:availableUpdateVersion desde origin/main. La aplicación deberá reiniciarse.",
+        "Se actualizará TXT Preview a $script:availableUpdateVersion desde origin/main. La aplicación se reiniciará sola.",
         "Actualizar TXT Preview",
         [Windows.Forms.MessageBoxButtons]::YesNo,
         [Windows.Forms.MessageBoxIcon]::Question
@@ -6393,14 +6393,9 @@ $btnInstallUpdate.Add_Click({
         return
     }
 
-    $installedVersion = Invoke-AppUpdateInstall
-    if ($installedVersion) {
-        [void][Windows.Forms.MessageBox]::Show(
-            "TXT Preview se actualizó a $installedVersion. Cerrá y volvé a abrir la aplicación para usar el código nuevo.",
-            "Actualización completada",
-            [Windows.Forms.MessageBoxButtons]::OK,
-            [Windows.Forms.MessageBoxIcon]::Information
-        )
+    # The new code only runs after a restart: do it without asking again.
+    if (Invoke-AppUpdateInstall) {
+        Restart-App
     }
 })
 

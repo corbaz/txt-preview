@@ -65,6 +65,9 @@ def _add_inline_styles(html: str) -> str:
             style = None  # the surrounding <pre> already carries the block style
         if not style:
             return match.group(0)
+        if tag == "img" and " width=" in match.group("rest"):
+            width = re.search(r' width="(\d+)" height="(\d+)"', match.group("rest"))
+            style = f"width:{width.group(1)}px;height:{width.group(2)}px" if width else style
         opened = f'<{tag} style="{style}"{match.group("rest")}>'
         return opened + _COLOR_SPAN if tag in _COLORED_TAGS else opened
 
@@ -97,6 +100,30 @@ _MERMAID_BLOCK = re.compile(
     r'<pre><code class="language-mermaid">.*?</code></pre>', re.DOTALL)
 
 
+DIAGRAM_MAX_WIDTH = 1000
+_PNG_SCALE = 2  # the preview draws diagram pictures at twice their size
+
+
+def _display_size(data_url: str) -> str:
+    """width/height attributes for a diagram picture: without them Teams
+    shows a pasted image as a small thumbnail. The size is the one the
+    diagram has in the preview, capped to a readable chat width."""
+    try:
+        header = base64.b64decode(data_url.split(",", 1)[1][:64])
+        if header[:8] != b"\x89PNG\r\n\x1a\n":
+            return ""
+        width = int.from_bytes(header[16:20], "big") / _PNG_SCALE
+        height = int.from_bytes(header[20:24], "big") / _PNG_SCALE
+    except (ValueError, IndexError):
+        return ""
+    if width <= 0 or height <= 0:
+        return ""
+    if width > DIAGRAM_MAX_WIDTH:
+        height = height * DIAGRAM_MAX_WIDTH / width
+        width = DIAGRAM_MAX_WIDTH
+    return f' width="{round(width)}" height="{round(height)}"'
+
+
 def _embed_diagrams(html: str, diagrams) -> str:
     """Each Mermaid block becomes the picture the preview drew for it (a
     chat cannot draw the code); a block without a picture stays as code."""
@@ -108,7 +135,7 @@ def _embed_diagrams(html: str, diagrams) -> str:
         source = pictures.pop(0)
         if not isinstance(source, str) or not source.startswith("data:image/png;base64,"):
             return match.group(0)
-        return f'<p><img src="{source}" alt="Diagrama de flujo"/></p>'
+        return f'<p><img src="{source}" alt="Diagrama de flujo"{_display_size(source)}/></p>'
 
     return _MERMAID_BLOCK.sub(picture_for, html)
 

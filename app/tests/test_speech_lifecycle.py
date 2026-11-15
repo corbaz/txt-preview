@@ -408,7 +408,7 @@ class _FakeEvent:
 
 class _FakeWindow:
     def __init__(self):
-        self.events = types.SimpleNamespace(closing=_FakeEvent())
+        self.events = types.SimpleNamespace(closing=_FakeEvent(), closed=_FakeEvent())
 
     def destroy(self):
         pass

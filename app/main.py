@@ -827,6 +827,17 @@ class Api:
         return {"ok": False, "message": MSG_DICTATION_UNSUPPORTED}
 
     # ---- Cerrar (T15/S8) -----------------------------------------------------
+    def _quit_soon(self, delay: float = 1.5) -> None:
+        """Cerrar means quit. On macOS closing the window can leave the app
+        alive in the Dock (it had to be force-quit), so once the window had
+        its time to close, the process ends for certain. Enabled only for
+        the real app (create_app), never under test."""
+        if not getattr(self, "_quit_on_close", False):
+            return
+        timer = threading.Timer(delay, os._exit, args=(0,))
+        timer.daemon = True
+        timer.start()
+
     def close_app(self) -> dict:
         """Cerrar button: stop any reading first so the audio never outlives
         the app (S12), then destroy the window (legacy $form.Close()).
@@ -857,6 +868,7 @@ class Api:
 
         closer = threading.Thread(target=destroy, daemon=True)
         closer.start()
+        self._quit_soon()
         closer.join(0.5)
         if failure:
             return {"ok": False,
@@ -1373,6 +1385,9 @@ def create_app() -> None:
             pass
 
     window.events.closing += _stop_speech_on_closing
+    # Closing the window — Cerrar or the system button — quits the app.
+    api._quit_on_close = True
+    window.events.closed += lambda: api._quit_soon()  # no parameters: pywebview passes none
     api.initialize_settings()  # legacy migration + theme/speed/voice/model
     # Legacy startupUpdateTimer: one non-blocking check ~3s after startup.
     threading.Thread(target=api._startup_update_check, daemon=True).start()

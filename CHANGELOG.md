@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## v:26.11.15-13.36
+
+### Cerrar en macOS, reinicio automático y diagramas más grandes en Teams
+
+- App Python: cerrar la ventana, con Cerrar o con el botón del sistema, termina la aplicación con seguridad. En macOS quedaba viva en el Dock y había que forzar la salida.
+- «Actualizar ahora» reinicia la aplicación sola al terminar, en `txt.ps1` y en la app Python; ya no muestra un aviso pidiendo cerrarla y abrirla a mano.
+- «Copiar Teams»: el diagrama se pega con el tamaño que tiene en la Vista previa (hasta 1000 px de ancho) en lugar de una miniatura.
+
 ## v:26.11.15-13.24
 
 ### Diagramas que no se dibujaban y copia en macOS

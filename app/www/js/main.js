@@ -1411,10 +1411,11 @@
   $("apply-update").addEventListener("click", async () => {
     if (!requireBridge()) return;
     if (!window.confirm(`Se actualizará TXT Preview a ${availableUpdateVersion} desde origin/main. `
-        + "La aplicación deberá reiniciarse.")) return;
+        + "La aplicación se reiniciará sola.")) return;
     if (await installUpdate()) {
-      window.alert(`TXT Preview se actualizó a ${$("version-badge").textContent}. `
-        + "Cerrá y volvé a abrir la aplicación para usar el código nuevo.");
+      // The new code only runs after a restart: do it without asking again.
+      setStatus(`TXT Preview se actualizó a ${$("version-badge").textContent}. Reiniciando...`);
+      await safeCall((api) => api.restart_app(), "No se pudo reiniciar la aplicación.");
     }
   });
 

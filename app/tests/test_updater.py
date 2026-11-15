@@ -410,13 +410,17 @@ class TestUpdateUiTexts(unittest.TestCase):
             "Aplicando la actualización...",
             "Buscando una versión nueva en origin/main...",
             "Se actualizará TXT Preview a ${availableUpdateVersion} desde origin/main. ",
-            "La aplicación deberá reiniciarse.",
-            "Cerrá y volvé a abrir la aplicación para usar el código nuevo.",
+            "La aplicación se reiniciará sola.",
             "Hay una versión nueva de TXT Preview: ${availableUpdateVersion} (tenés ${status.local_version}).",
             "¿Querés actualizar ahora? La aplicación se reiniciará sola.",
             "disponible. Podés actualizar desde Configuración.",
         ):
             self.assertIn(text, self.JS)
+
+    def test_actualizar_ahora_restarts_without_asking_again(self):
+        body = self.JS.split('$("apply-update").addEventListener("click"', 1)[1][:900]
+        self.assertLess(body.index("installUpdate()"), body.index("api.restart_app()"))
+        self.assertNotIn("window.alert(", body)
 
     def test_accepting_the_startup_offer_installs_and_restarts(self):
         body = self.JS.split("async function offerStartupUpdate(status) {", 1)[1][:900]
