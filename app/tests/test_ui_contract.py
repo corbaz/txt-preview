@@ -255,6 +255,7 @@ class TestBottomDeck(UiContractTestCase):
         self.assertEqual(control_labels(row), [
             "Consultar IA",
             "Resumir con IA",
+            "Diagrama de flujo",
             "Corregir Gramática y Ortografía",
             "Traducir Inglés a Español",
             "Traducir Español a Inglés",
@@ -263,7 +264,7 @@ class TestBottomDeck(UiContractTestCase):
     def test_row1_ai_actions_keep_their_data_actions(self):
         row = self.deck.find(node_id="deck-row-1")
         actions = [button.attrs.get("data-ai-action") for button in row.find_all("button")]
-        self.assertEqual(actions, ["consult", "summarize", "correct",
+        self.assertEqual(actions, ["consult", "summarize", "flowchart", "correct",
                                    "translate_en_es", "translate_es_en"])
 
     def test_row2_utilities_in_original_order(self):
@@ -859,7 +860,7 @@ class TestPlayVoiceAutoSwitch(UiContractTestCase):
         # txt.ps1 parity: Play reads what Vista previa shows (the AI answer
         # or the editor) as plain text, and shows that tab.
         self.assertIn("previewContent()", window)
-        self.assertIn("get_preview_plain_text()", window)
+        self.assertIn("get_preview_speech_text()", window)
         self.assertIn('setTab("preview")', window)
         self.assertIn("No hay contenido en Vista previa para leer.", window)
 

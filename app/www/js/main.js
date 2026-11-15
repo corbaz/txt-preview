@@ -92,9 +92,96 @@
       if (sequence !== previewRenderSequence) return; // a newer render is on its way
       $("preview").innerHTML = html;
       wrapSpeechWords();
+      await renderDiagrams(sequence);
     } catch (_) {
       setStatus("No se pudo renderizar la vista previa.");
     }
+  }
+
+  // ---- Diagrams: ```mermaid blocks are drawn in Vista previa ---------------
+  let diagramCounter = 0;
+
+  function diagramTheme() {
+    const light = document.body.dataset.theme === "light";
+    return {
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: "base",
+      // SVG text labels (no foreignObject) so a diagram can become a PNG.
+      flowchart: { htmlLabels: false, curve: "basis", useMaxWidth: true },
+      themeVariables: {
+        fontFamily: 'system-ui, "Segoe UI", sans-serif',
+        fontSize: "15px",
+        background: light ? "#E8ECF2" : "#23272F",
+        primaryColor: light ? "#DDE3F4" : "#353B48",
+        primaryTextColor: light ? "#1F2533" : "#E6E9F2",
+        primaryBorderColor: light ? "#4F55E3" : "#9AA2FF",
+        lineColor: light ? "#4F55E3" : "#9AA2FF",
+        textColor: light ? "#1F2533" : "#E6E9F2",
+        edgeLabelBackground: light ? "#E8ECF2" : "#23272F",
+        // Areas (subgraphs): a soft panel a step away from the surface.
+        clusterBkg: light ? "#DDE3EE" : "#2C313C",
+        clusterBorder: light ? "#9AA5BD" : "#4A5163",
+        titleColor: light ? "#4F55E3" : "#9AA2FF",
+        tertiaryColor: light ? "#DDE3EE" : "#2C313C",
+      },
+    };
+  }
+
+  async function renderDiagrams(sequence) {
+    const blocks = Array.from(document.querySelectorAll("#preview pre > code.language-mermaid"));
+    if (!blocks.length || !window.mermaid) return;
+    window.mermaid.initialize(diagramTheme());
+    for (const code of blocks) {
+      const source = code.textContent;
+      try {
+        await window.mermaid.parse(source); // throws before anything is drawn
+        const { svg } = await window.mermaid.render(`txt-diagram-${++diagramCounter}`, source);
+        if (sequence !== previewRenderSequence) return; // a newer render replaced the preview
+        const figure = document.createElement("div");
+        figure.className = "mermaid-diagram";
+        figure.innerHTML = svg;
+        code.parentElement.replaceWith(figure);
+      } catch (_) {
+        // The code stays visible so it can be fixed in the editor.
+        setStatus("No se pudo dibujar el diagrama: el código Mermaid tiene un error.", "error");
+      }
+    }
+  }
+
+  // PNG data URLs of the drawn diagrams, in order (for «Copiar Teams»).
+  async function diagramPictures() {
+    const background = document.body.dataset.theme === "light" ? "#E8ECF2" : "#23272F";
+    const pictures = [];
+    for (const svg of document.querySelectorAll("#preview .mermaid-diagram svg")) {
+      try {
+        const box = svg.viewBox.baseVal;
+        const width = Math.ceil(box && box.width ? box.width : svg.getBoundingClientRect().width);
+        const height = Math.ceil(box && box.height ? box.height : svg.getBoundingClientRect().height);
+        if (!width || !height) { pictures.push(""); continue; }
+        const copy = svg.cloneNode(true);
+        copy.setAttribute("width", width);
+        copy.setAttribute("height", height);
+        copy.removeAttribute("style");
+        const xml = new XMLSerializer().serializeToString(copy);
+        const image = new Image();
+        image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+        await image.decode();
+        const scale = 2; // sharp on high-density screens
+        const padding = 16;
+        const canvas = document.createElement("canvas");
+        canvas.width = (width + padding * 2) * scale;
+        canvas.height = (height + padding * 2) * scale;
+        const context = canvas.getContext("2d");
+        context.fillStyle = background;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, padding * scale, padding * scale, width * scale, height * scale);
+        pictures.push(canvas.toDataURL("image/png"));
+      } catch (_) {
+        pictures.push(""); // that diagram is copied as code
+      }
+    }
+    return pictures;
   }
 
   $("editor").addEventListener("input", () => {
@@ -170,6 +257,8 @@
       acceptNode: (node) => {
         const parent = node.parentElement;
         if (!parent || /^(script|style)$/i.test(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        // Diagram code is drawn, not read aloud.
+        if (parent.closest("code.language-mermaid, .mermaid-diagram")) return NodeFilter.FILTER_REJECT;
         // TOKEN is /\S+/g: reset lastIndex so .test() is deterministic and
         // does not depend on the walker's previous calls (S10).
         TOKEN.lastIndex = 0;
@@ -356,7 +445,7 @@
       setTab("preview");
       await renderPreviewNow();
       const api = window.pywebview.api;
-      const speechText = await api.get_preview_plain_text();
+      const speechText = await api.get_preview_speech_text();
       const result = await api.start_speech(speechText, getSpeechWords());
       applyVoiceSwitch(result);
       // T25/S18: start_speech reports its own failures as {ok:false,message}
@@ -486,8 +575,9 @@
       setStatus("No hay contenido para copiar.", "warning");
       return;
     }
-    await syncPreviewContent();
-    const result = await safeCall((api) => api.copy_for_teams(),
+    await renderPreviewNow(); // diagrams must be drawn to be copied as pictures
+    const diagrams = await diagramPictures();
+    const result = await safeCall((api) => api.copy_for_teams(diagrams),
       "No se pudo copiar al portapapeles.");
     if (!result) return;
     setStatus(result.ok ? result.message : result.error, result.ok ? "info" : "error");
@@ -1347,6 +1437,7 @@
   const AI_BUSY_LABELS = {
     consult: "Consultando a la IA",
     summarize: "Creando resumen profesional",
+    flowchart: "Diseñando el diagrama de flujo",
     correct: "Corrigiendo gramática y ortografía",
     translate_en_es: "Traduciendo con IA",
     translate_es_en: "Traduciendo con IA",

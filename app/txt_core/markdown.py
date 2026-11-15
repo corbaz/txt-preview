@@ -56,6 +56,10 @@ def _link_bare_url(match: re.Match) -> str:
     return f'<a href="{href}">{url}</a>{trailing}'
 
 
+# The only class kept: the language of a fenced code block.
+_CODE_LANGUAGE = re.compile(r"language-[A-Za-z0-9_+-]+")
+
+
 class _Sanitizer(HTMLParser):
     """Rewrites an HTML fragment keeping only allowlisted tags/attributes.
 
@@ -69,6 +73,8 @@ class _Sanitizer(HTMLParser):
         self.open_tags: list[str] = []
 
     def _emit_attr(self, name: str, value: str | None) -> str:
+        if name == "class" and value and _CODE_LANGUAGE.fullmatch(value):
+            return f' class="{value}"'  # fenced code language (e.g. mermaid)
         if _DANGEROUS_ATTR.match(name) or name not in _ALLOWED_ATTRS:
             return ""
         if value is None:

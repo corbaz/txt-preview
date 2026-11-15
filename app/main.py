@@ -112,6 +112,7 @@ MSG_WINDOW_CLOSE_FAILED = "No se pudo cerrar la ventana: {detail}"
 INPUT_MESSAGES = {
     "consult": "Ingresá una consulta en el Editor o adjuntá al menos un archivo.",
     "summarize": "Ingresá contenido en el Editor o adjuntá al menos un archivo.",
+    "flowchart": "Ingresá en el Editor el tema del diagrama o adjuntá al menos un archivo.",
     "correct": "Ingresá texto en el Editor o adjuntá al menos un archivo.",
     "translate_en_es": "Ingresá texto en el Editor o adjuntá al menos un archivo.",
     "translate_es_en": "Ingresá texto en el Editor o adjuntá al menos un archivo.",
@@ -151,6 +152,8 @@ def read_version() -> str:
         return VERSION_FILE.read_text(encoding="utf-8").strip()
     return "dev"
 
+
+_MERMAID_FENCE = re.compile(r"```mermaid\b.*?```", re.DOTALL)
 
 # The version of the code this process loaded; the VERSION file may move on
 # under a running app (git pull, a manual update).
@@ -658,6 +661,8 @@ class Api:
             return {"ok": False, "error": str(error)}
         except Exception:
             return {"ok": False, "error": ERR_API_CONNECTION}
+        if action == "flowchart":
+            result_text = prompts.ensure_mermaid_block(result_text)
         return self._ai_result(action, result_text)
 
     def _stop_speech_for_ai_request(self) -> None:
@@ -674,6 +679,8 @@ class Api:
             return prompts.consult_prompt(text)
         if action == "summarize":
             return prompts.summarize_prompt(text)
+        if action == "flowchart":
+            return prompts.flowchart_prompt(text)
         if action == "correct":
             return prompts.correct_prompt(text)
         if action == "translate_es_en":
@@ -728,6 +735,10 @@ class Api:
             result["message"] = (
                 "Respuesta lista en Vista previa. Tu consulta sigue en el Editor."
             )
+        elif action == "flowchart":
+            # Like Consultar: the topic stays in the editor, the diagram is
+            # the answer shown in Vista previa.
+            result["message"] = "Diagrama de flujo listo en Vista previa. El tema sigue en el Editor."
         elif action == "summarize":
             result["editor_action"] = "replace"
             result["message"] = "Resumen profesional listo en Vista previa."
@@ -766,14 +777,19 @@ class Api:
             return {"ok": False, "error": str(error)}
         return {"ok": True}
 
-    def copy_for_teams(self, runner=None, platform: str | None = None) -> dict:
+    def get_preview_speech_text(self) -> str:
+        """Plain text to read aloud: the preview content without the code of
+        its diagrams, which is drawn, not read."""
+        return markdown_to_text(_MERMAID_FENCE.sub("", self._preview_text))
+
+    def copy_for_teams(self, diagrams=None, runner=None, platform: str | None = None) -> dict:
         """«Copiar Teams»: the preview content as rich text (tables, colors,
         links, images) plus plain text, ready to paste in a Teams chat."""
         if not self._preview_text.strip():
             return {"ok": False, "error": "No hay contenido para copiar."}
         try:
             clipboard.write_clipboard_html(
-                teams.teams_html(self._preview_text),
+                teams.teams_html(self._preview_text, diagrams),
                 markdown_to_text(self._preview_text),
                 platform=platform, runner=runner)
         except RuntimeError as error:

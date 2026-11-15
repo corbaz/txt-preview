@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## v:26.11.15-07.37
+
+### Botón «Diagrama de flujo» (app Python)
+
+- Nuevo botón después de «Resumir con IA»: escribí el tema en el Editor y la IA diseña un diagrama de flujo a color, que la Vista previa dibuja (ya no se ve como código). Usa formas según el rol de cada paso, áreas agrupadas, emoji, flechas rotuladas y una leyenda de colores. El tema queda en el Editor.
+- La Vista previa dibuja cualquier bloque ```mermaid, también los pegados a mano o devueltos por Consultar, y se adapta al tema claro u oscuro.
+- «Copiar Teams» pega el diagrama como imagen; Play no lee en voz alta el código del diagrama.
+- Si el código del diagrama tiene un error, se muestra el código y un aviso para poder corregirlo.
+
 ## v:26.11.15-07.28
 
 ### Actualizaciones que no se instalaban

@@ -241,3 +241,15 @@ body[data-theme="light"] { --line: rgba(31, 37, 51, 0.26); --table-head: rgba(79
   letter-spacing: 0.2px;
 }
 #app-version-label { color: var(--accent); font-weight: 700; }
+
+/* ---- Drawn diagrams (Mermaid) ---------------------------------------------- */
+.mermaid-diagram {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 1.2em;
+  padding: 18px;
+  border-radius: 14px;
+  box-shadow: var(--nm-well);
+  overflow: auto;
+}
+.mermaid-diagram svg { max-width: 100%; height: auto; }

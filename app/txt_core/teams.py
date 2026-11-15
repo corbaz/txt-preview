@@ -93,9 +93,31 @@ def _embed_local_images(html: str) -> str:
     return _IMG_SRC.sub(embed, html)
 
 
-def teams_html(markdown_text: str) -> str:
-    """HTML fragment of the preview content with Teams-ready inline styles."""
-    return _add_inline_styles(_embed_local_images(render_markdown(markdown_text)))
+_MERMAID_BLOCK = re.compile(
+    r'<pre><code class="language-mermaid">.*?</code></pre>', re.DOTALL)
+
+
+def _embed_diagrams(html: str, diagrams) -> str:
+    """Each Mermaid block becomes the picture the preview drew for it (a
+    chat cannot draw the code); a block without a picture stays as code."""
+    pictures = [picture for picture in (diagrams or [])]
+
+    def picture_for(match: re.Match) -> str:
+        if not pictures:
+            return match.group(0)
+        source = pictures.pop(0)
+        if not isinstance(source, str) or not source.startswith("data:image/png;base64,"):
+            return match.group(0)
+        return f'<p><img src="{source}" alt="Diagrama de flujo"/></p>'
+
+    return _MERMAID_BLOCK.sub(picture_for, html)
+
+
+def teams_html(markdown_text: str, diagrams=None) -> str:
+    """HTML fragment of the preview content with Teams-ready inline styles.
+    `diagrams` are the PNG data URLs of the drawn Mermaid blocks, in order."""
+    html = _embed_diagrams(render_markdown(markdown_text), diagrams)
+    return _add_inline_styles(_embed_local_images(html))
 
 
 def cf_html(fragment: str) -> str:
