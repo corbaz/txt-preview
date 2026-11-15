@@ -55,6 +55,7 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn("[Windows.Forms.DataFormats]::Html", handler)
         self.assertIn("[Windows.Forms.DataFormats]::UnicodeText", handler)
         self.assertIn("Convert-MarkdownToTeamsHtml $previewContent", handler)
+        self.assertIn("[IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes($clipboardHtml))", handler)
         self.assertIn("Copiado con formato para Teams. Pegalo en el chat con Ctrl+V.", handler)
 
     def test_web_and_vision_payloads_are_supported(self) -> None:

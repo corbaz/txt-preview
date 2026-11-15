@@ -6123,14 +6123,14 @@ function Convert-MarkdownToTeamsHtml {
         return $match.Groups[1].Value + "data:$mediaType;base64,$data" + $match.Groups[3].Value
     })
 
-    $heading = "color:#7579EB;font-weight:600;margin:12px 0 6px"
+    $heading = "font-weight:600;margin:12px 0 6px"
     $cell = "border:1px solid #8A8A8A;padding:6px 10px"
     $code = "font-family:Consolas,'Courier New',monospace;background-color:#F0F0F0;color:#242424"
     $styles = [ordered]@{
         h1 = "font-size:22px;$heading"; h2 = "font-size:19px;$heading"; h3 = "font-size:16px;$heading"
         h4 = "font-size:14px;$heading"; h5 = "font-size:13px;$heading"; h6 = "font-size:12px;$heading"
         table = "border-collapse:collapse;margin:8px 0"
-        th = "$cell;background-color:#5B5FC7;color:#FFFFFF;text-align:left"
+        th = "$cell;text-align:left"
         td = $cell
         pre = "$code;padding:8px 10px;margin:8px 0;white-space:pre-wrap"
         blockquote = "border-left:4px solid #5B5FC7;margin:8px 0;padding:2px 10px"
@@ -6140,6 +6140,10 @@ function Convert-MarkdownToTeamsHtml {
     foreach ($tag in $styles.Keys) {
         $html = [regex]::Replace($html, "(?i)<$tag(?=[\s>])", "<$tag style=`"$($styles[$tag])`"")
     }
+    # Teams drops heading colors and cell backgrounds of pasted HTML, but keeps text color
+    # written the way its own editor does: a span inside the heading or header cell.
+    $html = [regex]::Replace($html, '(?i)(<(?:h[1-6]|th)\b[^<>]*>)', '$1<span style="color:#7579EB">')
+    $html = [regex]::Replace($html, '(?i)(</(?:h[1-6]|th)>)', '</span>$1')
     # Inline code only: a <code> right inside <pre> keeps the block style of its <pre>.
     $html = [regex]::Replace($html, '(?i)(?<!<pre[^<>]*>)<code(?=[\s>])', "<code style=`"$code;padding:1px 4px`"")
     return $html
@@ -6655,7 +6659,10 @@ $btnCopyTeams.Add_Click({
     }
     try {
         $data = New-Object Windows.Forms.DataObject
-        $data.SetData([Windows.Forms.DataFormats]::Html, (ConvertTo-ClipboardHtml (Convert-MarkdownToTeamsHtml $previewContent)))
+        # Raw UTF-8 bytes: as a string, Windows PowerShell stores the HTML in the ANSI
+        # code page and accents, arrows and emoji reach Teams broken.
+        $clipboardHtml = ConvertTo-ClipboardHtml (Convert-MarkdownToTeamsHtml $previewContent)
+        $data.SetData([Windows.Forms.DataFormats]::Html, [IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes($clipboardHtml)))
         $data.SetData([Windows.Forms.DataFormats]::UnicodeText, (Convert-MarkdownToText $previewContent))
         [Windows.Forms.Clipboard]::SetDataObject($data, $true)
         Show-Message "Copiado con formato para Teams. Pegalo en el chat con Ctrl+V."

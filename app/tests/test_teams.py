@@ -17,10 +17,13 @@ TABLE = "# Título\n\n| A | B |\n|---|---|\n| 1 | [link](https://example.com) |\
 class TestTeamsHtml(unittest.TestCase):
     def test_table_heading_and_link_get_inline_styles(self):
         html = teams.teams_html(TABLE)
-        self.assertIn('<h1 style="font-size:22px;color:#7579EB;', html)
+        # Colors travel as inner spans: Teams drops them on the block itself.
+        self.assertIn('<h1 style="font-size:22px;font-weight:600;margin:12px 0 6px">'
+                      '<span style="color:#7579EB">Título</span></h1>', html)
         self.assertIn('<table style="border-collapse:collapse;margin:8px 0">', html)
-        self.assertIn('<th style="border:1px solid #8A8A8A;padding:6px 10px;'
-                      'background-color:#5B5FC7;color:#FFFFFF;text-align:left">A</th>', html)
+        self.assertIn('<th style="border:1px solid #8A8A8A;padding:6px 10px;text-align:left">'
+                      '<span style="color:#7579EB">A</span></th>', html)
+        self.assertNotIn("background-color:#5B5FC7", html)
         self.assertIn('<td style="border:1px solid #8A8A8A;padding:6px 10px">1</td>', html)
         self.assertIn('<a style="text-decoration:underline" href="https://example.com">link</a>',
                       html)
@@ -71,6 +74,8 @@ class TestWriteClipboardHtml(unittest.TestCase):
         self.assertEqual(seen["argv"][-1], clipboard.POWERSHELL_WRITE_HTML_COMMAND)
         self.assertIn("-STA", seen["argv"])
         self.assertTrue(seen["html"].startswith("Version:0.9"))
+        # The HTML is handed to the clipboard as UTF-8 bytes, never as a string.
+        self.assertIn("New-Object IO.MemoryStream(,[IO.File]::ReadAllBytes(", seen["argv"][-1])
         self.assertIn("<!--StartFragment--><p>hola</p><!--EndFragment-->", seen["html"])
         self.assertEqual(seen["text"], "hola")
         self.assertFalse(any(Path(path).exists() for path in seen["paths"]))

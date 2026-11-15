@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## v:26.11.15-06.20
+
+### «Copiar Teams»: acentos y colores
+
+- Los acentos, las comillas, las flechas y los emoji ya no llegan rotos a Teams: el contenido se entrega al portapapeles en UTF-8 puro. Antes Windows lo guardaba en la página de códigos local y Teams mostraba «�» y «?».
+- Teams descarta el color de los títulos y el fondo del encabezado de las tablas al pegar. Ahora el color va en el texto de los títulos y del encabezado, que es la forma que Teams conserva; las tablas mantienen sus bordes.
+
 ## v:26.11.14-19.09
 
 ### Botón «Copiar Teams»

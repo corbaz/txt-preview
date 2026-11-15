@@ -52,7 +52,10 @@ TEXT_FILE_ENV_VAR = "TXT_CLIPBOARD_TEXT_FILE"
 POWERSHELL_WRITE_HTML_COMMAND = (
     "Add-Type -AssemblyName System.Windows.Forms; "
     "$utf8=[Text.UTF8Encoding]::new($false); "
-    "$html=[IO.File]::ReadAllText($env:TXT_CLIPBOARD_HTML_FILE,$utf8); "
+    # The HTML goes in as raw UTF-8 bytes: handed over as a string, Windows
+    # PowerShell stores it in the ANSI code page and every accent, arrow or
+    # emoji reaches Teams broken.
+    "$html=New-Object IO.MemoryStream(,[IO.File]::ReadAllBytes($env:TXT_CLIPBOARD_HTML_FILE)); "
     "$text=[IO.File]::ReadAllText($env:TXT_CLIPBOARD_TEXT_FILE,$utf8); "
     "$data=New-Object Windows.Forms.DataObject; "
     "$data.SetData([Windows.Forms.DataFormats]::Html,$html); "

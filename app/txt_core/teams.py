@@ -1,8 +1,10 @@
 """«Copiar Teams»: the preview content as rich text for a Microsoft Teams chat.
 
-Teams keeps inline styles of pasted HTML and drops style sheets and classes,
-so the sanitized preview HTML gets its formatting inline: bordered tables
-with a colored header, colored headings, code blocks, quotes and images.
+Teams drops style sheets, classes and most block styling of pasted HTML
+(a real paste lost the heading color and the header-cell background), but
+its own editor writes text color as `<span style="color:...">`. So the
+sanitized preview HTML gets bordered tables plus colored text in spans for
+headings and table headers, code blocks, quotes and images.
 Local images are embedded as data URLs, because a chat cannot read a file
 path; web images keep their address. The colors are fixed and readable on
 both the light and the dark Teams theme.
@@ -17,7 +19,8 @@ import urllib.parse
 from .markdown import render_markdown
 
 TEAMS_ACCENT = "#5B5FC7"
-_HEADING = "color:#7579EB;font-weight:600;margin:12px 0 6px"
+TEXT_ACCENT = "#7579EB"  # readable on the light and the dark Teams theme
+_HEADING = "font-weight:600;margin:12px 0 6px"
 _CELL = "border:1px solid #8A8A8A;padding:6px 10px"
 _CODE = "font-family:Consolas,'Courier New',monospace;background-color:#F0F0F0;color:#242424"
 
@@ -29,7 +32,7 @@ INLINE_STYLES = {
     "h5": f"font-size:13px;{_HEADING}",
     "h6": f"font-size:12px;{_HEADING}",
     "table": "border-collapse:collapse;margin:8px 0",
-    "th": f"{_CELL};background-color:{TEAMS_ACCENT};color:#FFFFFF;text-align:left",
+    "th": f"{_CELL};text-align:left",
     "td": _CELL,
     "pre": f"{_CODE};padding:8px 10px;margin:8px 0;white-space:pre-wrap",
     "code": f"{_CODE};padding:1px 4px",
@@ -37,6 +40,10 @@ INLINE_STYLES = {
     "img": "max-width:100%",
     "a": "text-decoration:underline",
 }
+
+# Tags whose text is colored with an inner span, the form Teams itself keeps.
+_COLORED_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6", "th")
+_COLOR_SPAN = f'<span style="color:{TEXT_ACCENT}">'
 
 _OPEN_TAG = re.compile(r"<(?P<tag>[a-z][a-z0-9]*)(?P<rest>(?:\s[^<>]*)?)>")
 _IMG_SRC = re.compile(r'(<img\b[^<>]*?\bsrc=")(?P<src>[^"]*)(")')
@@ -58,9 +65,11 @@ def _add_inline_styles(html: str) -> str:
             style = None  # the surrounding <pre> already carries the block style
         if not style:
             return match.group(0)
-        return f'<{tag} style="{style}"{match.group("rest")}>'
+        opened = f'<{tag} style="{style}"{match.group("rest")}>'
+        return opened + _COLOR_SPAN if tag in _COLORED_TAGS else opened
 
-    return _OPEN_TAG.sub(styled, html)
+    html = _OPEN_TAG.sub(styled, html)
+    return re.sub(r"</(%s)>" % "|".join(_COLORED_TAGS), r"</span></\1>", html)
 
 
 def _embed_local_images(html: str) -> str:
