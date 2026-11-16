@@ -282,6 +282,15 @@ class TestBottomDeck(UiContractTestCase):
         self.assertIn("if (button.textContent !== label) button.textContent = label;", script)
         self.assertNotIn('$("speech-pause").textContent =', script)
 
+    def test_audio_buttons_share_the_width_of_a_filled_continuar(self):
+        """The filled label is bolder: measured plain, it was cut to «Contin…»."""
+        script = (ROOT / "www" / "js" / "main.js").read_text(encoding="utf-8")
+        measure = script[script.index("function lockPauseWidth"):]
+        measure = measure[:measure.index("lockPauseWidth();")]
+        self.assertLess(measure.index('pause.classList.add("lit");'),
+                        measure.index("getBoundingClientRect"))
+        self.assertIn('["speech-play", "speech-pause", "speech-stop"]', measure)
+
     def test_audio_buttons_are_filled_by_what_the_audio_is_doing(self):
         """Play while it sounds, Continuar while paused, Repetir with either
         when the audio is the repeated one; Detener is never filled."""

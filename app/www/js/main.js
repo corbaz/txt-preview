@@ -640,8 +640,13 @@
     const pause = $("speech-pause");
     const label = pause.textContent;
     buttons.forEach((button) => { button.style.width = ""; });
+    // Measured as it is widest: «Continuar» filled, whose label is bolder
+    // (it used to be cut to «Contin…» once the button was lit).
+    const wasLit = pause.classList.contains("lit");
     pause.textContent = "Continuar";
-    const width = Math.max(...buttons.map((button) => button.getBoundingClientRect().width));
+    pause.classList.add("lit");
+    const width = Math.max(...buttons.map((button) => button.getBoundingClientRect().width)) + 2;
+    pause.classList.toggle("lit", wasLit);
     pause.textContent = label;
     if (width > 0) {
       buttons.forEach((button) => {

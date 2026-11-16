@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## v:26.11.16-13.35
+
+### «Continuar» ya no se corta
+
+- Play, Pausar/Continuar y Detener toman el ancho de «Continuar» encendido. Antes el ancho se medía con la letra normal y, al encenderse el botón, el texto más grueso se cortaba a «Contin…».
+
 ## v:26.11.16-13.22
 
 ### El texto de los botones de audio encendidos se lee al pasar el mouse
