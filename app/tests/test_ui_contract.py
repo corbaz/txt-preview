@@ -267,6 +267,14 @@ class TestBottomDeck(UiContractTestCase):
         self.assertEqual(actions, ["consult", "summarize", "flowchart", "correct",
                                    "translate_en_es", "translate_es_en"])
 
+    def test_no_ai_button_is_lit_until_one_is_clicked(self):
+        row = self.deck.find(node_id="deck-row-1")
+        classes = [button.attrs.get("class", "") for button in row.find_all("button")]
+        self.assertFalse(any("accent" in value.split() for value in classes), classes)
+        script = (ROOT / "www" / "js" / "main.js").read_text(encoding="utf-8")
+        self.assertIn('button.classList.toggle("accent", button.dataset.aiAction === action)',
+                      script)
+
     def test_row2_utilities_in_original_order(self):
         row = self.deck.find(node_id="deck-row-2")
         self.assertEqual(control_labels(row), [

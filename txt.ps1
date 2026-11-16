@@ -2957,14 +2957,13 @@ function Set-ButtonTone {
     $button.FlatAppearance.BorderColor = Get-ThemeColor $border
 }
 
-# Consultar IA keeps the accent fill as the primary action; the last used one is outlined.
+# Every AI button looks the same; only the last one clicked is lit with the accent fill.
 function Update-AiButtonTones {
     foreach ($button in $aiButtons) {
         Set-ButtonTone $button "Elevated" "Text" "Hover" "Border"
     }
-    Set-ButtonTone $btnPreguntar "Accent" "OnAccent" "AccentHover" "Accent"
-    if ($script:lastAiButton -and $script:lastAiButton -ne $btnPreguntar) {
-        Set-ButtonTone $script:lastAiButton "Hover" "Accent" "Pressed" "Accent"
+    if ($script:lastAiButton) {
+        Set-ButtonTone $script:lastAiButton "Accent" "OnAccent" "AccentHover" "Accent"
     }
     foreach ($button in $aiButtons) {
         $button.Invalidate()

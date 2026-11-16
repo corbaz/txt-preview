@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## v:26.11.15-23.52
+
+### Solo se ilumina el botón de IA que apretaste
+
+- Todos los botones de IA se ven iguales; Consultar IA ya no queda encendido siempre. Se ilumina solo el último que apretaste (Ctrl+Enter cuenta como Consultar IA), en las dos apps.
+
 ## v:26.11.15-23.40
 
 ### Repetir muestra la duración total apenas se habilita

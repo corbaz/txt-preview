@@ -89,21 +89,23 @@ class ClipboardPasteTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
 class LastAiActionMarkTests(unittest.TestCase):
-    def test_only_the_last_used_ai_action_is_marked(self) -> None:
+    def test_only_the_clicked_ai_action_is_lit(self) -> None:
         results = run_app_snippet(
             "Set-Theme $true; "
             "$accent = (Get-ThemeColor 'Accent').ToArgb(); "
-            "function Marked($b) { $b.FlatAppearance.BorderColor.ToArgb() -eq $accent -and $b.ForeColor.ToArgb() -eq $accent }; "
+            "function Lit($b) { $b.BackColor.ToArgb() -eq $accent }; "
+            "$script:lastAiButton = $null; Update-AiButtonTones; "
+            "'RESULT=' + (Lit $btnPreguntar) + ',' + (Lit $btnResumir); "
             "Set-LastAiButton $btnResumir; "
-            "'RESULT=' + (Marked $btnResumir) + ',' + (Marked $btnCorregir) + ',' + ($btnPreguntar.BackColor.ToArgb() -eq $accent); "
+            "'RESULT=' + (Lit $btnResumir) + ',' + (Lit $btnCorregir) + ',' + (Lit $btnPreguntar); "
             "Set-LastAiButton $btnCorregir; "
-            "'RESULT=' + (Marked $btnResumir) + ',' + (Marked $btnCorregir); "
+            "'RESULT=' + (Lit $btnResumir) + ',' + (Lit $btnCorregir); "
             "Set-Theme $false; $accent = (Get-ThemeColor 'Accent').ToArgb(); "
-            "'RESULT=' + (Marked $btnCorregir)"
+            "'RESULT=' + (Lit $btnCorregir)"
         )
-        # Resumir is marked while Consultar IA keeps its primary fill; the mark then moves
-        # to Corregir and survives a theme change.
-        self.assertEqual(results, ["True,False,True", "False,True", "True"])
+        # Nothing is lit until a click (Consultar IA included); then only the clicked one,
+        # and the mark survives a theme change.
+        self.assertEqual(results, ["False,False", "True,False,False", "False,True", "True"])
 
 
 @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")

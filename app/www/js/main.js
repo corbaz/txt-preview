@@ -1677,13 +1677,25 @@
     }
   }
 
+  // Every AI button looks the same; only the last one clicked is lit
+  // (legacy Set-LastAiButton).
+  function markLastAiButton(action) {
+    document.querySelectorAll("[data-ai-action]").forEach((button) => {
+      button.classList.toggle("accent", button.dataset.aiAction === action);
+    });
+  }
+
   document.querySelectorAll("[data-ai-action]").forEach((button) => {
-    button.addEventListener("click", () => runAi(button.dataset.aiAction));
+    button.addEventListener("click", () => {
+      markLastAiButton(button.dataset.aiAction);
+      runAi(button.dataset.aiAction);
+    });
   });
 
   $("editor").addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
       e.preventDefault();
+      markLastAiButton("consult"); // Ctrl+Enter is a click on Consultar IA
       runAi("consult");
     }
   });
