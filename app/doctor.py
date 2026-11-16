@@ -38,7 +38,14 @@ CHECK_IDS = [
     "edge-tts",
     "ffmpeg",
     "webview-runtime",
+    "dictation",
 ]
+
+# Checks que avisan sin bloquear: la app abre igual, solo falta esa función.
+OPTIONAL_CHECK_IDS = {"dictation"}
+DICTATION_PACKAGES = ("transcribe-cpp", "sounddevice", "numpy")
+DICTATION_MODEL = (Path(__file__).resolve().parent.parent / "models"
+                   / "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf")
 
 # Paquetes que --fix puede instalar con pip; el resto solo recibe una sugerencia.
 FIXABLE_PACKAGES = {"pywebview", "markdown", "pymupdf", "truststore", "edge-tts"}
@@ -246,6 +253,30 @@ def check_webview_runtime() -> Dict:
     return _make("webview-runtime", True, "Runtime de web disponible vía pywebview.", None)
 
 
+def check_dictation() -> Dict:
+    """Micrófono: paquetes del dictado y el modelo en la carpeta models del clon."""
+    missing = []
+    for package in DICTATION_PACKAGES:
+        try:
+            importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            missing.append(package)
+    fix = "volvé a ejecutar el instalador (install.ps1 en Windows, install.sh en macOS)"
+    if missing:
+        return _make("dictation", False,
+                     "Faltan paquetes del dictado (" + ", ".join(missing)
+                     + "): el botón Micrófono no va a dictar.", fix)
+    if not DICTATION_MODEL.exists():
+        return _make("dictation", False,
+                     "Falta el modelo del dictado (unos 750 MB, en la carpeta models): "
+                     "el botón Micrófono no va a dictar.", fix)
+    return _make("dictation", True, "dictado local listo (paquetes y modelo en models).", None)
+
+
+def _required(results: List[Dict]) -> List[Dict]:
+    return [check for check in results if check["id"] not in OPTIONAL_CHECK_IDS]
+
+
 def _runner(cid: str) -> Callable[[], Dict]:
     return globals()["check_" + cid.replace("-", "_")]
 
@@ -260,14 +291,14 @@ def run_checks() -> List[Dict]:
 
 def build_report(results: List[Dict]) -> Dict:
     return {
-        "ok": all(check["ok"] for check in results),
+        "ok": all(check["ok"] for check in _required(results)),
         "checks": results,
         "platform": detect_platform(),
     }
 
 
 def decide_exit_code(results: List[Dict], fixed) -> int:
-    if all(check["ok"] for check in results):
+    if all(check["ok"] for check in _required(results)):
         return 0
     if fixed:
         return 2
@@ -285,6 +316,9 @@ def fix_missing(results: List[Dict], log: Callable[[str], None]) -> Tuple[List[s
         if check["ok"]:
             continue
         cid = check["id"]
+        if cid in OPTIONAL_CHECK_IDS:
+            log(f"{cid}: {check['fix']}")
+            continue
         if cid in FIXABLE_PACKAGES:
             package = PACKAGE_PIP_NAMES[cid]
             log(f"Instalando el paquete {package}...")
@@ -306,6 +340,8 @@ def fix_missing(results: List[Dict], log: Callable[[str], None]) -> Tuple[List[s
 def _format_check(check: Dict) -> List[str]:
     lines = []
     state = "  OK " if check["ok"] else "FALTA"
+    if not check["ok"] and check["id"] in OPTIONAL_CHECK_IDS:
+        state = "AVISO"
     lines.append(f"{state}  {check['id']:<16} {check['detail']}")
     if not check["ok"] and check["fix"]:
         lines.append(f"{'':6}{'Solución:':<17}{check['fix']}")
@@ -321,7 +357,7 @@ def render_report(report: Dict, fix_notes: Optional[List[str]] = None) -> str:
     if report["ok"]:
         lines.append("Resultado: OK — todo listo. Ejecutá la app con run.cmd (Windows) o ./run.sh (macOS).")
     else:
-        missing = [check for check in report["checks"] if not check["ok"]]
+        missing = [check for check in _required(report["checks"]) if not check["ok"]]
         lines.append(f"Resultado: faltan {len(missing)} dependencia(s): "
                      + ", ".join(check["id"] for check in missing))
         if fix_notes:

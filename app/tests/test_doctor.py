@@ -24,7 +24,7 @@ def missing_check(cid, fix="arreglalo"):
 
 CHECK_IDS = [
     "git", "python", "pip", "pywebview", "markdown", "pymupdf",
-    "truststore", "edge-tts", "ffmpeg", "webview-runtime",
+    "truststore", "edge-tts", "ffmpeg", "webview-runtime", "dictation",
 ]
 
 
@@ -250,6 +250,53 @@ class WebviewRuntimeTests(unittest.TestCase):
         self.assertTrue(check["ok"])
         self.assertIn("n/a", check["detail"])
         self.assertIsNone(check["fix"])
+
+
+class DictationCheckTests(unittest.TestCase):
+    """Micrófono: a missing dictation warns and never blocks the app."""
+
+    def versions(self, missing=()):
+        def version(name):
+            if name in missing:
+                raise doctor.importlib.metadata.PackageNotFoundError(name)
+            return "1.0"
+        return mock.patch.object(doctor.importlib.metadata, "version", side_effect=version)
+
+    def test_packages_and_model_present_is_ok(self):
+        with self.versions(), mock.patch.object(doctor, "DICTATION_MODEL", Path(__file__)):
+            check = doctor.check_dictation()
+        self.assertTrue(check["ok"])
+
+    def test_missing_package_names_it_and_the_installer(self):
+        with self.versions(missing=("transcribe-cpp",)),                 mock.patch.object(doctor, "DICTATION_MODEL", Path(__file__)):
+            check = doctor.check_dictation()
+        self.assertFalse(check["ok"])
+        self.assertIn("transcribe-cpp", check["detail"])
+        self.assertIn("install.ps1", check["fix"])
+        self.assertIn("install.sh", check["fix"])
+
+    def test_missing_model_is_reported(self):
+        with self.versions(),                 mock.patch.object(doctor, "DICTATION_MODEL", Path(__file__).parent / "no-model.gguf"):
+            check = doctor.check_dictation()
+        self.assertFalse(check["ok"])
+        self.assertIn("modelo del dictado", check["detail"])
+
+    def test_missing_dictation_warns_without_failing_the_doctor(self):
+        results = [ok_check(cid) for cid in CHECK_IDS[:-1]] + [missing_check("dictation")]
+        report = doctor.build_report(results)
+        self.assertTrue(report["ok"])
+        self.assertEqual(doctor.decide_exit_code(results, False), 0)
+        text = doctor.render_report(report)
+        self.assertIn("AVISO  dictation", text)
+        self.assertIn("Resultado: OK", text)
+
+    def test_fix_mode_does_not_try_to_install_the_dictation(self):
+        notes = []
+        with mock.patch.object(doctor.subprocess, "run") as run:
+            fixed, unfixable = doctor.fix_missing([missing_check("dictation")], notes.append)
+        run.assert_not_called()
+        self.assertEqual((fixed, unfixable), ([], []))
+        self.assertEqual(notes, ["dictation: arreglalo"])
 
 
 if __name__ == "__main__":

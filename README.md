@@ -18,7 +18,7 @@ Las mejoras publicadas en cada versión se detallan en [`CHANGELOG.md`](CHANGELO
 
 ## Instalación
 
-Necesitás [Git](https://git-scm.com/downloads), Python 3.10 o superior, FFmpeg y algunos paquetes de Python (`pywebview`, `markdown`, `pymupdf`, `edge-tts`, `truststore`). El instalador de cada sistema se encarga de todo lo que falte; `truststore` hace que Python use el almacén de certificados nativo (Keychain en macOS / CryptoAPI en Windows), en macOS la ventana usa el WKWebView que ya trae el sistema, y en Windows el doctor verifica que esté el runtime WebView2.
+Necesitás [Git](https://git-scm.com/downloads), Python 3.10 o superior, FFmpeg y algunos paquetes de Python (`pywebview`, `markdown`, `pymupdf`, `edge-tts`, `truststore`), más el dictado local del botón Micrófono (`transcribe-cpp`, `sounddevice`, `numpy` y un modelo de unos 750 MB). El instalador de cada sistema se encarga de todo lo que falte; `truststore` hace que Python use el almacén de certificados nativo (Keychain en macOS / CryptoAPI en Windows), en macOS la ventana usa el WKWebView que ya trae el sistema, y en Windows el doctor verifica que esté el runtime WebView2.
 
 ### macOS
 
@@ -112,6 +112,7 @@ Un agente de IA puede correr el doctor, parsear el `--json` y ejecutar el campo 
 |-----------|---------|------------------|
 | Git | Lo usa clonar y actualizar con `git pull`. | Vos (una vez): `brew install git` / `winget install --id Git.Git -e` |
 | Python 3.10+ | Corre la app y sus pruebas. | El instalador de tu sistema |
+| Dictado local | El botón Micrófono escribe en el editor lo que decís. Lo transcribe en tu máquina un modelo de voz (NVIDIA Nemotron 3.5 ASR Streaming, unos 750 MB) que queda en la carpeta `models` del clon; el audio no sale de tu equipo. El micrófono se elige en Configuración. Si falta, la app abre igual y el doctor lo avisa. | El instalador: paquetes `transcribe-cpp`, `sounddevice`, `numpy` y descarga del modelo |
 | FFmpeg | Reproduce las voces Edge y exporta MP3. | El instalador: `brew install ffmpeg` / `winget install --id Gyan.FFmpeg -e` |
 | Paquetes de Python | `pywebview`, `markdown`, `pymupdf`, `edge-tts`, `truststore`. | El instalador, o `python app/doctor.py --fix` |
 | Runtime de web | macOS trae WKWebView integrado (nada que instalar); en Windows el doctor verifica el WebView2 runtime y sugiere `winget install --id Microsoft.EdgeWebView -e` si falta. | Automático / doctor |

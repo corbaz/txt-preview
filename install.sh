@@ -3,8 +3,9 @@
 # Uso después de clonar:
 #   bash install.sh
 #   SKIP_INSTALL=1 bash install.sh    # solo corre el doctor
-# Instala Homebrew (si falta), Python, FFmpeg y los paquetes de la app,
-# corre el doctor y muestra cómo ejecutar la app. No necesita sudo.
+# Instala Homebrew (si falta), Python, FFmpeg, los paquetes de la app y el
+# dictado local (paquetes y modelo, unos 750 MB en la carpeta models), corre el
+# doctor y muestra cómo ejecutar la app. No necesita sudo.
 # El detalle queda en install.log (misma carpeta); por pantalla solo salen
 # los errores, las advertencias y los avisos.
 set -euo pipefail
@@ -71,7 +72,24 @@ if [ "${SKIP_INSTALL:-0}" != "1" ]; then
     fi
 fi
 
-# 5) Doctor: mismo reporte que usa un humano o un agente de IA.
+# 5) Dictado local (botón Micrófono): paquetes y modelo. Si algo falla la app
+# abre igual; solo queda sin dictado, y el doctor lo avisa.
+if [ "${SKIP_INSTALL:-0}" != "1" ]; then
+    log "Instalando los paquetes del dictado (transcribe-cpp, sounddevice, numpy)..."
+    if ! "$PYTHON" -m pip install --user transcribe-cpp sounddevice numpy >> "$LOG" 2>&1; then
+        if ! "$PYTHON" -m pip install --user --break-system-packages transcribe-cpp sounddevice numpy >> "$LOG" 2>&1; then
+            warn "no se pudieron instalar los paquetes del dictado; el botón Micrófono no va a dictar (detalle en install.log)."
+        fi
+    fi
+    if [ ! -f "$REPO/models/nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf" ]; then
+        info "Descargando el modelo del dictado (unos 750 MB, una sola vez)..."
+        if ! "$PYTHON" "$REPO/dictation_listen.py" --install >> "$LOG" 2>&1; then
+            warn "no se pudo descargar el modelo del dictado; el botón Micrófono no va a dictar. Volvé a ejecutar install.sh para reintentar."
+        fi
+    fi
+fi
+
+# 6) Doctor: mismo reporte que usa un humano o un agente de IA.
 set +e
 DOCTOR_REPORT="$("$PYTHON" "$APP_DIR/doctor.py" 2>&1)"
 DOCTOR_EXIT=$?
@@ -83,7 +101,7 @@ if [ "$DOCTOR_EXIT" -ne 0 ]; then
     fail "El doctor detectó algo pendiente: seguí las 'Solución' de arriba y volvé a ejecutar install.sh."
 fi
 
-# 6) Cómo abrir la app (en el log).
+# 7) Cómo abrir la app (en el log).
 log ""
 log "Listo. Ejecutá la app con:"
 log "  cd \"$REPO\" && ./run.sh"

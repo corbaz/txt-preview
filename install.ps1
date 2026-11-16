@@ -126,6 +126,22 @@ if (-not $SkipInstalls) {
         if ((Invoke-Native $python @("-m", "pip", "install", "--user", "--quiet", "--upgrade", "edge-tts")) -ne 0) {
             Write-Host "No se pudo instalar edge-tts; las voces de Edge no van a sonar." -ForegroundColor Yellow
         }
+        # Local dictation (Micrófono button): packages and model. A failure here never
+        # stops the install: the app opens anyway, without dictation, and the doctor says so.
+        Write-Host "Instalando los paquetes del dictado (transcribe-cpp, sounddevice, numpy)..."
+        if ((Invoke-Native $python @(
+                "-m", "pip", "install", "--user", "--quiet", "transcribe-cpp", "sounddevice", "numpy"
+            )) -ne 0) {
+            Write-Host "No se pudieron instalar los paquetes del dictado; el botón Micrófono no va a dictar." -ForegroundColor Yellow
+        }
+        $dictationModel = Join-Path $PSScriptRoot "models\nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf"
+        if (-not (Test-Path -LiteralPath $dictationModel)) {
+            Write-Host "Descargando el modelo del dictado (unos 750 MB, una sola vez)..."
+            if ((Invoke-Native $python @((Join-Path $PSScriptRoot "dictation_listen.py"), "--install")) -ne 0) {
+                Write-Host ("No se pudo descargar el modelo del dictado; el botón Micrófono no va a dictar. " +
+                    "Volvé a ejecutar install.ps1 para reintentar.") -ForegroundColor Yellow
+            }
+        }
     }
 
     if (-not $SkipFfmpeg -and -not (Get-Command ffplay.exe -ErrorAction SilentlyContinue)) {

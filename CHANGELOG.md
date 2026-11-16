@@ -1,5 +1,15 @@
 # Historial de cambios
 
+## v:26.11.16-14.08
+
+### Dictado propio en el botón Micrófono (las dos apps)
+
+- El botón Micrófono ya no usa el dictado del sistema (Win+H en Windows, el de macOS que nunca arrancaba). Graba el micrófono y lo transcribe en tu máquina con un modelo de voz; el audio no sale del equipo.
+- El texto entra al editor mientras hablás. Esc o el mismo botón lo detienen; mientras dicta el botón queda encendido y dice «Mic <Esc>», y al terminar vuelve a «Micrófono».
+- Configuración tiene un selector de micrófono: el predeterminado del sistema o uno de los detectados. La elección se guarda.
+- Los instaladores (`install.ps1`, `install.sh`) instalan los paquetes `transcribe-cpp`, `sounddevice` y `numpy`, y descargan el modelo (unos 750 MB, una sola vez) a la carpeta `models` del clon. Si la descarga se corta, al reintentar sigue desde donde quedó.
+- Si faltan los paquetes o el modelo, la app abre igual: el doctor lo marca como aviso y el botón explica qué falta.
+
 ## v:26.11.16-13.35
 
 ### «Continuar» ya no se corta
