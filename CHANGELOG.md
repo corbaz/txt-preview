@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## v:26.11.16-12.48
+
+### Continuar retoma donde se pausó en Mac
+
+- En Mac, al apretar Continuar el audio saltaba hacia adelante el tiempo que había estado en pausa y quedaba adelantado al resaltado. Ahora Continuar arranca el audio exactamente en el punto de la pausa. En Windows no cambia nada.
+
 ## v:26.11.16-12.26
 
 ### Pausar vuelve a responder en Mac

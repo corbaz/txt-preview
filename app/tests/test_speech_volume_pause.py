@@ -68,14 +68,47 @@ class TestPauseSuspends(SpeechEngineFixture, unittest.TestCase):
         self.engine.poll()
         player = self.engine.player_process
         for platform in ("darwin", "win32"):
-            with mock.patch.object(engine_module.sys, "platform", platform),                     mock.patch.object(engine_module.SuspendResume, "suspend") as suspend,                     mock.patch.object(engine_module.SuspendResume, "resume") as resume:
+            with mock.patch.object(engine_module.sys, "platform", platform),                     mock.patch.object(engine_module.SuspendResume, "suspend") as suspend:
                 self.engine.pause()
-                self.assertIs(self.engine.player_process, player)
-                self.engine.resume()
             suspend.assert_called_once_with(player.pid)
-            resume.assert_called_once_with(player.pid)
             self.assertIs(self.engine.player_process, player)
-            self.assertEqual(self.engine.mode, "Playing")
+            self.assertEqual(self.engine.mode, "Paused")
+            with mock.patch.object(engine_module.sys, "platform", "win32"),                     mock.patch.object(engine_module.SuspendResume, "resume"):
+                self.engine.resume()
+
+    def test_windows_continues_the_same_player(self):
+        self.engine.start_edge_session("hola mundo", "Edge · Voz", "es-CR-JuanNeural")
+        self.ready_chunk(self.engine.chunks[0])
+        self.engine.poll()
+        player = self.engine.player_process
+        with mock.patch.object(engine_module.sys, "platform", "win32"),                 mock.patch.object(engine_module.SuspendResume, "suspend"),                 mock.patch.object(engine_module.SuspendResume, "resume") as resume:
+            self.engine.pause()
+            self.engine.resume()
+        resume.assert_called_once_with(player.pid)
+        self.assertIs(self.engine.player_process, player)
+        self.assertEqual(self.engine.mode, "Playing")
+
+    def test_macos_continues_with_a_new_player_at_the_paused_point(self):
+        """A continued ffplay skips the paused time on macOS: the audio ran
+        ahead of the highlight."""
+        self.engine.start_edge_session("hola mundo", "Edge · Voz", "es-CR-JuanNeural")
+        self.ready_chunk(self.engine.chunks[0])
+        self.engine.poll()
+        first = self.engine.player_process
+        with mock.patch.object(engine_module.sys, "platform", "darwin"),                 mock.patch.object(engine_module.SuspendResume, "suspend"),                 mock.patch.object(engine_module.SuspendResume, "resume") as resume:
+            self.engine.player_started_at = time.time() - 3.0
+            self.engine.pause()
+            self.engine.pause_started_at = time.time()
+            self.engine.player_started_at = self.engine.pause_started_at - 3.0
+            time.sleep(0.2)  # paused time must not count
+            self.engine.resume()
+            resume.assert_not_called()
+        second = self.engine.player_process
+        self.assertIsNot(second, first)
+        args = player_args(second)
+        self.assertAlmostEqual(float(args[args.index("-ss") + 1]), 3.0, delta=0.1)
+        self.assertAlmostEqual(self.engine.elapsed_seconds(), 3.0, delta=0.15)
+        self.assertEqual(self.engine.mode, "Playing")
 
     def test_stop_after_the_whole_audio_is_generated_plays_nothing(self):
         """Detener only updates the Repetir length; nothing starts playing."""

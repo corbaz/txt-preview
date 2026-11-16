@@ -513,9 +513,14 @@ class SpeechEngine:
             self.emit("warning", "La lectura no está pausada.")
             return
         if (self.player_process is not None and self.player_process.poll() is None
-                and self.player_volume != self.volume):
-            # The volume changed while paused: continue at the same point with it.
+                and (self.player_volume != self.volume or sys.platform != "win32")):
+            # A new player at the paused point: the volume changed while
+            # paused, or this is not Windows. A continued (SIGCONT) ffplay on
+            # macOS skips the paused time and the audio runs ahead of the
+            # highlight; the suspended one is only used to cut the sound.
             elapsed = self.elapsed_seconds() or 0.0
+            trace.trace("resume-restart", pid=self.player_process.pid,
+                        elapsed=round(elapsed, 2), provider=self.provider)
             self.pause_started_at = None
             self._restart_player(elapsed)
         elif self.player_process is not None and self.player_process.poll() is None:
