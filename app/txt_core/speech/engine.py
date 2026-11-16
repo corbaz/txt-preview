@@ -614,6 +614,15 @@ class SpeechEngine:
             self.replay_highlight_checked = False
 
     # ---- Replay cache ------------------------------------------------------
+    def replay_ready_duration(self) -> float:
+        """Length of the audio Repetir would play: the saved one, or the
+        whole Play reading once every block is generated; 0 when none."""
+        if self.replay.file:
+            return self.replay.duration
+        if self.replay_ready():
+            return sum(chunk.duration_seconds for chunk in self.chunks)
+        return 0.0
+
     def replay_ready(self) -> bool:
         """Repetir has a whole audio with its final length: a saved one, or
         a Play reading whose blocks are all generated (Repetir saves it)."""

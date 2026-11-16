@@ -3507,6 +3507,12 @@ function Update-EdgeVoicePlayback {
         @($speechState.Chunks | Where-Object { $_.Status -notin @("Ready", "Playing", "Played") }).Count -eq 0
     ) {
         $btnReplay.Enabled = $true
+        # The total length shows now, not only after Detener; the slider seeks into it.
+        $readyDuration = [double](@($speechState.Chunks | Measure-Object -Property DurationSeconds -Sum).Sum)
+        $replaySlider.Enabled = $true
+        $replaySlider.Value = 0
+        $replaySlider.Maximum = [Math]::Max(1, [int][Math]::Ceiling($readyDuration * 10))
+        $lblReplayTime.Text = "0:00 / $(Format-ReplayTime $readyDuration)"
     }
 
     Start-CurrentEdgeChunk

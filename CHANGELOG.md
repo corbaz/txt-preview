@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## v:26.11.16-00.35
+
+### Repetir muestra la duración total apenas se habilita
+
+- Cuando todo el audio está generado, Repetir se habilita y ya muestra la duración total (antes quedaba en 0:00 / 0:00 hasta apretar Detener). La barra de posición también se habilita: elegir un punto detiene la lectura y repite desde ahí (las dos apps).
+
 ## v:26.11.15-19.40
 
 ### Volumen hasta 0 %, Repetir se reinicia con cada Play y pausa como en Windows

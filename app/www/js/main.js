@@ -602,7 +602,9 @@
   $("seek").addEventListener("change", () => {
     seekDragging = false;
     paintSlider($("seek"));
-    if (!(speechState && speechState.provider === "Replay")) return;
+    // A whole reading still playing is ready too: Repetir saves it and
+    // starts at the chosen point (legacy Invoke-ReplaySeek).
+    if (!(speechState && (speechState.provider === "Replay" || speechState.replay_ready))) return;
     safeCall((api) => api.replay_start(Number($("seek").value) / 10),
       "No se pudo reiniciar la lectura en esa posición.");
   });

@@ -1383,7 +1383,8 @@ class Api:
             "provider": engine.provider,
             "highlight_word_index": highlight,
             "replay_position": round(self._replay_position(), 3),
-            "replay_duration": round(engine.replay.duration, 3),
+            # The total shows as soon as Repetir is ready, not only after Detener.
+            "replay_duration": round(engine.replay_ready_duration(), 3),
             "replay_ready": bool(engine.replay_ready()),
             "message": self._take_message(),
             "voice_update_offered": bool(getattr(self, "_voice_update_offered", False)),

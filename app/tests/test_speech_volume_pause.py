@@ -116,6 +116,18 @@ class TestReplayReady(SpeechEngineFixture, unittest.TestCase):
         self.engine.poll()
         self.assertFalse(self.engine.replay_ready())
 
+    def test_total_length_shows_as_soon_as_repetir_is_ready(self):
+        """Not only after Detener: the length of the whole reading."""
+        self.engine.start_edge_session(" ".join(["palabra"] * 400), "Edge · Voz",
+                                       "es-CR-JuanNeural")
+        self.assertEqual(self.engine.replay_ready_duration(), 0.0)
+        for chunk in self.engine.chunks:
+            self.ready_chunk(chunk)
+        self.engine.poll()
+        total = sum(chunk.duration_seconds for chunk in self.engine.chunks)
+        self.assertGreater(total, 0)
+        self.assertAlmostEqual(self.engine.replay_ready_duration(), total)
+
     def test_volume_zero_is_mute(self):
         self.engine.set_volume(0)
         self.assertEqual(self.engine.volume, 0)
