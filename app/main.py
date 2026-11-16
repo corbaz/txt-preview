@@ -34,6 +34,7 @@ APP = ROOT
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 
+from txt_core import trace
 from txt_core import bridges, browser, clipboard, groq, language, models, prompts, settings, teams, updater, webapp
 from txt_core.attachments import (
     IMAGE_EXTENSIONS,
@@ -1233,10 +1234,12 @@ class Api:
         engine state under the lock, never by a UI state that may be a tick
         old (a stale «Pausar» used to send pause to a paused reading)."""
         with self._speech_lock:
+            trace.trace("toggle-click", mode=self.engine.mode, provider=self.engine.provider)
             if self.engine.mode == "Paused":
                 self.engine.resume()
             else:
                 self.engine.pause()
+            trace.trace("toggle-done", mode=self.engine.mode)
             return {"ok": True, "mode": self.engine.mode, "message": self._last_message}
 
     def set_speech_speed(self, percent: int, announce: bool = True) -> dict:
@@ -1438,8 +1441,16 @@ def _start_mac_dictation(timeout: float = 2.0) -> bool:
         try:
             app = AppKit.NSApplication.sharedApplication()
             app.activateIgnoringOtherApps_(True)
-            result.append(bool(app.sendAction_to_from_("startDictation:", None, None)))
-        except Exception:
+            window = app.keyWindow()
+            responder = window.firstResponder() if window is not None else None
+            taken = bool(app.sendAction_to_from_("startDictation:", None, None))
+            trace.trace("dictation", taken=taken, key_window=window is not None,
+                        responder=type(responder).__name__,
+                        responds=bool(responder is not None
+                                      and responder.respondsToSelector_("startDictation:")))
+            result.append(taken)
+        except Exception as error:
+            trace.trace("dictation-error", error=repr(error))
             result.append(False)
         finally:
             done.set()

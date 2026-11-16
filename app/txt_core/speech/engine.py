@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from .. import trace
 from .alignment import next_alignment_cursor
 from .marks import (
     EdgeWordMark,
@@ -395,6 +396,8 @@ class SpeechEngine:
         )
         self.player_started_at = time.time()
         self.pause_started_at = None
+        trace.trace("play-replay", pid=getattr(self.player_process, "pid", None),
+                    offset=round(offset, 2), players=trace.players())
         self.replay_offset = offset
         self.replay_tempo = tempo
         self.provider = "Replay"
@@ -434,6 +437,8 @@ class SpeechEngine:
         )
         self.player_started_at = time.time() - max(0.0, offset)
         self.pause_started_at = None
+        trace.trace("play-chunk", pid=getattr(self.player_process, "pid", None),
+                    chunk=chunk.index, offset=round(offset, 2), players=trace.players())
 
     def _restart_player(self, elapsed: float) -> None:
         """Start the current audio again `elapsed` seconds of playback in
@@ -492,8 +497,14 @@ class SpeechEngine:
         if self.player_process is not None and self.player_process.poll() is None:
             # Like txt.ps1 on every system: the player process is suspended
             # (NtSuspendProcess on Windows, SIGSTOP on macOS).
-            SuspendResume.suspend(self.player_process.pid)
+            pid = self.player_process.pid
+            SuspendResume.suspend(pid)
             self.pause_started_at = time.time()
+            trace.trace("pause", pid=pid, state=trace.process_state(pid),
+                        provider=self.provider, players=trace.players())
+        else:
+            trace.trace("pause-without-player", mode=self.mode, provider=self.provider,
+                        players=trace.players())
         self.mode = "Paused"
         self.emit("info", "Lectura pausada.")
 
@@ -508,7 +519,10 @@ class SpeechEngine:
             self.pause_started_at = None
             self._restart_player(elapsed)
         elif self.player_process is not None and self.player_process.poll() is None:
-            SuspendResume.resume(self.player_process.pid)
+            pid = self.player_process.pid
+            SuspendResume.resume(pid)
+            trace.trace("resume", pid=pid, state=trace.process_state(pid),
+                        provider=self.provider, players=trace.players())
             if self.pause_started_at is not None and self.player_started_at is not None:
                 self.player_started_at += time.time() - self.pause_started_at
             self.pause_started_at = None
@@ -592,6 +606,8 @@ class SpeechEngine:
 
     def stop_voice_playback(self) -> None:
         was_replay = self.provider == "Replay"
+        trace.trace("stop", mode=self.mode, provider=self.provider,
+                    pid=getattr(self.player_process, "pid", None))
         # The replay cache reads the chunk media files, not the processes:
         # save it first, then terminate every live audio process (S12).
         self._save_replay_cache()

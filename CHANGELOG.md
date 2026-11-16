@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## v:26.11.16-12.16
+
+### Registro de diagnóstico de Pausar y del dictado en Mac
+
+- En Mac, la app anota en `speech.log` (carpeta del clon) qué pasa al apretar Pausar/Continuar y Micrófono: proceso del reproductor, su estado y si quedó otro reproductor sonando. No cambia el comportamiento; sirve para encontrar por qué la pausa y el dictado fallan en Mac.
+
 ## v:26.11.16-06.42
 
 ### `install.sh` vuelve a ejecutarse en Mac
