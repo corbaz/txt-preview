@@ -497,7 +497,7 @@
       // never leave a stale Edge word highlighted.
       clearSpeechProgress();
     }
-    $("speech-pause").textContent = state.mode === "Paused" ? "Continuar" : "Pausar";
+    setPauseLabel(state.mode);
     // Legacy Update-ReplayControls: Repetir only with a whole audio and its
     // final length; the position slider only with a saved one.
     $("speech-replay").disabled = !state.replay_ready;
@@ -566,12 +566,22 @@
     }
   });
 
+  // The label is written only when it changes. Rewriting it on every
+  // speech tick (120 ms) replaces the button's text node, and WebKit (macOS)
+  // drops the click when that happens between mouse down and mouse up:
+  // Pausar did nothing most of the time.
+  function setPauseLabel(mode) {
+    const label = mode === "Paused" ? "Continuar" : "Pausar";
+    const button = $("speech-pause");
+    if (button.textContent !== label) button.textContent = label;
+  }
+
   $("speech-pause").addEventListener("click", () => {
     setTab("preview"); // txt.ps1: the reading controls show Vista previa
     safeCall((api) => api.toggle_pause_speech(), "No se pudo pausar o continuar la lectura.")
       .then((result) => {
         if (result && result.mode) {
-          $("speech-pause").textContent = result.mode === "Paused" ? "Continuar" : "Pausar";
+          setPauseLabel(result.mode);
         }
       });
   });

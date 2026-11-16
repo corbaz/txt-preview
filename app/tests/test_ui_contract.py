@@ -275,6 +275,13 @@ class TestBottomDeck(UiContractTestCase):
         self.assertIn('button.classList.toggle("accent", button.dataset.aiAction === action)',
                       script)
 
+    def test_pause_label_is_only_written_when_it_changes(self):
+        """WebKit drops a click whose text node was replaced between mouse
+        down and up; the speech tick must not rewrite the label every time."""
+        script = (ROOT / "www" / "js" / "main.js").read_text(encoding="utf-8")
+        self.assertIn("if (button.textContent !== label) button.textContent = label;", script)
+        self.assertNotIn('$("speech-pause").textContent =', script)
+
     def test_row2_utilities_in_original_order(self):
         row = self.deck.find(node_id="deck-row-2")
         self.assertEqual(control_labels(row), [

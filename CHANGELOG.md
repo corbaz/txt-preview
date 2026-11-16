@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## v:26.11.16-12.26
+
+### Pausar vuelve a responder en Mac
+
+- En Mac, el clic en Pausar/Continuar se perdía casi siempre: la app reescribía el texto del botón 8 veces por segundo y el navegador de macOS descarta el clic cuando eso pasa mientras el botón está apretado. Ahora el texto se escribe solo cuando cambia.
+
 ## v:26.11.16-12.16
 
 ### Registro de diagnóstico de Pausar y del dictado en Mac
