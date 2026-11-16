@@ -3048,24 +3048,21 @@ function Update-NavigationState {
 function Set-AudioControlState {
     param([ValidateSet("Idle", "Play", "Pause", "Stop")][string]$state)
 
+    # The fill shows what the audio is doing: Play while it sounds, Continuar while
+    # it is paused, and Repetir whenever the audio is the repeated one (together with
+    # Play or Continuar). Detener lights nothing.
     $speechState.ControlState = $state
-    foreach ($button in @($btnLeer, $btnPauseVoice, $btnStopVoice)) {
+    foreach ($button in @($btnLeer, $btnPauseVoice, $btnStopVoice, $btnReplay)) {
         Set-ButtonTone $button "Elevated" "Text" "Hover" "Border"
     }
 
-    $activeButton = switch ($state) {
-        "Play" { $btnLeer }
-        "Pause" { $btnPauseVoice }
-        "Stop" { $btnStopVoice }
-        default { $null }
+    if ($state -eq "Play") {
+        Set-ButtonTone $btnLeer "Play" "OnState" "Play" "Play"
+    } elseif ($state -eq "Pause") {
+        Set-ButtonTone $btnPauseVoice "Pause" "OnState" "Pause" "Pause"
     }
-    if ($null -ne $activeButton) {
-        $stateColor = switch ($state) {
-            "Pause" { "Pause" }
-            "Stop" { "Stop" }
-            default { "Play" }
-        }
-        Set-ButtonTone $activeButton $stateColor "OnState" $stateColor $stateColor
+    if ($state -in @("Play", "Pause") -and $speechState.Provider -eq "Replay") {
+        Set-ButtonTone $btnReplay "Accent" "OnAccent" "AccentHover" "Accent"
     }
 }
 

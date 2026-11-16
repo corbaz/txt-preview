@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## v:26.11.16-13.02
+
+### Los botones de audio se rellenan según lo que está pasando
+
+- Play queda con fondo mientras el audio suena y Continuar mientras está en pausa. Repetir queda con fondo cuando el audio es el repetido, junto con Play o con Continuar. Detener no enciende nada (las dos apps).
+
 ## v:26.11.16-12.48
 
 ### Continuar retoma donde se pausó en Mac

@@ -282,6 +282,19 @@ class TestBottomDeck(UiContractTestCase):
         self.assertIn("if (button.textContent !== label) button.textContent = label;", script)
         self.assertNotIn('$("speech-pause").textContent =', script)
 
+    def test_audio_buttons_are_filled_by_what_the_audio_is_doing(self):
+        """Play while it sounds, Continuar while paused, Repetir with either
+        when the audio is the repeated one; Detener is never filled."""
+        script = (ROOT / "www" / "js" / "main.js").read_text(encoding="utf-8")
+        for line in ('$("speech-play").classList.toggle("lit", sounding);',
+                     '$("speech-pause").classList.toggle("lit", paused);',
+                     '$("speech-replay").classList.toggle("lit", replay);'):
+            self.assertIn(line, script)
+        self.assertNotIn('$("speech-stop").classList', script)
+        css = (ROOT / "www" / "css" / "app.css").read_text(encoding="utf-8")
+        for rule in (".btn.play.lit", ".btn.pause.lit", "#speech-replay.lit"):
+            self.assertIn(rule, css)
+
     def test_row2_utilities_in_original_order(self):
         row = self.deck.find(node_id="deck-row-2")
         self.assertEqual(control_labels(row), [

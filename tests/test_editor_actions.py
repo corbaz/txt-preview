@@ -109,6 +109,31 @@ class LastAiActionMarkTests(unittest.TestCase):
 
 
 @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
+class AudioButtonFillTests(unittest.TestCase):
+    def test_fill_shows_what_the_audio_is_doing(self) -> None:
+        results = run_app_snippet(
+            "Set-Theme $true; $idle = (Get-ThemeColor 'Elevated').ToArgb(); "
+            "function Lit { (@($btnLeer, $btnPauseVoice, $btnStopVoice, $btnReplay) | "
+            "ForEach-Object { $_.BackColor.ToArgb() -ne $idle }) -join ',' }; "
+            "$speechState.Provider = 'Edge'; Set-AudioControlState 'Play'; 'RESULT=' + (Lit); "
+            "Set-AudioControlState 'Pause'; 'RESULT=' + (Lit); "
+            "Set-AudioControlState 'Stop'; 'RESULT=' + (Lit); "
+            "$speechState.Provider = 'Replay'; Set-AudioControlState 'Play'; 'RESULT=' + (Lit); "
+            "Set-AudioControlState 'Pause'; 'RESULT=' + (Lit); "
+            "$speechState.Provider = $null; Set-AudioControlState 'Idle'; 'RESULT=' + (Lit)"
+        )
+        # Order: Play, Pausar/Continuar, Detener, Repetir.
+        self.assertEqual(results, [
+            "True,False,False,False",   # reading: Play
+            "False,True,False,False",   # paused: Continuar
+            "False,False,False,False",  # Detener lights nothing
+            "True,False,False,True",    # repeating: Play + Repetir
+            "False,True,False,True",    # repetition paused: Continuar + Repetir
+            "False,False,False,False",
+        ])
+
+
+@unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
 class ModernControlsTests(unittest.TestCase):
     def test_slider_clamps_raises_value_changed_and_keeps_trackbar_api(self) -> None:
         results = run_app_snippet(

@@ -498,6 +498,7 @@
       clearSpeechProgress();
     }
     setPauseLabel(state.mode);
+    markAudioButtons(state);
     // Legacy Update-ReplayControls: Repetir only with a whole audio and its
     // final length; the position slider only with a saved one.
     $("speech-replay").disabled = !state.replay_ready;
@@ -574,6 +575,19 @@
     const label = mode === "Paused" ? "Continuar" : "Pausar";
     const button = $("speech-pause");
     if (button.textContent !== label) button.textContent = label;
+  }
+
+  // Legacy Set-AudioControlState: the fill shows what the audio is doing.
+  // Play while it sounds, Continuar while it is paused, and Repetir whenever
+  // the audio is the repeated one (with Play or Continuar). Detener lights
+  // nothing.
+  function markAudioButtons(state) {
+    const sounding = state.mode === "Playing" || state.mode === "Generating";
+    const paused = state.mode === "Paused";
+    const replay = state.provider === "Replay" && (sounding || paused);
+    $("speech-play").classList.toggle("lit", sounding);
+    $("speech-pause").classList.toggle("lit", paused);
+    $("speech-replay").classList.toggle("lit", replay);
   }
 
   $("speech-pause").addEventListener("click", () => {

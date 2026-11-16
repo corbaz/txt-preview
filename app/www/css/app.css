@@ -342,6 +342,10 @@ body {
 .btn.play { color: var(--play); border-color: var(--play); }
 .btn.pause { color: var(--pause); border-color: var(--pause); }
 .btn.stop { color: var(--stop); border-color: var(--stop); }
+/* The audio button in use is filled (legacy Set-AudioControlState). */
+.btn.play.lit { background: var(--play); color: var(--on-accent); }
+.btn.pause.lit { background: var(--pause); color: var(--on-accent); }
+#speech-replay.lit { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 
 /* Radio-style toggles (Hombre/Mujer, Español/Inglés). */
 .toggle {
