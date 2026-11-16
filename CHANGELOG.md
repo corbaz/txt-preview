@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## v:26.11.16-06.42
+
+### `install.sh` vuelve a ejecutarse en Mac
+
+- `install.sh` y `run.sh` ahora tienen permiso de ejecución en el repositorio. Antes, al actualizar `install.sh`, `git pull` lo reescribía sin ese permiso y el alias fallaba con `permission denied`. El alias del README usa `bash install.sh && bash run.sh`, que funciona aunque falte el permiso.
+
 ## v:26.11.15-23.52
 
 ### Solo se ilumina el botón de IA que apretaste

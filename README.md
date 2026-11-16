@@ -29,12 +29,12 @@ cd txt-preview
 ./run.sh
 ```
 
-Si ya lo tenías clonado, en vez del clone hacé `git pull` y volvé a correr `./install.sh`. Si el clone no conserva el permiso de ejecución, corré una vez `chmod +x run.sh install.sh`.
+Si ya lo tenías clonado, en vez del clone hacé `git pull` y volvé a correr `./install.sh`. Los scripts ya vienen con permiso de ejecución; si igual da `permission denied`, corré una vez `chmod +x run.sh install.sh` o usá `bash install.sh`.
 
 Para actualizar, reparar dependencias y abrir la app con un solo alias (clone en `~/txt-preview`):
 
 ```bash
-echo 'alias txtpreview="cd ~/txt-preview && git pull --ff-only -q && ./install.sh && ./run.sh"' >> ~/.zshrc
+echo 'alias txtpreview="cd ~/txt-preview && git pull --ff-only -q && bash install.sh && bash run.sh"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
