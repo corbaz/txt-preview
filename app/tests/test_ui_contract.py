@@ -294,6 +294,10 @@ class TestBottomDeck(UiContractTestCase):
         css = (ROOT / "www" / "css" / "app.css").read_text(encoding="utf-8")
         for rule in (".btn.play.lit", ".btn.pause.lit", "#speech-replay.lit"):
             self.assertIn(rule, css)
+        # The skin recolours the label on hover: a filled button keeps it readable.
+        skin = (ROOT / "www" / "css" / "neumorphic.css").read_text(encoding="utf-8")
+        for rule in (".btn.play.lit:hover", ".btn.pause.lit:hover", "#speech-replay.lit:hover"):
+            self.assertIn(rule, skin)
 
     def test_row2_utilities_in_original_order(self):
         row = self.deck.find(node_id="deck-row-2")

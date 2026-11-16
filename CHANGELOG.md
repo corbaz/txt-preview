@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## v:26.11.16-13.22
+
+### El texto de los botones de audio encendidos se lee al pasar el mouse
+
+- Al pasar el mouse sobre Play, Continuar o Repetir encendidos, el texto tomaba el mismo color que el fondo y no se leía. Ahora se mantiene oscuro sobre el fondo de color.
+
 ## v:26.11.16-13.02
 
 ### Los botones de audio se rellenan según lo que está pasando

@@ -123,6 +123,10 @@ body[data-theme="light"] .btn.accent {
 .btn.play:hover { color: var(--play); }
 .btn.pause:hover { color: var(--pause); }
 .btn.stop:hover { color: var(--stop); }
+/* A filled audio button keeps its dark label, hovered or not. */
+.btn.play.lit, .btn.play.lit:hover,
+.btn.pause.lit, .btn.pause.lit:hover,
+#speech-replay.lit, #speech-replay.lit:hover { color: var(--on-accent); font-weight: 600; }
 
 /* ---- Wells: where content is typed or shown --------------------------------- */
 #model-select, #voice-select, #browser-address,
