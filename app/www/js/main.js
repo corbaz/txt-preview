@@ -42,6 +42,7 @@
     // txt.ps1: the Contexto IA bar belongs to the Editor tab only.
     $("context-bar").hidden = name !== "editor";
     if (name === "preview") schedulePreview();
+    if (name === "settings") loadMicrophones(); // plugged or unplugged since
     placeBrowser();
   }
 
@@ -804,26 +805,124 @@
     setStatus("Editor y adjuntos limpiados.");
   });
 
-  // ---- Micrófono (legacy Win+H dictation) -----------------------------------
-  $("mic-button").addEventListener("click", async () => {
-    if (!requireBridge()) return;
-    // txt.ps1: the caret goes to the end of the editor, where the dictated
-    // text lands (first, so the dictation finds the editor focused; if it
-    // cannot start, the editor is ready to type).
+  // ---- Micrófono: dictation by a speech model on this machine ---------------
+  // (legacy Start-Dictation / Stop-Dictation). The words enter the editor at
+  // the caret while they are said; Esc or the button again stops it.
+  let dictating = false;
+  let dictationTimer = null;
+
+  function setDictating(on) {
+    dictating = on;
+    const button = $("mic-button");
+    const label = on ? "Mic <Esc>" : "Micrófono";
+    if (button.textContent !== label) button.textContent = label;
+    button.classList.toggle("lit", on);
+    if (!on && dictationTimer) {
+      clearInterval(dictationTimer);
+      dictationTimer = null;
+    }
+  }
+
+  // A phrase's first piece comes with a leading space: dropped at the start
+  // of the text or of a line, and after a space.
+  function insertDictated(piece) {
+    const editor = $("editor");
+    const start = editor.selectionStart;
+    const before = editor.value.slice(0, start);
+    let text = piece;
+    if (text.startsWith(" ") && (before === "" || /\s$/.test(before))) text = text.slice(1);
+    if (!text) return;
+    editor.setRangeText(text, start, editor.selectionEnd, "end");
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+    editor.scrollTop = editor.scrollHeight;
+  }
+
+  async function dictationTick() {
+    const api = bridgeApi();
+    if (!api) return;
+    let state;
+    try {
+      state = await api.dictation_tick();
+    } catch (_) {
+      return;
+    }
+    if (!state) return;
+    if (state.text) insertDictated(state.text);
+    if (state.message) setStatus(state.message, state.level);
+    else if (state.partial) setStatus("Dictando: " + state.partial);
+    if (state.state === "idle") setDictating(false);
+  }
+
+  $("mic-button").addEventListener("click", () => {
+    if (dictating) stopDictation();
+    else startDictation();
+  });
+
+  async function startDictation() {
+    // The caret goes to the end of the editor, where the dictated text lands
+    // (txt.ps1); if the dictation cannot start, the editor is ready to type.
     setTab("editor");
     const editor = $("editor");
     editor.focus();
     editor.setSelectionRange(editor.value.length, editor.value.length);
-    try {
-      const result = await window.pywebview.api.start_dictation();
-      if (result && result.ok) {
-        $("mic-button").textContent = "Mic <Esc>"; // txt.ps1
-        editor.focus();
-      }
-      if (result && result.message) setStatus(result.message);
-    } catch (_) {
-      setStatus("No se pudo activar el dictado.");
+    const language = voiceFilterActive("lang-en") ? "en" : "es";
+    const result = await safeCall((api) => api.start_dictation(language),
+      "No se pudo activar el dictado.");
+    if (!result) return;
+    if (!result.ok) {
+      setStatus(result.message, "error");
+      return;
     }
+    setDictating(true);
+    dictationTimer = setInterval(dictationTick, 150);
+    dictationTick();
+  }
+
+  function stopDictation() {
+    safeCall((api) => api.stop_dictation(), "No se pudo detener el dictado.");
+    $("editor").focus();
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && dictating) {
+      e.preventDefault();
+      stopDictation();
+    }
+  });
+
+  // ---- Configuración: microphone for the dictation ---------------------------
+  async function loadMicrophones() {
+    const api = bridgeApi();
+    if (!api) return;
+    let data;
+    try {
+      data = await api.list_microphones();
+    } catch (_) {
+      return;
+    }
+    const select = $("microphone-select");
+    const names = data.microphones || [];
+    // The saved one stays listed even when it is unplugged now.
+    if (data.selected && !names.includes(data.selected)) names.push(data.selected);
+    select.innerHTML = "";
+    const fallback = document.createElement("option");
+    fallback.value = "";
+    fallback.textContent = "Predeterminado del sistema";
+    select.appendChild(fallback);
+    names.forEach((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      select.appendChild(option);
+    });
+    select.value = data.selected || "";
+  }
+
+  $("microphone-select").addEventListener("change", async () => {
+    const result = await safeCall(
+      (api) => api.set_microphone($("microphone-select").value),
+      "No se pudo guardar el micrófono.");
+    if (result && result.message) setStatus(result.message);
   });
 
   // ---- Cerrar (legacy $form.Close) -------------------------------------------

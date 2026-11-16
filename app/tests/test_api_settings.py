@@ -482,47 +482,47 @@ class TestSpeechSpeedWiring(ApiSettingsTestCase):
 
 
 class TestDictationAndClose(ApiSettingsTestCase):
-    """Micrófono (T15/S8): legacy Win+H via keybd_event on Windows, a clear
-    macOS instruction otherwise; Cerrar destroys the window. No real key
-    events, dialogs or closing happen in tests."""
+    """Micrófono: the Api hands the dictation to txt_core.dictation with the
+    chosen language and microphone; Cerrar destroys the window. No real
+    listener, microphone or closing happen in tests."""
 
-    def test_start_dictation_windows_sends_the_legacy_win_h_sequence(self):
-        with mock.patch("sys.platform", "win32"), \
-                mock.patch.object(main, "_press_win_h") as press:
-            result = self.api.start_dictation()
-        press.assert_called_once_with()
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["message"],
-                         "Dictado activado. Presioná Esc para detenerlo.")
+    def setUp(self):
+        super().setUp()
+        self.api._dictation = mock.Mock()
 
-    def test_start_dictation_windows_reports_failure(self):
-        with mock.patch("sys.platform", "win32"), \
-                mock.patch.object(main, "_press_win_h",
-                                  side_effect=OSError("sin teclado")):
-            result = self.api.start_dictation()
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["message"],
-                         "No se pudo activar el dictado: sin teclado")
+    def test_start_dictation_uses_the_language_and_the_saved_microphone(self):
+        self.api._dictation.start.return_value = {"ok": True, "state": "loading"}
+        self.api.set_microphone("JBL Tune 520BT")
+        self.assertEqual(self.api.start_dictation("en"), {"ok": True, "state": "loading"})
+        self.api._dictation.start.assert_called_once_with("en", "JBL Tune 520BT")
 
-    def test_start_dictation_macos_starts_system_dictation_in_the_editor(self):
-        with mock.patch("sys.platform", "darwin"),                 mock.patch.object(main, "_start_mac_dictation", return_value=True),                 mock.patch.object(main.subprocess, "run") as run:
-            result = self.api.start_dictation()
-        run.assert_not_called()  # no blocking dialog any more
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["message"], main.MSG_DICTATION_MAC_ON)
+    def test_start_dictation_defaults_to_spanish_and_the_system_microphone(self):
+        self.api.start_dictation()
+        self.api._dictation.start.assert_called_once_with("es", "")
 
-    def test_start_dictation_macos_not_started_leaves_the_editor_to_type(self):
-        for outcome in ({"return_value": False}, {"side_effect": RuntimeError("sin AppKit")}):
-            with mock.patch("sys.platform", "darwin"),                     mock.patch.object(main, "_start_mac_dictation", **outcome):
-                result = self.api.start_dictation()
-            self.assertFalse(result["ok"])
-            self.assertIn("el editor quedó listo para escribir", result["message"])
+    def test_stop_and_tick_go_to_the_dictation(self):
+        self.api._dictation.stop.return_value = {"ok": True, "state": "stopping"}
+        self.api._dictation.poll.return_value = {"state": "listening", "text": " hola"}
+        self.assertEqual(self.api.stop_dictation()["state"], "stopping")
+        self.assertEqual(self.api.dictation_tick()["text"], " hola")
 
-    def test_start_dictation_other_platform_never_pretends_success(self):
-        with mock.patch("sys.platform", "linux"):
-            result = self.api.start_dictation()
-        self.assertFalse(result["ok"])
-        self.assertIn("no está disponible", result["message"])
+    def test_microphone_choice_is_saved_and_listed(self):
+        with mock.patch.object(main.dictation, "list_microphones",
+                               return_value=["Micrófono (G432)", "JBL Tune 520BT"]):
+            self.assertEqual(self.api.list_microphones()["selected"], "")
+            result = self.api.set_microphone("JBL Tune 520BT")
+            listed = self.api.list_microphones()
+        self.assertEqual(result["message"], "Micrófono para el dictado: JBL Tune 520BT.")
+        self.assertEqual(listed, {"microphones": ["Micrófono (G432)", "JBL Tune 520BT"],
+                                  "selected": "JBL Tune 520BT"})
+        self.assertEqual(self.api.set_microphone("")["message"],
+                         "Micrófono para el dictado: predeterminado del sistema.")
+        self.assertEqual(main.settings.get_microphone(self.api._settings_dir), "")
+
+    def test_close_app_releases_the_microphone(self):
+        self.api._window = mock.Mock()
+        self.api.close_app()
+        self.api._dictation.close.assert_called_once_with()
 
     def test_close_app_destroys_the_window(self):
         window = mock.Mock()

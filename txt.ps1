@@ -1483,6 +1483,33 @@ $lblEdgeTtsVersion.AutoEllipsis = $true
 $lblEdgeTtsVersion.SetBounds(1077, 106, 260, 28)
 $tabSettings.Controls.Add($lblEdgeTtsVersion)
 
+# Micrófono for the dictation: the system's default, or one chosen by name.
+$defaultMicrophoneLabel = "Predeterminado del sistema"
+$lblMicrophone = New-Object Windows.Forms.Label
+$lblMicrophone.Text = "Micrófono"
+$lblMicrophone.SetBounds(30, 190, 100, 26)
+$tabSettings.Controls.Add($lblMicrophone)
+
+$micCombo = New-Object ModernComboBox
+$micCombo.DropDownStyle = [Windows.Forms.ComboBoxStyle]::DropDownList
+$micCombo.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+$micCombo.SetBounds(140, 186, 470, 30)
+[void]$micCombo.Items.Add($defaultMicrophoneLabel)
+$micCombo.SelectedIndex = 0
+$tabSettings.Controls.Add($micCombo)
+
+$lblMicrophoneHint = New-Object Windows.Forms.Label
+$lblMicrophoneHint.Text = "El dictado se transcribe en esta máquina, sin enviar el audio a ningún lado."
+$lblMicrophoneHint.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+$lblMicrophoneHint.AutoEllipsis = $true
+$lblMicrophoneHint.SetBounds(622, 187, 640, 28)
+$tabSettings.Controls.Add($lblMicrophoneHint)
+
+# Dictation by a speech model on this machine (dictation_listen.py, shared with the
+# Python app). State: Idle, Loading, Listening or Stopping.
+$script:dictation = @{ Process = $null; Control = $null; State = "Idle"; ReadTask = $null; StopRequestedAt = $null }
+$script:loadingMicrophones = $false
+
 $modelCombo = New-Object ModernComboBox
 $modelCombo.DropDownStyle = [Windows.Forms.ComboBoxStyle]::DropDownList
 $modelCombo.FlatStyle = [Windows.Forms.FlatStyle]::Flat
@@ -1637,7 +1664,7 @@ function Update-SettingsLayout {
     $page = $tabSettings.ClientSize
     $width = [Math]::Max(300, $page.Width - 60)
     $settingsStatus.SetBounds(30, [Math]::Max(330, $page.Height - 36), $width, 28)
-    $modelsList.SetBounds(30, 190, $width, [Math]::Max(120, $settingsStatus.Top - 198))
+    $modelsList.SetBounds(30, 230, $width, [Math]::Max(120, $settingsStatus.Top - 238))
 }
 $tabSettings.Add_Resize({ Update-SettingsLayout })
 Update-SettingsLayout
@@ -2201,7 +2228,7 @@ function Save-AppSettings {
     if (Test-Path -LiteralPath $settingsPath) {
         try {
             $existing = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($field in @("selected_model", "theme", "speech_voice", "speed")) {
+            foreach ($field in @("selected_model", "theme", "speech_voice", "speed", "microphone")) {
                 $property = $existing.PSObject.Properties[$field]
                 if ($property -and $null -ne $property.Value) {
                     $settings[$field] = $property.Value
@@ -2993,6 +3020,10 @@ function Invoke-EditorShortcut {
 
     if ($keyData -eq ([Windows.Forms.Keys]::Control -bor [Windows.Forms.Keys]::Return)) {
         Invoke-PrimaryAiAction
+        return $true
+    }
+    if ($keyData -eq [Windows.Forms.Keys]::Escape -and $script:dictation.State -ne "Idle") {
+        Stop-Dictation
         return $true
     }
     if ($keyData -eq ([Windows.Forms.Keys]::Control -bor [Windows.Forms.Keys]::V) -and [Windows.Forms.Clipboard]::ContainsImage()) {
@@ -5241,6 +5272,279 @@ function New-GroqRequestJson {
     return $body | ConvertTo-Json -Depth 10
 }
 
+$dictationScript = Join-Path $PSScriptRoot "dictation_listen.py"
+$dictationTimer = New-Object Windows.Forms.Timer
+$dictationTimer.Interval = 150
+
+function Get-SavedMicrophone {
+    if (Test-Path -LiteralPath $settingsPath) {
+        try {
+            $saved = (Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json).PSObject.Properties["microphone"]
+            if ($saved -and $saved.Value) {
+                return [string]$saved.Value
+            }
+        } catch {
+        }
+    }
+    return ""
+}
+
+# Only the microphone changes: every other field of settings.json stays as it is.
+function Save-MicrophoneSetting {
+    param([string]$name)
+
+    $settings = [ordered]@{}
+    if (Test-Path -LiteralPath $settingsPath) {
+        try {
+            $existing = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($property in $existing.PSObject.Properties) {
+                $settings[$property.Name] = $property.Value
+            }
+        } catch {
+        }
+    }
+    $settings["microphone"] = $name
+    [void][IO.Directory]::CreateDirectory($settingsDirectory)
+    [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 4), [Text.UTF8Encoding]::new($false))
+}
+
+function Start-DictationProcess {
+    param([string[]]$arguments)
+
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $pythonCommand
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+    [void]$startInfo.ArgumentList.Add($dictationScript)
+    foreach ($argument in $arguments) {
+        [void]$startInfo.ArgumentList.Add($argument)
+    }
+    return [Diagnostics.Process]::Start($startInfo)
+}
+
+# The microphones as the system names them; none when Python or the packages are missing.
+function Get-DictationMicrophones {
+    if (-not $pythonCommand) {
+        return @()
+    }
+    try {
+        $process = Start-DictationProcess @("--list")
+        $outputTask = $process.StandardOutput.ReadToEndAsync()
+        while (-not $process.HasExited) {
+            [Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 30
+        }
+        $lines = $outputTask.GetAwaiter().GetResult() -split "`r?`n"
+        $process.Dispose()
+        return @($lines | Where-Object { $_ -like "mic *" } | ForEach-Object { $_.Substring(4).Trim() })
+    } catch {
+        return @()
+    }
+}
+
+# Fills the selector: the default, the microphones found, and the saved one even if unplugged.
+function Update-MicrophoneList {
+    param($names)
+
+    if ($null -eq $names) {
+        $names = Get-DictationMicrophones
+    }
+    $saved = Get-SavedMicrophone
+    $script:loadingMicrophones = $true
+    $micCombo.BeginUpdate()
+    $micCombo.Items.Clear()
+    [void]$micCombo.Items.Add($defaultMicrophoneLabel)
+    foreach ($name in @($names)) {
+        [void]$micCombo.Items.Add([string]$name)
+    }
+    if ($saved -and $micCombo.FindStringExact($saved) -lt 0) {
+        [void]$micCombo.Items.Add($saved)
+    }
+    $micCombo.EndUpdate()
+    $index = if ($saved) { $micCombo.FindStringExact($saved) } else { 0 }
+    $micCombo.SelectedIndex = [Math]::Max(0, $index)
+    $script:loadingMicrophones = $false
+}
+
+$micCombo.Add_SelectedIndexChanged({
+    if ($script:loadingMicrophones) {
+        return
+    }
+    $name = if ($micCombo.SelectedIndex -le 0) { "" } else { [string]$micCombo.SelectedItem }
+    Save-MicrophoneSetting $name
+    $shown = if ($name) { $name } else { "predeterminado del sistema" }
+    Set-StatusText $settingsStatus "Micrófono para el dictado: $shown."
+})
+
+# Micrófono is filled and reads «Mic <Esc>» while it dictates.
+function Update-DictationButton {
+    if ($script:dictation.State -eq "Idle") {
+        $btnMic.Text = "Micrófono"
+        Set-ButtonTone $btnMic "Elevated" "Text" "Hover" "Border"
+    } else {
+        $btnMic.Text = "Mic <Esc>"
+        Set-ButtonTone $btnMic "Accent" "OnAccent" "AccentHover" "Accent"
+    }
+}
+
+# The words enter the editor at the caret. A phrase's first piece comes with a leading
+# space: dropped at the start of the text or of a line, and after a space.
+function Add-DictatedText {
+    param([string]$piece)
+
+    $start = $textBox.SelectionStart
+    if ($piece.StartsWith(" ") -and ($start -eq 0 -or [char]::IsWhiteSpace($textBox.Text[$start - 1]))) {
+        $piece = $piece.Substring(1)
+    }
+    if ($piece) {
+        $textBox.SelectedText = $piece
+    }
+}
+
+function Complete-Dictation {
+    param(
+        [string]$message,
+        [ValidateSet("Info", "Warning", "Error")][string]$Level = "Info"
+    )
+
+    $dictationTimer.Stop()
+    $process = $script:dictation.Process
+    if ($process) {
+        try {
+            if (-not $process.HasExited) {
+                $process.Kill()
+            }
+            $process.Dispose()
+        } catch {
+        }
+    }
+    $script:dictation.Process = $null
+    $script:dictation.ReadTask = $null
+    $script:dictation.State = "Idle"
+    Update-DictationButton
+    if ($message) {
+        Show-Message $message -Level $Level
+    }
+}
+
+# One line of the listener; $true when it ends the dictation.
+function Receive-DictationLine {
+    param([string]$line)
+
+    $kind, $rest = $line -split " ", 2
+    $words = if ($rest) { ($rest -split " ", 2)[1] } else { "" }
+    switch ($kind) {
+        "ready" {
+            if ($script:dictation.State -eq "Loading") {
+                $script:dictation.State = "Listening"
+                Show-Message "Dictando. Presioná Esc o Micrófono para detenerlo."
+            }
+        }
+        "text" {
+            if ($words) {
+                Add-DictatedText $words
+            }
+        }
+        "partial" {
+            if ($words) {
+                Show-Message ("Dictando: " + $words.Trim())
+            }
+        }
+        "done" {
+            Complete-Dictation "Dictado detenido."
+            return $true
+        }
+        "error" {
+            $detail = if ($rest) { $rest.Trim() } else { "error desconocido" }
+            Complete-Dictation "No se pudo dictar: $detail. El editor quedó listo para escribir." -Level Error
+            return $true
+        }
+    }
+    return $false
+}
+
+function Start-Dictation {
+    if ($script:dictation.State -ne "Idle") {
+        return
+    }
+    # The caret goes to the end of the editor, where the dictated text lands; if the
+    # dictation cannot start, the editor is ready to type.
+    $tabs.SelectedTab = $tabEditor
+    [void]$textBox.Focus()
+    $textBox.SelectionStart = $textBox.Text.Length
+    $textBox.SelectionLength = 0
+    if (-not $pythonCommand) {
+        Show-Message "No se pudo dictar: No se encontró Python para el dictado. El editor quedó listo para escribir." -Level Error
+        return
+    }
+    $control = Join-Path ([IO.Path]::GetTempPath()) ("txt-dictation-{0}-{1}.txt" -f $PID, [DateTime]::UtcNow.Ticks)
+    $language = if ($rbEnglish.Checked) { "en" } else { "es" }
+    $arguments = @($language, $control)
+    $microphone = Get-SavedMicrophone
+    if ($microphone) {
+        $arguments += $microphone
+    }
+    try {
+        $process = Start-DictationProcess $arguments
+    } catch {
+        Show-Message "No se pudo dictar: $($_.Exception.Message). El editor quedó listo para escribir." -Level Error
+        return
+    }
+    $script:dictation.Process = $process
+    $script:dictation.Control = $control
+    $script:dictation.State = "Loading"
+    $script:dictation.StopRequestedAt = $null
+    $script:dictation.ReadTask = $process.StandardOutput.ReadLineAsync()
+    Update-DictationButton
+    Show-Message "Preparando el dictado..."
+    $dictationTimer.Start()
+}
+
+# Esc or the button again: the phrase under way is still written.
+function Stop-Dictation {
+    if ($script:dictation.State -eq "Idle") {
+        return
+    }
+    $script:dictation.State = "Stopping"
+    $script:dictation.StopRequestedAt = [DateTime]::UtcNow
+    try {
+        [IO.File]::WriteAllText($script:dictation.Control, "stop")
+    } catch {
+    }
+    [void]$textBox.Focus()
+}
+
+function Update-Dictation {
+    while ($script:dictation.ReadTask -and $script:dictation.ReadTask.IsCompleted) {
+        $line = $null
+        try {
+            $line = $script:dictation.ReadTask.GetAwaiter().GetResult()
+        } catch {
+        }
+        if ($null -eq $line) {
+            # The listener ended without saying "done".
+            if ($script:dictation.State -eq "Stopping") {
+                Complete-Dictation "Dictado detenido."
+            } else {
+                Complete-Dictation "No se pudo dictar: el dictado terminó sin avisar. El editor quedó listo para escribir." -Level Error
+            }
+            return
+        }
+        $ended = [bool](Receive-DictationLine $line | Select-Object -Last 1)
+        if ($ended) {
+            return
+        }
+        $script:dictation.ReadTask = $script:dictation.Process.StandardOutput.ReadLineAsync()
+    }
+    if ($script:dictation.State -eq "Stopping" -and $script:dictation.StopRequestedAt -and
+        ([DateTime]::UtcNow - $script:dictation.StopRequestedAt).TotalSeconds -gt 8) {
+        Complete-Dictation "Dictado detenido."
+    }
+}
+$dictationTimer.Add_Tick({ Update-Dictation })
+
 function Set-Theme {
     param($enabled)
 
@@ -5282,15 +5586,17 @@ function Set-Theme {
     }
     $versionLabel.BackColor = Get-ThemeColor "Surface"
     $bridgeLabels = @($bridgeNameLabels.Values) + @($bridgeStatusLabels.Values)
-    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblEdgeTtsVersion) + $bridgeLabels) {
+    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblEdgeTtsVersion, $lblMicrophone, $lblMicrophoneHint) + $bridgeLabels) {
         $label.BackColor = Get-ThemeColor "Window"
     }
     $settingsTitle.ForeColor = Get-ThemeColor "Heading"
     $lblApiKey.ForeColor = Get-ThemeColor "Muted"
+    $lblMicrophone.ForeColor = Get-ThemeColor "Muted"
+    $lblMicrophoneHint.ForeColor = Get-ThemeColor "Muted"
     foreach ($nameLabel in $bridgeNameLabels.Values) {
         $nameLabel.ForeColor = Get-ThemeColor "Muted"
     }
-    foreach ($inputControl in @($txtApiKey, $modelCombo) + @($bridgePasswordBoxes.Values)) {
+    foreach ($inputControl in @($txtApiKey, $modelCombo, $micCombo) + @($bridgePasswordBoxes.Values)) {
         $inputControl.BackColor = Get-ThemeColor "Elevated"
         $inputControl.ForeColor = Get-ThemeColor "Text"
         $inputControl.Font = New-Object Drawing.Font($uiFontName, 10)
@@ -5319,7 +5625,7 @@ function Set-Theme {
     $checkWebSearch.OnAccentColor = Get-ThemeColor "OnAccent"
     $checkWebSearch.MutedForeColor = Get-ThemeColor "Muted"
     $checkWebSearch.Invalidate()
-    foreach ($combo in @($modelCombo, $voiceCombo)) {
+    foreach ($combo in @($modelCombo, $voiceCombo, $micCombo)) {
         $combo.BorderColor = Get-ThemeColor "Border"
         $combo.AccentColor = Get-ThemeColor "Accent"
         $combo.HoverBackColor = Get-ThemeColor "Hover"
@@ -5389,6 +5695,7 @@ function Set-Theme {
     $editorScrollBar.Invalidate()
     Update-NavigationState
     Set-AudioControlState $speechState.ControlState
+    Update-DictationButton
     Set-RoundedButtons $form
 }
 
@@ -6674,6 +6981,10 @@ $btnNavSettings.Add_Click({
 
 $tabs.Add_SelectedIndexChanged({
     Update-NavigationState
+    # The microphones may have been plugged or unplugged since the last visit.
+    if ($tabs.SelectedTab -eq $tabSettings -and $env:TXT_PREVIEW_TEST_MODE -ne "1") {
+        Update-MicrophoneList
+    }
     if ($tabs.SelectedTab -eq $tabPreview) {
         Show-MarkdownPreview (Get-PreviewContent)
     }
@@ -7029,21 +7340,16 @@ $btnPdf.Add_Click({ Export-PreviewPdf })
 $btnMp3.Add_Click({ Export-SpeechMp3 })
 
 $btnMic.Add_Click({
-    [Keyboard]::keybd_event([Keyboard]::VK_LWIN, 0, [Keyboard]::KEYEVENTF_KEYDOWN, 0)
-    [Keyboard]::keybd_event([Keyboard]::VK_H, 0, [Keyboard]::KEYEVENTF_KEYDOWN, 0)
-    Start-Sleep -Milliseconds 100
-    [Keyboard]::keybd_event([Keyboard]::VK_H, 0, [Keyboard]::KEYEVENTF_KEYUP, 0)
-    [Keyboard]::keybd_event([Keyboard]::VK_LWIN, 0, [Keyboard]::KEYEVENTF_KEYUP, 0)
-
-    $btnMic.Text = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes("Mic <Esc>"))
-    $textBox.Focus()
-    $textBox.SelectionStart = $textBox.Text.Length
-    $textBox.SelectionLength = 0
-    Show-Message "Dictado activado. Presioná Esc para detenerlo."
+    if ($script:dictation.State -eq "Idle") {
+        Start-Dictation
+    } else {
+        Stop-Dictation
+    }
 })
 
 $form.Add_FormClosed({
     $spinnerTimer.Stop()
+    Complete-Dictation ""
     Stop-VoicePlayback
     Clear-SpeechReplayCache
     $speechSynth.Dispose()

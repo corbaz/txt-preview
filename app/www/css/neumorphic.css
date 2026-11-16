@@ -126,10 +126,11 @@ body[data-theme="light"] .btn.accent {
 /* A filled audio button keeps its dark label, hovered or not. */
 .btn.play.lit, .btn.play.lit:hover,
 .btn.pause.lit, .btn.pause.lit:hover,
-#speech-replay.lit, #speech-replay.lit:hover { color: var(--on-accent); font-weight: 600; }
+#speech-replay.lit, #speech-replay.lit:hover,
+#mic-button.lit, #mic-button.lit:hover { color: var(--on-accent); font-weight: 600; }
 
 /* ---- Wells: where content is typed or shown --------------------------------- */
-#model-select, #voice-select, #browser-address,
+#model-select, #voice-select, #microphone-select, #browser-address,
 .settings-row input, .settings-form input, .settings-form select {
   background: var(--bg);
   color: var(--text);
@@ -138,7 +139,7 @@ body[data-theme="light"] .btn.accent {
   box-shadow: var(--nm-well);
 }
 
-#model-select, #voice-select { padding: 0 12px; }
+#model-select, #voice-select, #microphone-select { padding: 0 12px; }
 #browser-address { border-radius: 999px; }
 
 .settings-row input:focus, #browser-address:focus,
@@ -261,7 +262,7 @@ body[data-theme="light"] { --line: rgba(31, 37, 51, 0.26); --table-head: rgba(79
 /* ---- Selects ----------------------------------------------------------------
    macOS draws its own flat control and ignores the well shadow unless the
    native appearance is turned off; the arrow is then drawn here. */
-#model-select, #voice-select {
+#model-select, #voice-select, #microphone-select {
   -webkit-appearance: none;
   appearance: none;
   padding-right: 30px;

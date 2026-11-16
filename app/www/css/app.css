@@ -344,6 +344,8 @@ body {
 .btn.stop { color: var(--stop); border-color: var(--stop); }
 /* The audio button in use is filled (legacy Set-AudioControlState). */
 .btn.play.lit { background: var(--play); color: var(--on-accent); }
+/* Micrófono while it dictates. */
+#mic-button.lit { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .btn.pause.lit { background: var(--pause); color: var(--on-accent); }
 #speech-replay.lit { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 
@@ -364,6 +366,18 @@ body {
 .toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 
 .deck-label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+#microphone-select {
+  flex: 0 1 470px;
+  min-width: 180px;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
 
 #voice-select {
   width: 280px;

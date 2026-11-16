@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -131,6 +132,123 @@ class AudioButtonFillTests(unittest.TestCase):
             "False,True,False,True",    # repetition paused: Continuar + Repetir
             "False,False,False,False",
         ])
+
+
+# The dictation tests never touch the real settings file.
+DICTATION_SETTINGS = (
+    "$settingsDirectory = Join-Path ([IO.Path]::GetTempPath()) ('txt-dictation-test-' + $PID); "
+    "$settingsPath = Join-Path $settingsDirectory 'settings.json'; "
+)
+DICTATION_MODEL = ROOT / "models" / "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf"
+
+
+@unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
+class DictationTests(unittest.TestCase):
+    def test_listener_lines_write_into_the_editor_and_end_the_dictation(self) -> None:
+        results = run_app_snippet(
+            "$textBox.Text = 'Hola'; $textBox.SelectionStart = 4; "
+            "$script:dictation.State = 'Loading'; Update-DictationButton; "
+            "$ready = Receive-DictationLine 'ready'; "
+            "'RESULT=' + $ready + ',' + $script:dictation.State + ',' + $btnMic.Text + ',' + $msgBox.Text; "
+            "[void](Receive-DictationLine 'text 1  esto es'); [void](Receive-DictationLine 'text 1 .'); "
+            "[void](Receive-DictationLine 'partial 2 y sig'); "
+            "'RESULT=' + $textBox.Text + '|' + $msgBox.Text; "
+            "$done = Receive-DictationLine 'done'; "
+            "'RESULT=' + $done + ',' + $script:dictation.State + ',' + $btnMic.Text + ',' + $msgBox.Text"
+        )
+        self.assertEqual(results, [
+            "False,Listening,Mic <Esc>,Dictando. Presioná Esc o Micrófono para detenerlo.",
+            # The "." sticks to the last word; what is still a guess only shows as status.
+            "Hola esto es.|Dictando: y sig",
+            "True,Idle,Micrófono,Dictado detenido.",
+        ])
+
+    def test_first_piece_drops_its_space_at_the_start_and_after_a_space(self) -> None:
+        results = run_app_snippet(
+            "$textBox.Text = ''; Add-DictatedText ' Primera'; Add-DictatedText ' frase'; "
+            "'RESULT=' + $textBox.Text; "
+            "$textBox.Text = \"uno`r`n\"; $textBox.SelectionStart = $textBox.Text.Length; "
+            "Add-DictatedText ' dos'; 'RESULT=' + ($textBox.Text -replace \"`r`n\", '/')"
+        )
+        self.assertEqual(results, ["Primera frase", "uno/dos"])
+
+    def test_escape_stops_only_while_dictating(self) -> None:
+        results = run_app_snippet(
+            "$script:dictation.Control = Join-Path ([IO.Path]::GetTempPath()) ('txt-dictation-esc-' + $PID + '.txt'); "
+            "$idle = Invoke-EditorShortcut ([Windows.Forms.Keys]::Escape); "
+            "$script:dictation.State = 'Listening'; "
+            "$busy = Invoke-EditorShortcut ([Windows.Forms.Keys]::Escape); "
+            "'RESULT=' + $idle + ',' + $busy + ',' + $script:dictation.State + ',' + "
+            "(Get-Content -LiteralPath $script:dictation.Control -Raw); "
+            "Remove-Item -LiteralPath $script:dictation.Control"
+        )
+        self.assertEqual(results, ["False,True,Stopping,stop"])
+
+    def test_listener_error_names_the_fix_and_frees_the_button(self) -> None:
+        results = run_app_snippet(
+            "$script:dictation.State = 'Loading'; Update-DictationButton; "
+            "$ended = Receive-DictationLine 'error falta el modelo de dictado: ejecutá el instalador (install.ps1 o install.sh)'; "
+            "'RESULT=' + $ended + ',' + $script:dictation.State + ',' + $btnMic.Text; 'RESULT=' + $msgBox.Text"
+        )
+        self.assertEqual(results, [
+            "True,Idle,Micrófono",
+            "No se pudo dictar: falta el modelo de dictado: ejecutá el instalador (install.ps1 o install.sh). "
+            "El editor quedó listo para escribir.",
+        ])
+
+    def test_microphone_choice_is_listed_saved_and_kept_when_unplugged(self) -> None:
+        results = run_app_snippet(
+            DICTATION_SETTINGS +
+            "[void][IO.Directory]::CreateDirectory($settingsDirectory); "
+            "[IO.File]::WriteAllText($settingsPath, '{\"theme\":\"dark\",\"EncryptedApiKey\":\"abc\"}'); "
+            "Update-MicrophoneList @('Mic A', 'Mic B'); "
+            "'RESULT=' + ($micCombo.Items -join ';') + '|' + $micCombo.SelectedIndex; "
+            "$micCombo.SelectedIndex = 2; "
+            "$saved = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json; "
+            "'RESULT=' + $saved.microphone + ',' + $saved.theme + ',' + $saved.EncryptedApiKey + '|' + $settingsStatus.Text; "
+            "Update-MicrophoneList @('Mic A'); 'RESULT=' + ($micCombo.Items -join ';') + '|' + $micCombo.SelectedItem; "
+            "$micCombo.SelectedIndex = 0; 'RESULT=[' + (Get-SavedMicrophone) + ']|' + $settingsStatus.Text; "
+            "Remove-Item -LiteralPath $settingsDirectory -Recurse -Force"
+        )
+        self.assertEqual(results, [
+            "Predeterminado del sistema;Mic A;Mic B|0",
+            "Mic B,dark,abc|Micrófono para el dictado: Mic B.",
+            "Predeterminado del sistema;Mic A;Mic B|Mic B",
+            "[]|Micrófono para el dictado: predeterminado del sistema.",
+        ])
+
+    def test_settings_row_sits_above_the_models_list(self) -> None:
+        results = run_app_snippet(
+            "'RESULT=' + ($micCombo.Top -gt $txtApiKey.Bottom) + ',' + ($micCombo.Bottom -le $modelsList.Top)"
+        )
+        self.assertEqual(results, ["True,True"])
+
+    @unittest.skipUnless(DICTATION_MODEL.exists(), "needs the dictation model (installer)")
+    def test_real_listener_dictates_a_recording_into_the_editor(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            speech = os.path.join(folder, "speech.mp3")
+            audio = os.path.join(folder, "speech.raw")
+            subprocess.run([sys.executable, "-m", "edge_tts", "--voice", "es-AR-TomasNeural", "--text",
+                            "Hola, esta es una prueba del dictado.", "--write-media", speech],
+                           check=True, capture_output=True, timeout=60)
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", speech, "-af", "apad=pad_dur=2",
+                            "-f", "f32le", "-ac", "1", "-ar", "16000", audio], check=True, timeout=60)
+            results = run_app_snippet(
+                DICTATION_SETTINGS +
+                f"$env:TXT_DICTATION_AUDIO = '{audio}'; $textBox.Text = ''; Start-Dictation; "
+                "'RESULT=' + $script:dictation.State + ',' + $btnMic.Text; "
+                "$limit = [DateTime]::UtcNow.AddSeconds(60); $asked = $false; "
+                "while ($script:dictation.State -ne 'Idle' -and [DateTime]::UtcNow -lt $limit) { "
+                "  Update-Dictation; "
+                "  if (-not $asked -and $textBox.Text -match 'dictado') { Stop-Dictation; $asked = $true }; "
+                "  Start-Sleep -Milliseconds 100 }; "
+                "'RESULT=' + $script:dictation.State + ',' + $btnMic.Text + ',' + $msgBox.Text; "
+                "'RESULT=' + $textBox.Text"
+            )
+        self.assertEqual(results[0], "Loading,Mic <Esc>")
+        self.assertEqual(results[1], "Idle,Micrófono,Dictado detenido.")
+        self.assertRegex(results[2].lower(), r"^hola.*prueba del dictado")
 
 
 @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")

@@ -224,10 +224,33 @@ class TestMainCanvas(UiContractTestCase):
 
     def test_microphone_button_follows_the_legacy_app(self):
         js = MAIN_JS.read_text(encoding="utf-8")
-        handler = js.split('$("mic-button").addEventListener("click"', 1)[1][:900]
-        self.assertIn('$("mic-button").textContent = "Mic <Esc>";', handler)
+        start = js_function(js, "startDictation")
         self.assertIn("editor.setSelectionRange(editor.value.length, editor.value.length)",
-                      handler)
+                      start)
+        self.assertIn('const label = on ? "Mic <Esc>" : "Micrófono";',
+                      js_function(js, "setDictating"))
+
+    def test_microphone_button_toggles_and_escape_stops_the_dictation(self):
+        js = MAIN_JS.read_text(encoding="utf-8")
+        handler = js.split('$("mic-button").addEventListener("click"', 1)[1][:200]
+        self.assertIn("if (dictating) stopDictation();", handler)
+        self.assertIn('if (e.key === "Escape" && dictating) {', js)
+        self.assertIn("api.stop_dictation()", js_function(js, "stopDictation"))
+        self.assertIn("api.dictation_tick()", js_function(js, "dictationTick"))
+
+    def test_dictated_words_enter_the_editor_at_the_caret(self):
+        body = js_function(MAIN_JS.read_text(encoding="utf-8"), "insertDictated")
+        self.assertIn('editor.setRangeText(text, start, editor.selectionEnd, "end");', body)
+        # The preview and the rest of the page learn about the new text.
+        self.assertIn('editor.dispatchEvent(new Event("input", { bubbles: true }));', body)
+
+    def test_settings_offer_the_microphone_for_the_dictation(self):
+        select = self.tree.find(node_id="microphone-select")
+        self.assertIsNotNone(select)
+        self.assertEqual(select.find("option").text(), "Predeterminado del sistema")
+        js = MAIN_JS.read_text(encoding="utf-8")
+        self.assertIn("api.list_microphones()", js_function(js, "loadMicrophones"))
+        self.assertIn('api.set_microphone($("microphone-select").value)', js)
 
     def test_double_click_on_a_model_row_selects_that_model(self):
         js = MAIN_JS.read_text(encoding="utf-8")

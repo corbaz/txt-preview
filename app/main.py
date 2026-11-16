@@ -34,7 +34,7 @@ APP = ROOT
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 
-from txt_core import trace
+from txt_core import dictation, trace
 from txt_core import bridges, browser, clipboard, groq, language, models, prompts, settings, teams, updater, webapp
 from txt_core.attachments import (
     IMAGE_EXTENSIONS,
@@ -100,16 +100,6 @@ MSG_ADDED_ATTACHMENTS = (
 MSG_CLEARED_ATTACHMENTS = "Se quitaron los archivos adjuntos del contexto."
 MSG_PASTE_IMAGE_NEEDS_VISION = ("El portapapeles tiene una imagen y el modelo elegido no tiene "
                                 "visión: debés cambiar a un modelo con visión para adjuntarla.")
-# Legacy Micrófono button (txt.ps1 6669-6678): Win+H toggles Windows speech
-# dictation; Esc stops it.
-MSG_DICTATION_ON = "Dictado activado. Presioná Esc para detenerlo."
-MSG_DICTATION_FAILED = "No se pudo activar el dictado: {detail}"
-MSG_DICTATION_MAC = ("No se pudo iniciar el dictado de macOS: el editor quedó listo para "
-                     "escribir. Para dictar, activá el dictado en Configuración del "
-                     "Sistema → Teclado y presioná la tecla de dictado (micrófono).")
-MSG_DICTATION_MAC_ON = ("Dictado de macOS activado en el editor. Presioná Esc o la tecla "
-                        "de dictado para detenerlo.")
-MSG_DICTATION_UNSUPPORTED = "El dictado nativo no está disponible en esta plataforma."
 MSG_WINDOW_UNAVAILABLE = "La ventana no está disponible."
 MSG_PREVIEW_EMPTY = "*No hay contenido para mostrar.*"
 MSG_EDGE_TTS_OUTDATED = ("Las voces Edge necesitan una versión nueva de edge-tts. "
@@ -123,22 +113,6 @@ INPUT_MESSAGES = {
     "translate_en_es": "Ingresá texto en el Editor o adjuntá al menos un archivo.",
     "translate_es_en": "Ingresá texto en el Editor o adjuntá al menos un archivo.",
 }
-
-
-def _press_win_h() -> None:
-    """Legacy Micrófono: hold Win, tap H, release Win (txt.ps1 6670-6674)."""
-    import ctypes
-
-    VK_LWIN = 0x5B  # txt.ps1 Keyboard.VK_LWIN
-    VK_H = 0x48     # txt.ps1 Keyboard.VK_H
-    KEYEVENTF_KEYDOWN = 0x0000
-    KEYEVENTF_KEYUP = 0x0002
-    user32 = ctypes.windll.user32
-    user32.keybd_event(VK_LWIN, 0, KEYEVENTF_KEYDOWN, 0)
-    user32.keybd_event(VK_H, 0, KEYEVENTF_KEYDOWN, 0)
-    time.sleep(0.1)  # legacy Start-Sleep -Milliseconds 100
-    user32.keybd_event(VK_H, 0, KEYEVENTF_KEYUP, 0)
-    user32.keybd_event(VK_LWIN, 0, KEYEVENTF_KEYUP, 0)
 
 
 def document_extension_group(extension: str) -> str | None:
@@ -173,6 +147,7 @@ class Api:
                  legacy_dir: str | None = None,
                  api_encrypt=None, api_decrypt=None) -> None:
         self.engine = SpeechEngine(emit=self._on_engine_message)
+        self._dictation = dictation.Dictation(self.engine.python_command)
         self._pending_click: int | None = None
         # S14/T21: pywebview dispatches JS API calls on different threads, so
         # every speech lifecycle entrypoint (and the poll tick) runs inside
@@ -842,30 +817,33 @@ class Api:
         return {"ok": True,
                 "message": "Copiado con formato para Teams. Pegalo en el chat con Ctrl+V."}
 
-    # ---- Micrófono dictation (T15/S8) ---------------------------------------
-    def start_dictation(self) -> dict:
-        """Micrófono button. Windows reproduces the legacy Win+H keybd_event
-        sequence; macOS shows a clear user-facing instruction (never silently
-        pretending success); other platforms report the limitation."""
-        if sys.platform.startswith("win"):
-            try:
-                _press_win_h()
-            except Exception as error:
-                return {"ok": False,
-                        "message": MSG_DICTATION_FAILED.format(detail=error)}
-            return {"ok": True, "message": MSG_DICTATION_ON}
-        if sys.platform == "darwin":
-            # The page already put the caret in the editor: Edit › Start
-            # Dictation (startDictation:) dictates into it. When macOS does
-            # not start it, the editor stays ready to type.
-            try:
-                started = _start_mac_dictation()
-            except Exception:
-                started = False
-            if started:
-                return {"ok": True, "message": MSG_DICTATION_MAC_ON}
-            return {"ok": False, "message": MSG_DICTATION_MAC}
-        return {"ok": False, "message": MSG_DICTATION_UNSUPPORTED}
+    # ---- Micrófono dictation (local model, dictation_listen.py) --------------
+    def start_dictation(self, language: str = "es") -> dict:
+        """Micrófono button: a speech model on this machine writes what is
+        said into the editor (the system dictation is not used)."""
+        return self._dictation.start(
+            "en" if str(language).lower().startswith("en") else "es",
+            settings.get_microphone(self._settings_dir))
+
+    def stop_dictation(self) -> dict:
+        """Esc or the button again: the phrase under way is still written."""
+        return self._dictation.stop()
+
+    def dictation_tick(self) -> dict:
+        """Polled while dictating: new words for the editor and the state."""
+        return self._dictation.poll()
+
+    def list_microphones(self) -> dict:
+        """Configuración: the microphones the system has and the chosen one
+        ("" is the system default)."""
+        return {"microphones": dictation.list_microphones(self.engine.python_command),
+                "selected": settings.get_microphone(self._settings_dir)}
+
+    def set_microphone(self, name: str) -> dict:
+        name = str(name or "")
+        settings.set_microphone(name, self._settings_dir)
+        return {"ok": True,
+                "message": f"Micrófono para el dictado: {name or 'predeterminado del sistema'}."}
 
     # ---- Cerrar (T15/S8) -----------------------------------------------------
     def _quit_soon(self, delay: float = 1.5) -> None:
@@ -891,6 +869,7 @@ class Api:
         window = getattr(self, "_window", None)
         if window is None:
             return {"ok": False, "message": MSG_WINDOW_UNAVAILABLE}
+        self._dictation.close()
         with self._speech_lock:
             try:
                 self.stop_speech()
@@ -1429,37 +1408,6 @@ class Api:
             self._last_message = f"No se pudo saltar a la palabra elegida: {error}"
 
 
-def _start_mac_dictation(timeout: float = 2.0) -> bool:
-    """Send Edit › Start Dictation to the focused editor on the main thread;
-    False when macOS did not take it (dictation off, or no text field)."""
-    import AppKit
-    from PyObjCTools import AppHelper
-    done = threading.Event()
-    result: list[bool] = []
-
-    def start() -> None:
-        try:
-            app = AppKit.NSApplication.sharedApplication()
-            app.activateIgnoringOtherApps_(True)
-            window = app.keyWindow()
-            responder = window.firstResponder() if window is not None else None
-            taken = bool(app.sendAction_to_from_("startDictation:", None, None))
-            trace.trace("dictation", taken=taken, key_window=window is not None,
-                        responder=type(responder).__name__,
-                        responds=bool(responder is not None
-                                      and responder.respondsToSelector_("startDictation:")))
-            result.append(taken)
-        except Exception as error:
-            trace.trace("dictation-error", error=repr(error))
-            result.append(False)
-        finally:
-            done.set()
-
-    AppHelper.callAfter(start)
-    done.wait(timeout)
-    return bool(result and result[0])
-
-
 def _remove_quietly(path: str) -> None:
     try:
         os.remove(path)
@@ -1514,6 +1462,7 @@ def create_app() -> None:
     def _stop_speech_on_closing() -> None:
         # S12: closing through the OS button stops the audio too.
         try:
+            api._dictation.close()  # never leave the microphone open
             api.stop_speech()
         except Exception:
             pass

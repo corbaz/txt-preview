@@ -64,12 +64,13 @@ def default_settings() -> dict:
         "theme": DEFAULT_THEME,
         "speech_voice": DEFAULT_SPEECH_VOICE,
         "speed": DEFAULT_SPEED,
+        "microphone": "",  # dictation microphone by name; "" is the system default
     }
 
 
 # ---- JSON persistence (plain fields only; secrets never cross this pair) ----
 
-_PLAIN_FIELDS = ("selected_model", "theme", "speech_voice", "speed")
+_PLAIN_FIELDS = ("selected_model", "theme", "speech_voice", "speed", "microphone")
 _SECRET_FIELDS = ("api_key", "api_key_enc", "plaintext_key")
 # Key field of txt.ps1 (hex DPAPI blob, ConvertFrom-SecureString shape). Both
 # apps share settings.json on Windows, so the Python app keeps it in sync.
@@ -149,6 +150,14 @@ def get_speed(directory: str | None = None) -> int:
 
 def set_speed(speed: int, directory: str | None = None) -> None:
     save_settings({"speed": int(speed)}, directory)
+
+
+def get_microphone(directory: str | None = None) -> str:
+    return str(load_settings(directory).get("microphone") or "")
+
+
+def set_microphone(name: str, directory: str | None = None) -> None:
+    save_settings({"microphone": str(name or "")}, directory)
 
 
 def get_selected_model(directory: str | None = None) -> str:
