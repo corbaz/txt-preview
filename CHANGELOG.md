@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## v:26.11.19-08.36
+
+### Botón Historial: los últimos textos del Editor (las dos apps)
+
+- Nuevo botón «Historial» antes de «Copiar MD». Muestra los últimos textos del Editor, del más nuevo al más viejo, con la fecha y el comienzo de cada uno. Al elegir uno, reemplaza el texto del Editor (Ctrl+Z recupera el anterior).
+- Un texto se guarda cuando el Editor se limpia o se reemplaza (Limpiar chat, Pegar, una respuesta de la IA, otro texto del Historial) y al cerrar la app. Un texto vacío o que ya está en la lista no se guarda dos veces; si cambiás un texto que trajiste del Historial, entra como uno nuevo arriba de todo.
+- En Configuración se elige cuántos textos se guardan (de 1 a 50, 10 por defecto) y el botón con la papelera borra el historial.
+- El historial está en el `settings.json` que comparten las dos apps.
+
 ## v:26.11.16-14.08
 
 ### Dictado propio en el botón Micrófono (las dos apps)

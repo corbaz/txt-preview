@@ -367,6 +367,38 @@ body {
 
 .deck-label { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
+/* Historial: the menu opens above its button, over the deck. */
+.history-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 320px;
+  max-width: min(560px, calc(100vw - 16px));
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.history-menu[hidden] { display: none; }
+.history-item {
+  text-align: left;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.history-item:hover, .history-item:focus { background: var(--hover); outline: none; }
+#history-limit { width: 80px; }
+#clear-history { font-size: 16px; }
+
 #microphone-select {
   flex: 0 1 470px;
   min-width: 180px;

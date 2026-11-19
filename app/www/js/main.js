@@ -42,7 +42,10 @@
     // txt.ps1: the Contexto IA bar belongs to the Editor tab only.
     $("context-bar").hidden = name !== "editor";
     if (name === "preview") schedulePreview();
-    if (name === "settings") loadMicrophones(); // plugged or unplugged since
+    if (name === "settings") {
+      loadMicrophones(); // plugged or unplugged since
+      loadHistoryLimit();
+    }
     placeBrowser();
   }
 
@@ -326,6 +329,7 @@
   // Legacy Set-EditorText: replaces the whole editor as one undoable edit,
   // so Ctrl+Z brings the previous text back.
   function setEditorText(text) {
+    rememberEditorText(); // the text being replaced goes to the Historial
     const editor = $("editor");
     editor.focus();
     editor.select();
@@ -794,7 +798,9 @@
   });
 
   $("clear-chat").addEventListener("click", () => {
+    rememberEditorText();
     $("editor").value = "";
+    noteEditorText();
     $("preview").innerHTML = "";
     clearAiResult();
     safeCall((api) => api.clear_attachments(),
@@ -923,6 +929,117 @@
       (api) => api.set_microphone($("microphone-select").value),
       "No se pudo guardar el micrófono.");
     if (result && result.message) setStatus(result.message);
+  });
+
+  // ---- Historial: the last Editor texts (legacy Show-HistoryMenu) ------------
+  // The Editor text is saved before it is emptied or replaced, and when the
+  // app closes (Python keeps the last text the editor reported).
+  let historyNoteTimer = null;
+
+  function rememberEditorText() {
+    const text = $("editor").value;
+    const api = bridgeApi();
+    if (api && text.trim()) api.history_add(text).catch(() => {});
+  }
+
+  function noteEditorText() {
+    clearTimeout(historyNoteTimer);
+    historyNoteTimer = setTimeout(() => {
+      const api = bridgeApi();
+      if (api) api.history_note($("editor").value).catch(() => {});
+    }, 400);
+  }
+
+  $("editor").addEventListener("input", noteEditorText);
+
+  function historyMenuOpen() {
+    return !$("history-menu").hidden;
+  }
+
+  function closeHistoryMenu() {
+    $("history-menu").hidden = true;
+  }
+
+  async function openHistoryMenu() {
+    const data = await safeCall((api) => api.history_list(), "No se pudo leer el historial.");
+    if (!data) return;
+    if (!data.items.length) {
+      setStatus("El historial está vacío: se llena cuando el texto del Editor se limpia o se reemplaza.", "warning");
+      return;
+    }
+    const menu = $("history-menu");
+    menu.innerHTML = "";
+    data.items.forEach((item) => {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.className = "history-item";
+      option.setAttribute("role", "menuitem");
+      option.textContent = item.label;
+      option.addEventListener("click", () => pickHistory(item.index));
+      menu.appendChild(option);
+    });
+    menu.hidden = false;
+    const rect = $("history-button").getBoundingClientRect();
+    const left = Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8);
+    menu.style.left = Math.max(8, left) + "px";
+    menu.style.bottom = (window.innerHeight - rect.top + 4) + "px";
+    menu.firstChild.focus();
+  }
+
+  async function pickHistory(index) {
+    closeHistoryMenu();
+    const result = await safeCall((api) => api.history_take(index), "No se pudo leer el historial.");
+    if (!result) return;
+    if (!result.ok) {
+      setStatus(result.message, "warning");
+      return;
+    }
+    setTab("editor");
+    setEditorText(result.text);
+    noteEditorText();
+    setStatus("Texto del historial en el Editor. Ctrl+Z recupera el anterior.");
+  }
+
+  $("history-button").addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (historyMenuOpen()) closeHistoryMenu();
+    else openHistoryMenu();
+  });
+
+  document.addEventListener("click", (e) => {
+    if (historyMenuOpen() && !$("history-menu").contains(e.target)) closeHistoryMenu();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && historyMenuOpen()) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      closeHistoryMenu();
+      $("history-button").focus();
+    }
+  }, true);
+
+  // Configuración: how many texts the Historial keeps, and the trash button.
+  async function loadHistoryLimit() {
+    const api = bridgeApi();
+    if (!api) return;
+    try {
+      $("history-limit").value = (await api.history_list()).limit;
+    } catch (_) { /* the field keeps its value */ }
+  }
+
+  $("history-limit").addEventListener("change", async () => {
+    const result = await safeCall(
+      (api) => api.set_history_limit($("history-limit").value),
+      "No se pudo guardar el tamaño del historial.");
+    if (!result) return;
+    $("history-limit").value = result.limit;
+    setStatus(result.message);
+  });
+
+  $("clear-history").addEventListener("click", async () => {
+    const result = await safeCall((api) => api.clear_history(), "No se pudo borrar el historial.");
+    if (result) setStatus(result.message);
   });
 
   // ---- Cerrar (legacy $form.Close) -------------------------------------------

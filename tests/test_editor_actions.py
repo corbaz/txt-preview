@@ -251,6 +251,88 @@ class DictationTests(unittest.TestCase):
         self.assertRegex(results[2].lower(), r"^hola.*prueba del dictado")
 
 
+# Each Historial test writes its own temporary settings file and removes it.
+HISTORY_SETTINGS = (
+    "$settingsDirectory = Join-Path ([IO.Path]::GetTempPath()) ('txt-history-test-' + [guid]::NewGuid()); "
+    "$settingsPath = Join-Path $settingsDirectory 'settings.json'; "
+)
+HISTORY_CLEANUP = "; Remove-Item -LiteralPath $settingsDirectory -Recurse -Force"
+
+
+@unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
+class HistoryTests(unittest.TestCase):
+    def test_replaced_and_cleared_texts_go_on_top_once(self) -> None:
+        results = run_app_snippet(
+            HISTORY_SETTINGS +
+            "$click = $btnLimpiar.GetType().GetMethod('OnClick', [Reflection.BindingFlags]'NonPublic,Instance'); "
+            "$textBox.Text = \"uno`r`nlínea\"; Set-EditorText 'dos'; "
+            "Set-EditorText \"uno`nlínea\"; Set-EditorText 'otro'; "
+            "$textBox.Text = 'otro cambiado'; "
+            "[void]$click.Invoke($btnLimpiar, @([EventArgs]::Empty)); "
+            "[void]$click.Invoke($btnLimpiar, @([EventArgs]::Empty)); "
+            "'RESULT=' + $textBox.Text.Length; "
+            "$saved = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json; "
+            "'RESULT=' + (($saved.history | ForEach-Object { $_.text.Replace(\"`n\", '|') }) -join ','); "
+            "'RESULT=' + ($saved.history[0].saved_at -match '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$')"
+            + HISTORY_CLEANUP
+        )
+        # «uno línea» came back unchanged, so it is not added again; the changed
+        # text is new and goes on top; an empty editor saves nothing.
+        self.assertEqual(results, ["0", "otro cambiado,dos,uno|línea", "True"])
+
+    def test_picking_a_text_replaces_the_editor_and_saves_the_old_one(self) -> None:
+        results = run_app_snippet(
+            HISTORY_SETTINGS +
+            "[void](Add-TextHistory 'guardado'); $textBox.Text = 'en el editor'; "
+            "Use-HistoryText 'guardado'; "
+            "'RESULT=' + $textBox.Text; "
+            "'RESULT=' + (((Get-TextHistory) | ForEach-Object { $_.text }) -join ','); "
+            "'RESULT=' + (Get-HistoryLabel ([ordered]@{ text = \"`n  Primera  `nsegunda\"; saved_at = '2026-11-19 14:05:07' }))"
+            + HISTORY_CLEANUP
+        )
+        self.assertEqual(results, ["guardado", "en el editor,guardado", "19/11 14:05 · Primera"])
+
+    def test_limit_trims_and_trash_empties_keeping_other_settings(self) -> None:
+        results = run_app_snippet(
+            HISTORY_SETTINGS +
+            "[void][IO.Directory]::CreateDirectory($settingsDirectory); "
+            "[IO.File]::WriteAllText($settingsPath, '{\"theme\":\"light\",\"microphone\":\"JBL\"}'); "
+            "foreach ($n in 1..4) { [void](Add-TextHistory \"texto $n\") }; "
+            "'RESULT=' + (Save-HistoryLimit 2); "
+            "[void](Add-TextHistory 'texto 5'); "
+            "$saved = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json; "
+            "'RESULT=' + $saved.history_limit + ':' + (($saved.history | ForEach-Object { $_.text }) -join ','); "
+            "'RESULT=' + (Clear-TextHistory); "
+            "$saved = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json; "
+            "'RESULT=' + @($saved.history).Count + ':' + $saved.theme + ':' + $saved.microphone"
+            + HISTORY_CLEANUP
+        )
+        self.assertEqual(results, [
+            "Historial: se guardan los últimos 2 textos del Editor.",
+            "2:texto 5,texto 4",
+            "Historial borrado.",
+            "0:light:JBL",
+        ])
+
+    def test_the_python_app_reads_what_txt_ps1_saves(self) -> None:
+        results = run_app_snippet(
+            HISTORY_SETTINGS +
+            "[void](Add-TextHistory \"a`r`nb\"); 'RESULT=' + $settingsPath"
+        )
+        settings_path = Path(results[0])
+        try:
+            sys.path.insert(0, str(ROOT / "app"))
+            from txt_core import history, settings
+            entries = history.clean_entries(settings.load_settings(str(settings_path.parent))["history"])
+            self.assertEqual([entry["text"] for entry in entries], ["a\nb"])
+        finally:
+            shutil.rmtree(settings_path.parent, ignore_errors=True)
+
+    def test_test_mode_never_uses_the_real_settings_file(self) -> None:
+        results = run_app_snippet("'RESULT=' + $settingsPath.StartsWith([IO.Path]::GetTempPath())")
+        self.assertEqual(results, ["True"])
+
+
 @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "needs Windows and PowerShell 7")
 class ModernControlsTests(unittest.TestCase):
     def test_slider_clamps_raises_value_changed_and_keeps_trackbar_api(self) -> None:

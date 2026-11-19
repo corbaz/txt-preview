@@ -335,6 +335,7 @@ class TestBottomDeck(UiContractTestCase):
         row = self.deck.find(node_id="deck-row-2")
         self.assertEqual(control_labels(row), [
             "Pegar desde el portapapeles al editor",
+            "Historial",
             "Copiar MD",
             "Copiar TXT",
             "Copiar Teams",
@@ -1207,6 +1208,45 @@ class TestBridgeReadinessAndControlledErrors(UiContractTestCase):
     def test_other_ai_actions_keep_the_web_checkbox(self):
         body = js_function(self.js_source, "runAi")
         self.assertIn('$("web-search").checked', body)
+
+
+
+class TestHistorial(UiContractTestCase):
+    """Historial: the button opens the last Editor texts; the text being
+    replaced or cleared is saved first; Configuración sets how many and has
+    a trash button."""
+
+    def test_button_comes_right_before_copiar_md(self):
+        row = self.tree.find(node_id="deck-row-2")
+        ids = [button.attrs.get("id") for button in row.find_all("button")]
+        self.assertEqual(ids[1:3], ["history-button", "copy-md"])
+        self.assertIsNotNone(self.tree.find(node_id="history-menu"))
+
+    def test_settings_row_has_the_limit_and_the_trash_button(self):
+        limit = self.tree.find(node_id="history-limit")
+        self.assertEqual((limit.attrs.get("min"), limit.attrs.get("max")), ("1", "50"))
+        self.assertEqual(self.tree.find(node_id="clear-history").attrs.get("title"),
+                         "Borrar el historial")
+
+    def test_replaced_or_cleared_text_is_saved_first(self):
+        self.assertIn("rememberEditorText();", js_function(self.js_source, "setEditorText"))
+        clear = self.js_source[self.js_source.index('$("clear-chat").addEventListener'):]
+        self.assertLess(clear.index("rememberEditorText();"), clear.index('$("editor").value = "";'))
+
+    def test_picking_a_text_replaces_the_editor(self):
+        body = js_function(self.js_source, "pickHistory")
+        self.assertIn("api.history_take(index)", body)
+        self.assertIn("setEditorText(result.text)", body)
+
+    def test_bridge_methods_exist(self):
+        tree = ast.parse(self.py_source)
+        names = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+        for name in ("history_list", "history_add", "history_take", "history_note",
+                     "set_history_limit", "clear_history", "save_editor_history"):
+            self.assertIn(name, names)
+        for call in ("api.history_list()", "api.history_add(", "api.history_note(",
+                     "api.set_history_limit(", "api.clear_history()"):
+            self.assertIn(call, self.js_source)
 
 
 if __name__ == "__main__":

@@ -65,12 +65,15 @@ def default_settings() -> dict:
         "speech_voice": DEFAULT_SPEECH_VOICE,
         "speed": DEFAULT_SPEED,
         "microphone": "",  # dictation microphone by name; "" is the system default
+        "history": [],  # Historial: last Editor texts, newest first (txt_core.history)
+        "history_limit": 10,
     }
 
 
 # ---- JSON persistence (plain fields only; secrets never cross this pair) ----
 
-_PLAIN_FIELDS = ("selected_model", "theme", "speech_voice", "speed", "microphone")
+_PLAIN_FIELDS = ("selected_model", "theme", "speech_voice", "speed", "microphone",
+                 "history", "history_limit")
 _SECRET_FIELDS = ("api_key", "api_key_enc", "plaintext_key")
 # Key field of txt.ps1 (hex DPAPI blob, ConvertFrom-SecureString shape). Both
 # apps share settings.json on Windows, so the Python app keeps it in sync.

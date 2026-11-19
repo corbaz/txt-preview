@@ -34,7 +34,7 @@ APP = ROOT
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 
-from txt_core import dictation, trace
+from txt_core import dictation, history, trace
 from txt_core import bridges, browser, clipboard, groq, language, models, prompts, settings, teams, updater, webapp
 from txt_core.attachments import (
     IMAGE_EXTENSIONS,
@@ -183,6 +183,12 @@ class Api:
         # clipboard buttons work on this, not on the editor (legacy
         # Get-PreviewContent).
         self._preview_text = ""
+        # ---- Historial ------------------------------------------------------
+        # The Editor text as the UI last reported it: saved to the Historial
+        # when the window closes. JS calls arrive on several threads, so the
+        # read-modify-write of the list runs under a lock.
+        self._editor_text = ""
+        self._history_lock = threading.Lock()
 
     # ---- Existing bridge ---------------------------------------------------
     def app_version(self) -> str:
@@ -845,6 +851,60 @@ class Api:
         return {"ok": True,
                 "message": f"Micrófono para el dictado: {name or 'predeterminado del sistema'}."}
 
+    # ---- Historial (legacy Add-TextHistory / Show-HistoryMenu) ---------------
+    def _history_entries(self) -> list[dict]:
+        return history.clean_entries(settings.load_settings(self._settings_dir).get("history"))
+
+    def _history_limit(self) -> int:
+        return history.clean_limit(settings.load_settings(self._settings_dir).get("history_limit"))
+
+    def history_list(self) -> dict:
+        """The Historial menu: one label per text, newest first."""
+        entries = self._history_entries()
+        return {"items": [{"index": index, "label": history.label(entry)}
+                          for index, entry in enumerate(entries)],
+                "limit": self._history_limit()}
+
+    def history_add(self, text: str) -> dict:
+        """Called with the Editor text before it is emptied or replaced."""
+        with self._history_lock:
+            entries, added = history.add(self._history_entries(), text, self._history_limit())
+            if added:
+                settings.save_settings({"history": entries}, self._settings_dir)
+        return {"ok": True, "added": added}
+
+    def history_take(self, index: int) -> dict:
+        entries = self._history_entries()
+        try:
+            return {"ok": True, "text": entries[int(index)]["text"]}
+        except (IndexError, TypeError, ValueError):
+            return {"ok": False, "message": "Ese texto ya no está en el historial."}
+
+    def history_note(self, text: str) -> dict:
+        self._editor_text = str(text or "")
+        return {"ok": True}
+
+    def save_editor_history(self) -> None:
+        """Closing the app keeps the last Editor text."""
+        try:
+            self.history_add(self._editor_text)
+        except Exception:  # a broken settings file must not trap the app open
+            pass
+
+    def set_history_limit(self, limit) -> dict:
+        limit = history.clean_limit(limit)
+        with self._history_lock:
+            entries = self._history_entries()[:limit]
+            settings.save_settings({"history_limit": limit, "history": entries},
+                                   self._settings_dir)
+        return {"ok": True, "limit": limit,
+                "message": f"Historial: se guardan los últimos {limit} textos del Editor."}
+
+    def clear_history(self) -> dict:
+        with self._history_lock:
+            settings.save_settings({"history": []}, self._settings_dir)
+        return {"ok": True, "message": "Historial borrado."}
+
     # ---- Cerrar (T15/S8) -----------------------------------------------------
     def _quit_soon(self, delay: float = 1.5) -> None:
         """Cerrar means quit. On macOS closing the window can leave the app
@@ -870,6 +930,7 @@ class Api:
         if window is None:
             return {"ok": False, "message": MSG_WINDOW_UNAVAILABLE}
         self._dictation.close()
+        self.save_editor_history()
         with self._speech_lock:
             try:
                 self.stop_speech()
@@ -1463,6 +1524,7 @@ def create_app() -> None:
         # S12: closing through the OS button stops the audio too.
         try:
             api._dictation.close()  # never leave the microphone open
+            api.save_editor_history()  # the last Editor text goes to Historial
             api.stop_speech()
         except Exception:
             pass

@@ -1238,40 +1238,46 @@ $btnPegar.Text = "Pegar desde el portapapeles al editor"
 $btnPegar.SetBounds(14, 54, 230, 34)
 $panel.Controls.Add($btnPegar)
 
+# Historial: the last Editor texts; picking one replaces the Editor.
+$btnHistory = New-Object Windows.Forms.Button
+$btnHistory.Text = "Historial"
+$btnHistory.SetBounds(252, 54, 100, 34)
+$panel.Controls.Add($btnHistory)
+
 $btnCopyMd = New-Object Windows.Forms.Button
 $btnCopyMd.Text = "Copiar MD"
-$btnCopyMd.SetBounds(252, 54, 160, 34)
+$btnCopyMd.SetBounds(360, 54, 160, 34)
 $panel.Controls.Add($btnCopyMd)
 
 $btnCopyTxt = New-Object Windows.Forms.Button
 $btnCopyTxt.Text = "Copiar TXT"
-$btnCopyTxt.SetBounds(420, 54, 165, 34)
+$btnCopyTxt.SetBounds(528, 54, 165, 34)
 $panel.Controls.Add($btnCopyTxt)
 
 # Copies Vista previa as rich text (tables, colors, links, images) for a Teams chat.
 $btnCopyTeams = New-Object Windows.Forms.Button
 $btnCopyTeams.Text = "Copiar Teams"
-$btnCopyTeams.SetBounds(593, 54, 120, 34)
+$btnCopyTeams.SetBounds(701, 54, 120, 34)
 $panel.Controls.Add($btnCopyTeams)
 
 $btnMic = New-Object Windows.Forms.Button
 $btnMic.Text = [System.Text.Encoding]::UTF8.GetString([System.Text.Encoding]::Default.GetBytes("Micrófono"))
-$btnMic.SetBounds(721, 54, 120, 34)
+$btnMic.SetBounds(829, 54, 120, 34)
 $panel.Controls.Add($btnMic)
 
 $btnPdf = New-Object Windows.Forms.Button
 $btnPdf.Text = "PDF"
-$btnPdf.SetBounds(849, 54, 70, 34)
+$btnPdf.SetBounds(957, 54, 70, 34)
 $panel.Controls.Add($btnPdf)
 
 $btnMp3 = New-Object Windows.Forms.Button
 $btnMp3.Text = "MP3"
-$btnMp3.SetBounds(927, 54, 70, 34)
+$btnMp3.SetBounds(1035, 54, 70, 34)
 $panel.Controls.Add($btnMp3)
 
 $btnLimpiar = New-Object Windows.Forms.Button
 $btnLimpiar.Text = "Limpiar chat"
-$btnLimpiar.SetBounds(1005, 54, 120, 34)
+$btnLimpiar.SetBounds(1113, 54, 120, 34)
 $panel.Controls.Add($btnLimpiar)
 
 $btnTheme = New-Object Windows.Forms.Button
@@ -1505,6 +1511,29 @@ $lblMicrophoneHint.AutoEllipsis = $true
 $lblMicrophoneHint.SetBounds(622, 187, 640, 28)
 $tabSettings.Controls.Add($lblMicrophoneHint)
 
+$lblHistory = New-Object Windows.Forms.Label
+$lblHistory.Text = "Historial"
+$lblHistory.SetBounds(30, 234, 100, 26)
+$tabSettings.Controls.Add($lblHistory)
+
+$historyLimitBox = New-Object Windows.Forms.NumericUpDown
+$historyLimitBox.Minimum = 1
+$historyLimitBox.Maximum = 50
+$historyLimitBox.Value = 10
+$historyLimitBox.SetBounds(140, 230, 80, 30)
+$tabSettings.Controls.Add($historyLimitBox)
+
+$btnClearHistory = New-Object Windows.Forms.Button
+$btnClearHistory.SetBounds(230, 228, 50, 32)
+$tabSettings.Controls.Add($btnClearHistory)
+
+$lblHistoryHint = New-Object Windows.Forms.Label
+$lblHistoryHint.Text = "Cuántos textos del Editor se guardan para el botón Historial."
+$lblHistoryHint.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+$lblHistoryHint.AutoEllipsis = $true
+$lblHistoryHint.SetBounds(292, 231, 640, 28)
+$tabSettings.Controls.Add($lblHistoryHint)
+
 # Dictation by a speech model on this machine (dictation_listen.py, shared with the
 # Python app). State: Idle, Loading, Listening or Stopping.
 $script:dictation = @{ Process = $null; Control = $null; State = "Idle"; ReadTask = $null; StopRequestedAt = $null }
@@ -1581,6 +1610,9 @@ $settingsStatus.SetBounds(30, 564, 1120, 28)
 $tabSettings.Controls.Add($settingsStatus)
 
 $settingsDirectory = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "TXT Preview"
+if ($env:TXT_PREVIEW_TEST_MODE -eq "1") {
+    $settingsDirectory = Join-Path ([IO.Path]::GetTempPath()) ("txt-preview-test-" + $PID)
+}
 $settingsPath = Join-Path $settingsDirectory "settings.json"
 $script:groqApiKey = ""
 $script:selectedGroqModel = "openai/gpt-oss-120b"
@@ -1664,7 +1696,7 @@ function Update-SettingsLayout {
     $page = $tabSettings.ClientSize
     $width = [Math]::Max(300, $page.Width - 60)
     $settingsStatus.SetBounds(30, [Math]::Max(330, $page.Height - 36), $width, 28)
-    $modelsList.SetBounds(30, 230, $width, [Math]::Max(120, $settingsStatus.Top - 238))
+    $modelsList.SetBounds(30, 272, $width, [Math]::Max(120, $settingsStatus.Top - 280))
 }
 $tabSettings.Add_Resize({ Update-SettingsLayout })
 Update-SettingsLayout
@@ -2228,7 +2260,7 @@ function Save-AppSettings {
     if (Test-Path -LiteralPath $settingsPath) {
         try {
             $existing = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($field in @("selected_model", "theme", "speech_voice", "speed", "microphone")) {
+            foreach ($field in @("selected_model", "theme", "speech_voice", "speed", "microphone", "history", "history_limit")) {
                 $property = $existing.PSObject.Properties[$field]
                 if ($property -and $null -ne $property.Value) {
                     $settings[$field] = $property.Value
@@ -2239,7 +2271,7 @@ function Save-AppSettings {
     }
     [IO.File]::WriteAllText(
         $settingsPath,
-        ($settings | ConvertTo-Json),
+        ($settings | ConvertTo-Json -Depth 5),
         [Text.UTF8Encoding]::new($false)
     )
     $script:groqApiKey = $apiKey
@@ -2862,10 +2894,10 @@ $speechAlignmentWindow = 8
 
 $actionButtons = @(
     $btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn,
-    $btnLeer, $btnPegar, $btnCopyMd, $btnCopyTxt, $btnCopyTeams, $btnMic, $btnPdf, $btnMp3, $btnLimpiar,
+    $btnLeer, $btnPegar, $btnHistory, $btnCopyMd, $btnCopyTxt, $btnCopyTeams, $btnMic, $btnPdf, $btnMp3, $btnLimpiar,
     $btnTheme, $btnCerrar, $btnPauseVoice, $btnStopVoice, $btnSaveSettings, $btnRefreshModels, $btnUpdateVoices,
     $btnCheckUpdate, $btnInstallUpdate, $btnAttachFiles, $btnClearAttachments,
-    $btnUseResult, $btnDismissResult, $btnReplay
+    $btnUseResult, $btnDismissResult, $btnReplay, $btnClearHistory
 )
 
 $aiButtons = @($btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn)
@@ -5289,6 +5321,191 @@ function Get-SavedMicrophone {
     return ""
 }
 
+# Every field of settings.json, to change some and write the rest back as they are.
+function Read-SettingsFields {
+    $settings = [ordered]@{}
+    if (Test-Path -LiteralPath $settingsPath) {
+        try {
+            $existing = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($property in $existing.PSObject.Properties) {
+                $settings[$property.Name] = $property.Value
+            }
+        } catch {
+        }
+    }
+    return $settings
+}
+
+function Write-SettingsFields {
+    param($settings)
+
+    [void][IO.Directory]::CreateDirectory($settingsDirectory)
+    [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
+}
+
+# Historial: the last Editor texts, newest first, in the settings.json shared with the
+# Python app (app/txt_core/history.py keeps the same rules). An empty text or one already
+# listed is not saved; any other goes on top, so a loaded text that was changed comes
+# back as a new entry. Dates are "yyyy-MM-dd HH:mm:ss": an ISO date with "T" would be
+# read back as a DateTime by ConvertFrom-Json.
+$historyDefaultLimit = 10
+$historyLabelChars = 60
+$script:loadingHistoryLimit = $false
+
+function ConvertTo-HistoryText {
+    param([string]$text)
+
+    return ([string]$text).Replace("`r`n", "`n").TrimEnd()
+}
+
+function Get-HistoryLimit {
+    param($settings = (Read-SettingsFields))
+
+    $value = 0
+    $raw = $settings["history_limit"]
+    if ($null -eq $raw -or -not [int]::TryParse([string]$raw, [ref]$value)) {
+        return $historyDefaultLimit
+    }
+    return [Math]::Max(1, [Math]::Min(50, $value))
+}
+
+function Get-TextHistory {
+    param($settings = (Read-SettingsFields))
+
+    $entries = [Collections.Generic.List[object]]::new()
+    foreach ($item in @($settings["history"])) {
+        if ($null -eq $item) {
+            continue
+        }
+        $textProperty = $item.PSObject.Properties["text"]
+        if (-not $textProperty) {
+            continue
+        }
+        $text = ConvertTo-HistoryText ([string]$textProperty.Value)
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            continue
+        }
+        $stampProperty = $item.PSObject.Properties["saved_at"]
+        $stamp = ""
+        if ($stampProperty -and $stampProperty.Value -is [datetime]) {
+            $stamp = $stampProperty.Value.ToString("yyyy-MM-dd HH:mm:ss")
+        } elseif ($stampProperty) {
+            $stamp = [string]$stampProperty.Value
+        }
+        $entries.Add([ordered]@{ text = $text; saved_at = $stamp })
+    }
+    return ,$entries
+}
+
+# The Editor text before it is emptied or replaced, and when the app closes.
+function Add-TextHistory {
+    param([string]$text)
+
+    $body = ConvertTo-HistoryText $text
+    if ([string]::IsNullOrWhiteSpace($body)) {
+        return $false
+    }
+    try {
+        $settings = Read-SettingsFields
+        $entries = Get-TextHistory $settings
+        foreach ($entry in $entries) {
+            if ($entry.text -ceq $body) {
+                return $false
+            }
+        }
+        $entries.Insert(0, [ordered]@{ text = $body; saved_at = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") })
+        $settings["history"] = @($entries | Select-Object -First (Get-HistoryLimit $settings))
+        Write-SettingsFields $settings
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+# «19/11 14:05 · first line of the text», as the Python app shows it.
+function Get-HistoryLabel {
+    param($entry)
+
+    $stamp = [string]$entry.saved_at
+    $when = ""
+    if ($stamp.Length -ge 16) {
+        $when = "{0}/{1} {2}" -f $stamp.Substring(8, 2), $stamp.Substring(5, 2), $stamp.Substring(11, 5)
+    }
+    $first = ""
+    foreach ($line in ([string]$entry.text).Split("`n")) {
+        if ($line.Trim()) {
+            $first = $line.Trim()
+            break
+        }
+    }
+    if ($first.Length -gt $historyLabelChars) {
+        $first = $first.Substring(0, $historyLabelChars - 1).TrimEnd() + "…"
+    }
+    if ($when) {
+        return "$when · $first"
+    }
+    return $first
+}
+
+function Save-HistoryLimit {
+    param([int]$limit)
+
+    $limit = [Math]::Max(1, [Math]::Min(50, $limit))
+    $settings = Read-SettingsFields
+    $entries = Get-TextHistory $settings
+    $settings["history_limit"] = $limit
+    $settings["history"] = @($entries | Select-Object -First $limit)
+    Write-SettingsFields $settings
+    return "Historial: se guardan los últimos $limit textos del Editor."
+}
+
+function Clear-TextHistory {
+    $settings = Read-SettingsFields
+    $settings["history"] = @()
+    Write-SettingsFields $settings
+    return "Historial borrado."
+}
+
+function Update-HistoryLimitBox {
+    $script:loadingHistoryLimit = $true
+    $historyLimitBox.Value = Get-HistoryLimit
+    $script:loadingHistoryLimit = $false
+}
+
+$historyMenu = New-Object Windows.Forms.ContextMenuStrip
+$historyMenu.ShowImageMargin = $false
+
+function Use-HistoryText {
+    param([string]$text)
+
+    $tabs.SelectedTab = $tabEditor
+    Set-EditorText $text
+    [void]$textBox.Focus()
+    $textBox.SelectionStart = $textBox.Text.Length
+    $textBox.SelectionLength = 0
+    Show-Message "Texto del historial en el Editor. Ctrl+Z recupera el anterior."
+}
+
+function Show-HistoryMenu {
+    $entries = Get-TextHistory
+    if ($entries.Count -eq 0) {
+        Show-Message "El historial está vacío: se llena cuando el texto del Editor se limpia o se reemplaza." -Level Warning
+        return
+    }
+    $historyMenu.Items.Clear()
+    $historyMenu.BackColor = Get-ThemeColor "Elevated"
+    $historyMenu.ForeColor = Get-ThemeColor "Text"
+    foreach ($entry in $entries) {
+        $item = New-Object Windows.Forms.ToolStripMenuItem
+        $item.Text = (Get-HistoryLabel $entry).Replace("&", "&&")
+        $item.Tag = $entry.text
+        $item.ForeColor = Get-ThemeColor "Text"
+        $item.Add_Click({ param($sender, $eventArgs) Use-HistoryText ([string]$sender.Tag) })
+        [void]$historyMenu.Items.Add($item)
+    }
+    $historyMenu.Show($btnHistory, (New-Object Drawing.Point(0, 0)), [Windows.Forms.ToolStripDropDownDirection]::AboveRight)
+}
+
 # Only the microphone changes: every other field of settings.json stays as it is.
 function Save-MicrophoneSetting {
     param([string]$name)
@@ -5586,17 +5803,19 @@ function Set-Theme {
     }
     $versionLabel.BackColor = Get-ThemeColor "Surface"
     $bridgeLabels = @($bridgeNameLabels.Values) + @($bridgeStatusLabels.Values)
-    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblEdgeTtsVersion, $lblMicrophone, $lblMicrophoneHint) + $bridgeLabels) {
+    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblEdgeTtsVersion, $lblMicrophone, $lblMicrophoneHint, $lblHistory, $lblHistoryHint) + $bridgeLabels) {
         $label.BackColor = Get-ThemeColor "Window"
     }
     $settingsTitle.ForeColor = Get-ThemeColor "Heading"
     $lblApiKey.ForeColor = Get-ThemeColor "Muted"
     $lblMicrophone.ForeColor = Get-ThemeColor "Muted"
     $lblMicrophoneHint.ForeColor = Get-ThemeColor "Muted"
+    $lblHistory.ForeColor = Get-ThemeColor "Muted"
+    $lblHistoryHint.ForeColor = Get-ThemeColor "Muted"
     foreach ($nameLabel in $bridgeNameLabels.Values) {
         $nameLabel.ForeColor = Get-ThemeColor "Muted"
     }
-    foreach ($inputControl in @($txtApiKey, $modelCombo, $micCombo) + @($bridgePasswordBoxes.Values)) {
+    foreach ($inputControl in @($txtApiKey, $modelCombo, $micCombo, $historyLimitBox) + @($bridgePasswordBoxes.Values)) {
         $inputControl.BackColor = Get-ThemeColor "Elevated"
         $inputControl.ForeColor = Get-ThemeColor "Text"
         $inputControl.Font = New-Object Drawing.Font($uiFontName, 10)
@@ -5671,6 +5890,9 @@ function Set-Theme {
     $btnBrowserBack.Text = [string][char]0xE72B
     $btnBrowserForward.Font = $browserIconFont
     $btnBrowserForward.Text = [string][char]0xE72A
+    # Trash icon (Delete glyph) for Borrar el historial.
+    $btnClearHistory.Font = $browserIconFont
+    $btnClearHistory.Text = [string][char]0xE74D
     $tabBrowser.BackColor = Get-ThemeColor "Window"
     $browserHost.BackColor = Get-ThemeColor "Editor"
     $lblBrowserEmpty.ForeColor = Get-ThemeColor "Muted"
@@ -6115,6 +6337,7 @@ function Clear-AiResult {
 function Set-EditorText {
     param([string]$text)
 
+    [void](Add-TextHistory $textBox.Text)
     $textBox.SelectAll()
     $textBox.Paste(($text -replace "\r?\n", "`r`n"))
 }
@@ -6985,6 +7208,9 @@ $tabs.Add_SelectedIndexChanged({
     if ($tabs.SelectedTab -eq $tabSettings -and $env:TXT_PREVIEW_TEST_MODE -ne "1") {
         Update-MicrophoneList
     }
+    if ($tabs.SelectedTab -eq $tabSettings) {
+        Update-HistoryLimitBox
+    }
     if ($tabs.SelectedTab -eq $tabPreview) {
         Show-MarkdownPreview (Get-PreviewContent)
     }
@@ -7074,6 +7300,19 @@ function Invoke-ClipboardPaste {
 }
 
 $btnPegar.Add_Click({ Invoke-ClipboardPaste })
+$btnHistory.Add_Click({ Show-HistoryMenu })
+$contextToolTip.SetToolTip($btnClearHistory, "Borrar el historial")
+
+$historyLimitBox.Add_ValueChanged({
+    if ($script:loadingHistoryLimit) {
+        return
+    }
+    Set-StatusText $settingsStatus (Save-HistoryLimit ([int]$historyLimitBox.Value))
+})
+
+$btnClearHistory.Add_Click({
+    Set-StatusText $settingsStatus (Clear-TextHistory)
+})
 
 $btnCopyMd.Add_Click({
     $previewContent = Get-PreviewContent
@@ -7260,6 +7499,7 @@ $Texto
 })
 
 $btnLimpiar.Add_Click({
+    [void](Add-TextHistory $textBox.Text)
     $textBox.Clear()
     Clear-AiResult
     $script:attachedFiles.Clear()
@@ -7350,6 +7590,7 @@ $btnMic.Add_Click({
 $form.Add_FormClosed({
     $spinnerTimer.Stop()
     Complete-Dictation ""
+    [void](Add-TextHistory $textBox.Text)
     Stop-VoicePlayback
     Clear-SpeechReplayCache
     $speechSynth.Dispose()
