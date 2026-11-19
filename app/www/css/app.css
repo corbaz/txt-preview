@@ -418,25 +418,14 @@ body {
   color: var(--on-accent);
   font-weight: 600;
 }
-/* Historial size: − value + in the app colors; the system spinner is hidden. */
+/* Historial size: − value +; the buttons are deck .btn, the system spinner is hidden. */
 .stepper { display: inline-flex; align-items: center; gap: 6px; }
 .stepper-button {
-  width: 32px;
-  height: 32px;
+  width: 34px;
   padding: 0;
-  border: 1px solid var(--accent);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--accent);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1;
-  cursor: pointer;
-}
-.stepper-button:hover, .stepper-button:focus-visible {
-  background: var(--accent);
-  color: var(--on-accent);
-  outline: none;
 }
 .settings-row input#history-limit {
   width: 56px;

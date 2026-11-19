@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## v:26.11.19-13.52
+
+### Historial: la Vista previa ya está lista al abrirla; − / + como la botonera (las dos apps)
+
+- Al elegir un texto del Historial, la Vista previa se dibuja enseguida, con el Editor adelante. Al pasar a la Vista previa ya no aparece primero el texto anterior.
+- Los botones − y + de Configuración tienen el mismo aspecto que los botones de la botonera de abajo.
+
 ## v:26.11.19-10.06
 
 ### Historial: vuelven el modelo y los adjuntos; botones − / + en Configuración (las dos apps)

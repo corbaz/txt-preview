@@ -390,6 +390,20 @@ class HistoryTests(unittest.TestCase):
             "otra cosa/,pregunta/respuesta de la IA",
         ])
 
+    def test_picked_text_is_already_drawn_in_vista_previa(self) -> None:
+        # Vista previa is redrawn while the Editor is in front, so opening it
+        # never shows the previous text first.
+        results = run_app_snippet(
+            HISTORY_SETTINGS +
+            "$script:drawn = @(); "
+            "function Show-MarkdownPreview { param([string]$markdown) $script:drawn += $markdown }; "
+            "Use-HistoryText 'pregunta' 'respuesta de la IA'; "
+            "Use-HistoryText 'sin respuesta' ''; "
+            "'RESULT=' + ($script:drawn -join ',') + ':' + ($tabs.SelectedTab -eq $tabEditor)"
+            + HISTORY_CLEANUP
+        )
+        self.assertEqual(results, ["respuesta de la IA,sin respuesta:True"])
+
     def test_size_uses_own_minus_and_plus_buttons(self) -> None:
         results = run_app_snippet(
             HISTORY_SETTINGS +
@@ -400,10 +414,10 @@ class HistoryTests(unittest.TestCase):
             "[void]$click.Invoke($btnHistoryLess, @([EventArgs]::Empty)); "
             "[void]$click.Invoke($btnHistoryLess, @([EventArgs]::Empty)); "
             "'RESULT=' + $historyLimitBox.Value + ':' + (Get-HistoryLimit); "
-            "'RESULT=' + $historyLimitBox.Controls[0].Visible + ':' + ($btnHistoryMore.ForeColor -eq (Get-ThemeColor 'Accent'))"
+            "'RESULT=' + $historyLimitBox.Controls[0].Visible + ':' + ($btnHistoryMore.ForeColor -eq (Get-ThemeColor 'Text')) + ':' + ($btnHistoryMore.BackColor -eq $btnCopyMd.BackColor) + ':' + ($btnHistoryLess.FlatAppearance.BorderColor -eq $btnCopyMd.FlatAppearance.BorderColor)"
             + HISTORY_CLEANUP
         )
-        self.assertEqual(results, ["11:11", "9:9", "False:True"])
+        self.assertEqual(results, ["11:11", "9:9", "False:True:True:True"])
 
     def test_model_and_attachments_come_back_with_the_text(self) -> None:
         results = run_app_snippet(

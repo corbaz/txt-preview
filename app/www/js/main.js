@@ -1034,6 +1034,8 @@
     setEditorText(result.text, false);
     if (result.preview) showAiResult(result.preview);
     else clearAiResult();
+    // Drawn now, behind the Editor: opening Vista previa never shows the previous text first.
+    renderPreviewNow();
     noteEditorText();
     const notes = [];
     if (result.model && result.model !== selectedModelId) {

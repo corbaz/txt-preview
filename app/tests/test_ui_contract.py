@@ -1245,6 +1245,8 @@ class TestHistorial(UiContractTestCase):
         self.assertIn("await applyModelSelection();", body)
         self.assertIn("api.history_attach(result.attachments", body)
         self.assertIn('setTab("editor")', body)
+        # Vista previa is redrawn right away, not when its tab is opened.
+        self.assertLess(body.index("clearAiResult();"), body.index("renderPreviewNow();"))
         self.assertIn("api.history_add(text, aiResult", js_function(self.js_source, "rememberEditorText"))
 
     def test_open_menu_is_framed_and_fills_the_button_like_play(self):
@@ -1267,6 +1269,10 @@ class TestHistorial(UiContractTestCase):
                        if div.attrs.get("class") == "stepper")
         ids = [child.attrs.get("id") for child in stepper.children]
         self.assertEqual(ids, ["history-limit-down", "history-limit", "history-limit-up"])
+        # − / + look like the deck buttons below.
+        for child in stepper.children:
+            if child.attrs.get("id") != "history-limit":
+                self.assertIn("btn", child.attrs.get("class", "").split())
         css = (ROOT / "www" / "css" / "app.css").read_text(encoding="utf-8")
         self.assertIn("#history-limit::-webkit-inner-spin-button", css)
         self.assertIn('["history-limit-down", "stepDown"], ["history-limit-up", "stepUp"]', self.js_source)

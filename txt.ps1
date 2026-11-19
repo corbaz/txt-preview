@@ -2917,7 +2917,7 @@ $actionButtons = @(
     $btnLeer, $btnPegar, $btnHistory, $btnCopyMd, $btnCopyTxt, $btnCopyTeams, $btnMic, $btnPdf, $btnMp3, $btnLimpiar,
     $btnTheme, $btnCerrar, $btnPauseVoice, $btnStopVoice, $btnSaveSettings, $btnRefreshModels, $btnUpdateVoices,
     $btnCheckUpdate, $btnInstallUpdate, $btnAttachFiles, $btnClearAttachments,
-    $btnUseResult, $btnDismissResult, $btnReplay, $btnClearHistory
+    $btnUseResult, $btnDismissResult, $btnReplay, $btnClearHistory, $btnHistoryLess, $btnHistoryMore
 )
 
 $aiButtons = @($btnPreguntar, $btnResumir, $btnCorregir, $btnTraducirEs, $btnTraducirEn)
@@ -5599,6 +5599,8 @@ function Use-HistoryText {
         $script:aiResult = $preview
         $previewResultBar.Visible = $true
     }
+    # Drawn now, behind the Editor: opening Vista previa never shows the previous text first.
+    Show-MarkdownPreview (Get-PreviewContent)
     $notes = [Collections.Generic.List[string]]::new()
     if (-not [string]::IsNullOrWhiteSpace($model) -and $model -ne $script:selectedGroqModel) {
         $index = $script:modelComboIds.IndexOf($model)
@@ -6113,13 +6115,9 @@ function Set-Theme {
     # Trash icon (Delete glyph) for Borrar el historial.
     $btnClearHistory.Font = $browserIconFont
     $btnClearHistory.Text = [string][char]0xE74D
-    # − / + of the Historial size: outlined in the accent color.
+    # − / + of the Historial size: same tone as the deck buttons, larger glyph.
     foreach ($stepButton in @($btnHistoryLess, $btnHistoryMore)) {
-        $stepButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
-        $stepButton.FlatAppearance.BorderSize = 1
         $stepButton.Font = New-Object Drawing.Font($uiStrongFontName, 12)
-        $stepButton.Cursor = [Windows.Forms.Cursors]::Hand
-        Set-ButtonTone $stepButton "Elevated" "Accent" "Hover" "Accent"
     }
     $tabBrowser.BackColor = Get-ThemeColor "Window"
     $browserHost.BackColor = Get-ThemeColor "Editor"
