@@ -1238,10 +1238,25 @@ class TestHistorial(UiContractTestCase):
         self.assertIn("api.history_take(index)", body)
         self.assertIn("setEditorText(result.text)", body)
 
+    def test_open_menu_is_framed_and_fills_the_button_like_play(self):
+        css = (ROOT / "www" / "css" / "app.css").read_text(encoding="utf-8")
+        self.assertIn("border: 2px solid var(--play);", css)
+        self.assertIn(".history-row + .history-row { border-top: 1px solid var(--border); }", css)
+        self.assertIn("#history-button.open", css)
+        self.assertIn('$("history-button").classList.add("open")', js_function(self.js_source, "openHistoryMenu"))
+        self.assertIn('$("history-button").classList.remove("open")', js_function(self.js_source, "closeHistoryMenu"))
+
+    def test_each_menu_text_has_a_trash_and_settings_shows_the_count(self):
+        body = js_function(self.js_source, "openHistoryMenu")
+        self.assertIn('remove.className = "history-remove"', body)
+        self.assertIn("removeHistory(item.index)", body)
+        self.assertIn("api.history_remove(index)", js_function(self.js_source, "removeHistory"))
+        self.assertIsNotNone(self.tree.find(node_id="history-count"))
+
     def test_bridge_methods_exist(self):
         tree = ast.parse(self.py_source)
         names = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
-        for name in ("history_list", "history_add", "history_take", "history_note",
+        for name in ("history_list", "history_add", "history_take", "history_note", "history_remove",
                      "set_history_limit", "clear_history", "save_editor_history"):
             self.assertIn(name, names)
         for call in ("api.history_list()", "api.history_add(", "api.history_note(",

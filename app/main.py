@@ -863,7 +863,20 @@ class Api:
         entries = self._history_entries()
         return {"items": [{"index": index, "label": history.label(entry)}
                           for index, entry in enumerate(entries)],
-                "limit": self._history_limit()}
+                "limit": self._history_limit(),
+                "count_text": history.count_text(len(entries))}
+
+    def history_remove(self, index: int) -> dict:
+        """The trash of one Historial menu entry."""
+        with self._history_lock:
+            entries = self._history_entries()
+            try:
+                del entries[int(index)]
+            except (IndexError, TypeError, ValueError):
+                return {"ok": False, "message": "Ese texto ya no está en el historial."}
+            settings.save_settings({"history": entries}, self._settings_dir)
+        return {"ok": True, "message": "Texto quitado del historial.",
+                "count_text": history.count_text(len(entries))}
 
     def history_add(self, text: str) -> dict:
         """Called with the Editor text before it is emptied or replaced."""
@@ -898,12 +911,14 @@ class Api:
             settings.save_settings({"history_limit": limit, "history": entries},
                                    self._settings_dir)
         return {"ok": True, "limit": limit,
-                "message": f"Historial: se guardan los últimos {limit} textos del Editor."}
+                "message": f"Historial: se guardan los últimos {limit} textos del Editor.",
+                "count_text": history.count_text(len(entries))}
 
     def clear_history(self) -> dict:
         with self._history_lock:
             settings.save_settings({"history": []}, self._settings_dir)
-        return {"ok": True, "message": "Historial borrado."}
+        return {"ok": True, "message": "Historial borrado.",
+                "count_text": history.count_text(0)}
 
     # ---- Cerrar (T15/S8) -----------------------------------------------------
     def _quit_soon(self, delay: float = 1.5) -> None:

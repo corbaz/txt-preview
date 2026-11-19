@@ -379,11 +379,16 @@ body {
   overflow-y: auto;
   padding: 4px;
   background: var(--elevated);
-  border: 1px solid var(--border);
+  border: 2px solid var(--play);
+  border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 .history-menu[hidden] { display: none; }
+.history-row { display: flex; align-items: stretch; }
+.history-row + .history-row { border-top: 1px solid var(--border); }
 .history-item {
+  flex: 1;
+  min-width: 0;
   text-align: left;
   padding: 8px 10px;
   background: transparent;
@@ -396,6 +401,23 @@ body {
   cursor: pointer;
 }
 .history-item:hover, .history-item:focus { background: var(--hover); outline: none; }
+.history-remove {
+  flex: 0 0 auto;
+  padding: 0 10px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+}
+.history-remove:hover, .history-remove:focus { background: var(--hover); color: var(--stop); outline: none; }
+/* While the list is open, Historial is filled like Play. */
+#history-button.open, #history-button.open:hover {
+  background: var(--play);
+  border-color: var(--play);
+  color: var(--on-accent);
+  font-weight: 600;
+}
 #history-limit { width: 80px; }
 #clear-history { font-size: 16px; }
 

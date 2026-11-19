@@ -70,7 +70,8 @@ class ApiHistoryTests(unittest.TestCase):
             return json.load(handle)
 
     def test_texts_are_saved_listed_and_taken_back(self):
-        self.assertEqual(self.api.history_list(), {"items": [], "limit": 10})
+        self.assertEqual(self.api.history_list(),
+                         {"items": [], "limit": 10, "count_text": "Sin textos guardados."})
         self.assertTrue(self.api.history_add("primero")["added"])
         self.assertTrue(self.api.history_add("segundo\r\nlínea")["added"])
         self.assertFalse(self.api.history_add("primero")["added"])
@@ -88,7 +89,8 @@ class ApiHistoryTests(unittest.TestCase):
             self.api.history_add(f"texto {number}")
         result = self.api.set_history_limit(2)
         self.assertEqual(result, {"ok": True, "limit": 2,
-                                  "message": "Historial: se guardan los últimos 2 textos del Editor."})
+                                  "message": "Historial: se guardan los últimos 2 textos del Editor.",
+                                  "count_text": "2 textos guardados."})
         self.assertEqual(self.stored()["history_limit"], 2)
         self.assertEqual([entry["text"] for entry in self.stored()["history"]], ["texto 3", "texto 2"])
         self.api.history_add("texto 4")
@@ -97,10 +99,22 @@ class ApiHistoryTests(unittest.TestCase):
     def test_trash_empties_the_list_and_keeps_every_other_setting(self):
         settings.save_settings({"theme": "light", "microphone": "JBL"}, self._tmp.name)
         self.api.history_add("algo")
-        self.assertEqual(self.api.clear_history(), {"ok": True, "message": "Historial borrado."})
+        self.assertEqual(self.api.clear_history(), {"ok": True, "message": "Historial borrado.",
+                                                    "count_text": "Sin textos guardados."})
         stored = self.stored()
         self.assertEqual(stored["history"], [])
         self.assertEqual((stored["theme"], stored["microphone"]), ("light", "JBL"))
+
+    def test_one_text_is_removed_from_the_menu(self):
+        for text in ("uno", "dos", "tres"):
+            self.api.history_add(text)
+        self.assertEqual(self.api.history_list()["count_text"], "3 textos guardados.")
+        self.assertEqual(self.api.history_remove(1), {"ok": True, "message": "Texto quitado del historial.",
+                                                      "count_text": "2 textos guardados."})
+        self.assertEqual([entry["text"] for entry in self.stored()["history"]], ["tres", "uno"])
+        self.assertFalse(self.api.history_remove(9)["ok"])
+        self.api.history_remove(0)
+        self.assertEqual(self.api.history_list()["count_text"], "1 texto guardado.")
 
     def test_closing_saves_the_last_editor_text(self):
         self.api.history_note("escrito antes de cerrar")

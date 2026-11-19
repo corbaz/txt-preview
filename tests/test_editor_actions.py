@@ -328,6 +328,44 @@ class HistoryTests(unittest.TestCase):
         finally:
             shutil.rmtree(settings_path.parent, ignore_errors=True)
 
+    def test_open_menu_fills_historial_like_play_and_separates_texts(self) -> None:
+        results = run_app_snippet(
+            HISTORY_SETTINGS +
+            "[void](Add-TextHistory 'uno'); [void](Add-TextHistory 'dos'); Show-HistoryMenu; "
+            "'RESULT=' + $historyMenu.Items.Count + ':' + ($btnHistory.BackColor -eq (Get-ThemeColor 'Play')); "
+            "$historyMenu.Close(); "
+            "'RESULT=' + ($btnHistory.BackColor -eq (Get-ThemeColor 'Elevated'))"
+            + HISTORY_CLEANUP
+        )
+        # Two texts and the line between them; Historial goes back to normal when closed.
+        self.assertEqual(results, ["3:True", "True"])
+
+    def test_each_menu_text_has_its_own_trash_and_settings_shows_the_count(self) -> None:
+        results = run_app_snippet(
+            HISTORY_SETTINGS +
+            "foreach ($t in 'uno', 'dos', 'tres') { [void](Add-TextHistory $t) }; "
+            "Update-HistoryLimitBox; 'RESULT=' + $lblHistoryCount.Text; "
+            "Show-HistoryMenu; "
+            "$row = $historyMenu.Items[2].Control; "
+            "$remove = @($row.Controls | Where-Object { $_ -is [Windows.Forms.Button] })[0]; "
+            "'RESULT=' + $row.Controls.Count + ':' + $remove.Tag; "
+            "$click = $remove.GetType().GetMethod('OnClick', [Reflection.BindingFlags]'NonPublic,Instance'); "
+            "[void]$click.Invoke($remove, @([EventArgs]::Empty)); "
+            "'RESULT=' + $msgBox.Text; "
+            "'RESULT=' + $historyMenu.Items.Count + ':' + (((Get-TextHistory) | ForEach-Object { $_.text }) -join ','); "
+            "'RESULT=' + $lblHistoryCount.Text; $historyMenu.Close(); "
+            "'RESULT=' + (Clear-TextHistory) + ' ' + $lblHistoryCount.Text"
+            + HISTORY_CLEANUP
+        )
+        self.assertEqual(results, [
+            "3 textos guardados.",
+            "2:dos",
+            "Texto quitado del historial.",
+            "3:tres,uno",
+            "2 textos guardados.",
+            "Historial borrado. Sin textos guardados.",
+        ])
+
     def test_test_mode_never_uses_the_real_settings_file(self) -> None:
         results = run_app_snippet("'RESULT=' + $settingsPath.StartsWith([IO.Path]::GetTempPath())")
         self.assertEqual(results, ["True"])

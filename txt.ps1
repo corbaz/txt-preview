@@ -1527,11 +1527,17 @@ $btnClearHistory = New-Object Windows.Forms.Button
 $btnClearHistory.SetBounds(230, 228, 50, 32)
 $tabSettings.Controls.Add($btnClearHistory)
 
+$lblHistoryCount = New-Object Windows.Forms.Label
+$lblHistoryCount.Text = "Sin textos guardados."
+$lblHistoryCount.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+$lblHistoryCount.SetBounds(292, 231, 190, 28)
+$tabSettings.Controls.Add($lblHistoryCount)
+
 $lblHistoryHint = New-Object Windows.Forms.Label
 $lblHistoryHint.Text = "Cuántos textos del Editor se guardan para el botón Historial."
 $lblHistoryHint.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
 $lblHistoryHint.AutoEllipsis = $true
-$lblHistoryHint.SetBounds(292, 231, 640, 28)
+$lblHistoryHint.SetBounds(492, 231, 640, 28)
 $tabSettings.Controls.Add($lblHistoryHint)
 
 # Dictation by a speech model on this machine (dictation_listen.py, shared with the
@@ -5447,6 +5453,34 @@ function Get-HistoryLabel {
     return $first
 }
 
+function Get-HistoryCountText {
+    param([int]$count)
+
+    if ($count -eq 0) {
+        return "Sin textos guardados."
+    }
+    if ($count -eq 1) {
+        return "1 texto guardado."
+    }
+    return "$count textos guardados."
+}
+
+function Update-HistoryCount {
+    $lblHistoryCount.Text = Get-HistoryCountText (Get-TextHistory).Count
+}
+
+# The trash of one Historial menu entry.
+function Remove-TextHistory {
+    param([string]$text)
+
+    $settings = Read-SettingsFields
+    $entries = Get-TextHistory $settings
+    $settings["history"] = @($entries | Where-Object { $_.text -cne $text })
+    Write-SettingsFields $settings
+    Update-HistoryCount
+    return "Texto quitado del historial."
+}
+
 function Save-HistoryLimit {
     param([int]$limit)
 
@@ -5456,6 +5490,7 @@ function Save-HistoryLimit {
     $settings["history_limit"] = $limit
     $settings["history"] = @($entries | Select-Object -First $limit)
     Write-SettingsFields $settings
+    Update-HistoryCount
     return "Historial: se guardan los últimos $limit textos del Editor."
 }
 
@@ -5463,6 +5498,7 @@ function Clear-TextHistory {
     $settings = Read-SettingsFields
     $settings["history"] = @()
     Write-SettingsFields $settings
+    Update-HistoryCount
     return "Historial borrado."
 }
 
@@ -5470,10 +5506,21 @@ function Update-HistoryLimitBox {
     $script:loadingHistoryLimit = $true
     $historyLimitBox.Value = Get-HistoryLimit
     $script:loadingHistoryLimit = $false
+    Update-HistoryCount
 }
 
 $historyMenu = New-Object Windows.Forms.ContextMenuStrip
 $historyMenu.ShowImageMargin = $false
+# Open, the menu is framed in the Play green and Historial is filled like Play, so the
+# list stands out over the window; lines separate the texts.
+$historyMenu.Add_Paint({
+    param($sender, $eventArgs)
+    $pen = New-Object Drawing.Pen((Get-ThemeColor "Play"), 2)
+    $eventArgs.Graphics.DrawRectangle($pen, 1, 1, $sender.Width - 2, $sender.Height - 2)
+    $pen.Dispose()
+})
+$historyMenu.Add_Opened({ Set-ButtonTone $btnHistory "Play" "OnState" "Play" "Play" })
+$historyMenu.Add_Closed({ Set-ButtonTone $btnHistory "Elevated" "Text" "Hover" "Border" })
 
 function Use-HistoryText {
     param([string]$text)
@@ -5486,22 +5533,85 @@ function Use-HistoryText {
     Show-Message "Texto del historial en el Editor. Ctrl+Z recupera el anterior."
 }
 
-function Show-HistoryMenu {
+$historyRowWidth = 480
+
+function New-HistoryMenuRow {
+    param($entry)
+
+    $row = New-Object Windows.Forms.Panel
+    $row.Size = New-Object Drawing.Size($historyRowWidth, 30)
+    $row.BackColor = Get-ThemeColor "Elevated"
+
+    $remove = New-Object Windows.Forms.Button
+    $remove.Dock = [Windows.Forms.DockStyle]::Right
+    $remove.Width = 36
+    $remove.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+    $remove.FlatAppearance.BorderSize = 0
+    $remove.FlatAppearance.MouseOverBackColor = Get-ThemeColor "Hover"
+    $remove.Font = New-Object Drawing.Font($capabilityIconFontName, 10)
+    $remove.Text = [string][char]0xE74D
+    $remove.ForeColor = Get-ThemeColor "Muted"
+    $remove.Cursor = [Windows.Forms.Cursors]::Hand
+    $remove.Tag = $entry.text
+    $contextToolTip.SetToolTip($remove, "Quitar del historial")
+    $remove.Add_Click({
+        param($sender, $eventArgs)
+        Show-Message (Remove-TextHistory ([string]$sender.Tag))
+        if ((Update-HistoryMenuItems) -eq 0) {
+            $historyMenu.Close()
+        }
+    })
+
+    $label = New-Object Windows.Forms.Label
+    $label.Dock = [Windows.Forms.DockStyle]::Fill
+    $label.UseMnemonic = $false
+    $label.AutoEllipsis = $true
+    $label.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
+    $label.Padding = New-Object Windows.Forms.Padding(8, 0, 4, 0)
+    $label.Text = Get-HistoryLabel $entry
+    $label.ForeColor = Get-ThemeColor "Text"
+    $label.Cursor = [Windows.Forms.Cursors]::Hand
+    $label.Tag = $entry.text
+    $label.Add_MouseEnter({ param($sender, $eventArgs) $sender.Parent.BackColor = Get-ThemeColor "Hover" })
+    $label.Add_MouseLeave({ param($sender, $eventArgs) $sender.Parent.BackColor = Get-ThemeColor "Elevated" })
+    $label.Add_Click({
+        param($sender, $eventArgs)
+        $historyMenu.Close()
+        Use-HistoryText ([string]$sender.Tag)
+    })
+
+    $row.Controls.Add($remove)
+    $row.Controls.Add($label)
+    $label.BringToFront()
+
+    $rowHost = New-Object Windows.Forms.ToolStripControlHost($row)
+    $rowHost.AutoSize = $false
+    $rowHost.Size = $row.Size
+    $rowHost.Margin = New-Object Windows.Forms.Padding(0)
+    return $rowHost
+}
+
+# Fills the menu from settings.json and returns how many texts it shows.
+function Update-HistoryMenuItems {
     $entries = Get-TextHistory
-    if ($entries.Count -eq 0) {
-        Show-Message "El historial está vacío: se llena cuando el texto del Editor se limpia o se reemplaza." -Level Warning
-        return
-    }
+    $historyMenu.SuspendLayout()
     $historyMenu.Items.Clear()
+    foreach ($entry in $entries) {
+        if ($historyMenu.Items.Count -gt 0) {
+            [void]$historyMenu.Items.Add((New-Object Windows.Forms.ToolStripSeparator))
+        }
+        [void]$historyMenu.Items.Add((New-HistoryMenuRow $entry))
+    }
+    $historyMenu.ResumeLayout()
+    return $entries.Count
+}
+
+function Show-HistoryMenu {
     $historyMenu.BackColor = Get-ThemeColor "Elevated"
     $historyMenu.ForeColor = Get-ThemeColor "Text"
-    foreach ($entry in $entries) {
-        $item = New-Object Windows.Forms.ToolStripMenuItem
-        $item.Text = (Get-HistoryLabel $entry).Replace("&", "&&")
-        $item.Tag = $entry.text
-        $item.ForeColor = Get-ThemeColor "Text"
-        $item.Add_Click({ param($sender, $eventArgs) Use-HistoryText ([string]$sender.Tag) })
-        [void]$historyMenu.Items.Add($item)
+    if ((Update-HistoryMenuItems) -eq 0) {
+        Show-Message "El historial está vacío: se llena cuando el texto del Editor se limpia o se reemplaza." -Level Warning
+        return
     }
     $historyMenu.Show($btnHistory, (New-Object Drawing.Point(0, 0)), [Windows.Forms.ToolStripDropDownDirection]::AboveRight)
 }
@@ -5803,7 +5913,7 @@ function Set-Theme {
     }
     $versionLabel.BackColor = Get-ThemeColor "Surface"
     $bridgeLabels = @($bridgeNameLabels.Values) + @($bridgeStatusLabels.Values)
-    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblEdgeTtsVersion, $lblMicrophone, $lblMicrophoneHint, $lblHistory, $lblHistoryHint) + $bridgeLabels) {
+    foreach ($label in @($settingsTitle, $settingsHint, $lblApiKey, $settingsStatus, $lblAppVersion, $lblUpdateStatus, $lblEdgeTtsVersion, $lblMicrophone, $lblMicrophoneHint, $lblHistory, $lblHistoryHint, $lblHistoryCount) + $bridgeLabels) {
         $label.BackColor = Get-ThemeColor "Window"
     }
     $settingsTitle.ForeColor = Get-ThemeColor "Heading"
@@ -5812,6 +5922,7 @@ function Set-Theme {
     $lblMicrophoneHint.ForeColor = Get-ThemeColor "Muted"
     $lblHistory.ForeColor = Get-ThemeColor "Muted"
     $lblHistoryHint.ForeColor = Get-ThemeColor "Muted"
+    $lblHistoryCount.ForeColor = Get-ThemeColor "Text"
     foreach ($nameLabel in $bridgeNameLabels.Values) {
         $nameLabel.ForeColor = Get-ThemeColor "Muted"
     }
@@ -7591,6 +7702,8 @@ $form.Add_FormClosed({
     $spinnerTimer.Stop()
     Complete-Dictation ""
     [void](Add-TextHistory $textBox.Text)
+    # Its Paint handler is a script block: it must not outlive the script's runspace.
+    $historyMenu.Close()
     Stop-VoicePlayback
     Clear-SpeechReplayCache
     $speechSynth.Dispose()

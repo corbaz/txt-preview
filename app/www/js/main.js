@@ -958,6 +958,7 @@
 
   function closeHistoryMenu() {
     $("history-menu").hidden = true;
+    $("history-button").classList.remove("open");
   }
 
   async function openHistoryMenu() {
@@ -970,20 +971,45 @@
     const menu = $("history-menu");
     menu.innerHTML = "";
     data.items.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "history-row";
       const option = document.createElement("button");
       option.type = "button";
       option.className = "history-item";
       option.setAttribute("role", "menuitem");
       option.textContent = item.label;
       option.addEventListener("click", () => pickHistory(item.index));
-      menu.appendChild(option);
+      // Each text has its own trash button: it leaves the list open.
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "history-remove";
+      remove.title = "Quitar del historial";
+      remove.setAttribute("aria-label", "Quitar del historial");
+      remove.textContent = "🗑";
+      remove.addEventListener("click", (e) => {
+        e.stopPropagation();
+        removeHistory(item.index);
+      });
+      row.append(option, remove);
+      menu.appendChild(row);
     });
     menu.hidden = false;
+    $("history-button").classList.add("open");
     const rect = $("history-button").getBoundingClientRect();
     const left = Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8);
     menu.style.left = Math.max(8, left) + "px";
     menu.style.bottom = (window.innerHeight - rect.top + 4) + "px";
-    menu.firstChild.focus();
+    menu.querySelector(".history-item").focus();
+  }
+
+  async function removeHistory(index) {
+    const result = await safeCall((api) => api.history_remove(index), "No se pudo quitar el texto.");
+    if (!result) return;
+    setStatus(result.message, result.ok ? "info" : "warning");
+    if (result.count_text) $("history-count").textContent = result.count_text;
+    const left = await safeCall((api) => api.history_list(), "No se pudo leer el historial.");
+    if (left && left.items.length) openHistoryMenu();
+    else closeHistoryMenu();
   }
 
   async function pickHistory(index) {
@@ -1024,8 +1050,10 @@
     const api = bridgeApi();
     if (!api) return;
     try {
-      $("history-limit").value = (await api.history_list()).limit;
-    } catch (_) { /* the field keeps its value */ }
+      const data = await api.history_list();
+      $("history-limit").value = data.limit;
+      $("history-count").textContent = data.count_text;
+    } catch (_) { /* the fields keep their values */ }
   }
 
   $("history-limit").addEventListener("change", async () => {
@@ -1034,12 +1062,15 @@
       "No se pudo guardar el tamaño del historial.");
     if (!result) return;
     $("history-limit").value = result.limit;
+    $("history-count").textContent = result.count_text;
     setStatus(result.message);
   });
 
   $("clear-history").addEventListener("click", async () => {
     const result = await safeCall((api) => api.clear_history(), "No se pudo borrar el historial.");
-    if (result) setStatus(result.message);
+    if (!result) return;
+    $("history-count").textContent = result.count_text;
+    setStatus(result.message);
   });
 
   // ---- Cerrar (legacy $form.Close) -------------------------------------------

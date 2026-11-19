@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## v:26.11.19-09.39
+
+### Historial: lista enmarcada, papelera por texto y contador (las dos apps)
+
+- Mientras la lista del Historial está abierta, el botón queda relleno de verde como Play, y la lista tiene un marco verde con una línea entre cada texto.
+- Cada texto de la lista tiene su propia papelera para quitarlo solo a él; la lista sigue abierta.
+- En Configuración, al lado de la papelera, se ve cuántos textos hay guardados.
+
 ## v:26.11.19-08.36
 
 ### Botón Historial: los últimos textos del Editor (las dos apps)

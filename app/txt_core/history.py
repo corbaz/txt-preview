@@ -53,6 +53,13 @@ def add(entries: list[dict], text, limit, now: datetime | None = None) -> tuple[
     return ([{"text": body, "saved_at": stamp}] + list(entries))[:clean_limit(limit)], True
 
 
+def count_text(count: int) -> str:
+    """Configuración, next to the trash button."""
+    if count == 0:
+        return "Sin textos guardados."
+    return "1 texto guardado." if count == 1 else f"{count} textos guardados."
+
+
 def label(entry: dict) -> str:
     """«19/11 14:05 · first line of the text» for the Historial menu."""
     stamp = str(entry.get("saved_at") or "")
