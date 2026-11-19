@@ -310,11 +310,13 @@
   function showAiResult(markdown) {
     aiResult = markdown;
     $("preview-result-bar").hidden = false;
+    noteEditorText(); // the Historial keeps the answer with its text
   }
 
   function clearAiResult() {
     aiResult = null;
     $("preview-result-bar").hidden = true;
+    noteEditorText();
     if (document.querySelector(".page[data-page='preview']").classList.contains("active")) {
       renderPreviewNow();
     }
@@ -328,8 +330,8 @@
 
   // Legacy Set-EditorText: replaces the whole editor as one undoable edit,
   // so Ctrl+Z brings the previous text back.
-  function setEditorText(text) {
-    rememberEditorText(); // the text being replaced goes to the Historial
+  function setEditorText(text, remember = true) {
+    if (remember) rememberEditorText(); // the text being replaced goes to the Historial
     const editor = $("editor");
     editor.focus();
     editor.select();
@@ -797,18 +799,19 @@
     setStatus(result.ok ? result.message : result.error, result.ok ? "info" : "error");
   });
 
-  $("clear-chat").addEventListener("click", () => {
-    rememberEditorText();
+  $("clear-chat").addEventListener("click", async () => {
+    const remembered = rememberEditorText();
     $("editor").value = "";
     noteEditorText();
     $("preview").innerHTML = "";
     clearAiResult();
-    safeCall((api) => api.clear_attachments(),
-      "No se pudieron quitar los adjuntos.");
     renderAttachmentSummary({ summary: "Sin archivos adjuntos para la próxima solicitud", items: [] });
     $("clear-attachments").hidden = true;
     setTab("editor");
     setStatus("Editor y adjuntos limpiados.");
+    await remembered; // the Historial keeps the attachments before they go
+    safeCall((api) => api.clear_attachments(),
+      "No se pudieron quitar los adjuntos.");
   });
 
   // ---- Micrófono: dictation by a speech model on this machine ---------------
@@ -934,19 +937,22 @@
   // ---- Historial: the last Editor texts (legacy Show-HistoryMenu) ------------
   // The Editor text is saved before it is emptied or replaced, and when the
   // app closes (Python keeps the last text the editor reported).
-  let historyNoteTimer = null;
+  var historyNoteTimer = null; // var: showAiResult/clearAiResult may note before this line runs
 
+  // Python adds the chosen model and the attachments of this moment, so the
+  // promise is awaited before either changes.
   function rememberEditorText() {
     const text = $("editor").value;
     const api = bridgeApi();
-    if (api && text.trim()) api.history_add(text).catch(() => {});
+    if (!api || !text.trim()) return Promise.resolve();
+    return api.history_add(text, aiResult || "").catch(() => {});
   }
 
   function noteEditorText() {
     clearTimeout(historyNoteTimer);
     historyNoteTimer = setTimeout(() => {
       const api = bridgeApi();
-      if (api) api.history_note($("editor").value).catch(() => {});
+      if (api) api.history_note($("editor").value, aiResult || "").catch(() => {});
     }, 400);
   }
 
@@ -1020,10 +1026,36 @@
       setStatus(result.message, "warning");
       return;
     }
+    // The current state is saved first, then the picked one comes back:
+    // the Editor in front with its text, the AI answer in Vista previa (or
+    // the editor mirrored), its model selected and its attachments.
+    await rememberEditorText();
     setTab("editor");
-    setEditorText(result.text);
+    setEditorText(result.text, false);
+    if (result.preview) showAiResult(result.preview);
+    else clearAiResult();
     noteEditorText();
-    setStatus("Texto del historial en el Editor. Ctrl+Z recupera el anterior.");
+    const notes = [];
+    if (result.model && result.model !== selectedModelId) {
+      const select = $("model-select");
+      if ([...select.options].some((option) => option.value === result.model)) {
+        select.value = result.model;
+        await applyModelSelection();
+      } else {
+        notes.push(`El modelo ${result.model} no está disponible; sigue ${selectedModelId}.`);
+      }
+    }
+    const attached = await safeCall((api) => api.history_attach(result.attachments || []),
+      "No se pudieron recuperar los adjuntos.");
+    if (attached) {
+      renderAttachmentSummary(attached);
+      if (attached.missing.length) notes.push(`Ya no existen: ${attached.missing.join(", ")}.`);
+      notes.push(...attached.errors);
+    }
+    const base = result.preview
+      ? "Texto del historial en el Editor y su respuesta en Vista previa. Ctrl+Z recupera el texto anterior."
+      : "Texto del historial en el Editor. Ctrl+Z recupera el anterior.";
+    setStatus([base, ...notes].join(" "), notes.length ? "warning" : "info");
   }
 
   $("history-button").addEventListener("click", (e) => {
@@ -1064,6 +1096,16 @@
     $("history-limit").value = result.limit;
     $("history-count").textContent = result.count_text;
     setStatus(result.message);
+  });
+
+  // − / + of the Historial size: one step, then saved like a typed value.
+  [["history-limit-down", "stepDown"], ["history-limit-up", "stepUp"]].forEach(([id, step]) => {
+    $(id).addEventListener("click", () => {
+      const input = $("history-limit");
+      const before = input.value;
+      input[step]();
+      if (input.value !== before) input.dispatchEvent(new Event("change"));
+    });
   });
 
   $("clear-history").addEventListener("click", async () => {
@@ -1528,7 +1570,11 @@
     }
   }
 
-  $("model-select").addEventListener("change", async () => {
+  $("model-select").addEventListener("change", () => applyModelSelection());
+
+  // The model in the selector becomes the session model (also used when a
+  // Historial text brings its model back).
+  async function applyModelSelection() {
     const select = $("model-select");
     const result = await safeCall((api) => api.set_selected_model(select.value),
       "No se pudo cambiar el modelo.");
@@ -1547,7 +1593,7 @@
     try {
       await refreshAttachmentSummary(); // a model without vision drops the images
     } catch (_) { /* the summary is best effort */ }
-  });
+  }
 
   // ---- Voz Edge (T4/S6, filters S15/T22) -------------------------------------
   // The Hombre/Mujer + Español/Inglés toggles own the active language+gender

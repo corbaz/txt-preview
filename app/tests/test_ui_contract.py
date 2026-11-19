@@ -1236,7 +1236,16 @@ class TestHistorial(UiContractTestCase):
     def test_picking_a_text_replaces_the_editor(self):
         body = js_function(self.js_source, "pickHistory")
         self.assertIn("api.history_take(index)", body)
-        self.assertIn("setEditorText(result.text)", body)
+        self.assertIn("setEditorText(result.text, false)", body)
+        # The AI answer saved with the text comes back to Vista previa; the
+        # Editor stays in front.
+        self.assertIn("if (result.preview) showAiResult(result.preview);", body)
+        # Its model and attachments come back too, after the current state is saved.
+        self.assertLess(body.index("await rememberEditorText();"), body.index("setEditorText(result.text, false)"))
+        self.assertIn("await applyModelSelection();", body)
+        self.assertIn("api.history_attach(result.attachments", body)
+        self.assertIn('setTab("editor")', body)
+        self.assertIn("api.history_add(text, aiResult", js_function(self.js_source, "rememberEditorText"))
 
     def test_open_menu_is_framed_and_fills_the_button_like_play(self):
         css = (ROOT / "www" / "css" / "app.css").read_text(encoding="utf-8")
@@ -1252,6 +1261,15 @@ class TestHistorial(UiContractTestCase):
         self.assertIn("removeHistory(item.index)", body)
         self.assertIn("api.history_remove(index)", js_function(self.js_source, "removeHistory"))
         self.assertIsNotNone(self.tree.find(node_id="history-count"))
+
+    def test_size_uses_own_minus_and_plus_buttons(self):
+        stepper = next(div for div in self.tree.find_all("div")
+                       if div.attrs.get("class") == "stepper")
+        ids = [child.attrs.get("id") for child in stepper.children]
+        self.assertEqual(ids, ["history-limit-down", "history-limit", "history-limit-up"])
+        css = (ROOT / "www" / "css" / "app.css").read_text(encoding="utf-8")
+        self.assertIn("#history-limit::-webkit-inner-spin-button", css)
+        self.assertIn('["history-limit-down", "stepDown"], ["history-limit-up", "stepUp"]', self.js_source)
 
     def test_bridge_methods_exist(self):
         tree = ast.parse(self.py_source)

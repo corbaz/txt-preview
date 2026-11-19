@@ -878,10 +878,15 @@ class Api:
         return {"ok": True, "message": "Texto quitado del historial.",
                 "count_text": history.count_text(len(entries))}
 
-    def history_add(self, text: str) -> dict:
-        """Called with the Editor text before it is emptied or replaced."""
+    def history_add(self, text: str, preview: str | None = None) -> dict:
+        """Called with the Editor text, and the AI answer Vista previa shows
+        with it, before the text is emptied or replaced."""
+        with self._attachments_lock:
+            paths = [attachment.path for attachment in self._attachments]
         with self._history_lock:
-            entries, added = history.add(self._history_entries(), text, self._history_limit())
+            entries, added = history.add(self._history_entries(), text, self._history_limit(),
+                                         preview=preview, model=self._selected_model,
+                                         attachments=paths)
             if added:
                 settings.save_settings({"history": entries}, self._settings_dir)
         return {"ok": True, "added": added}
@@ -889,18 +894,34 @@ class Api:
     def history_take(self, index: int) -> dict:
         entries = self._history_entries()
         try:
-            return {"ok": True, "text": entries[int(index)]["text"]}
+            entry = entries[int(index)]
+            return {"ok": True, "text": entry["text"], "preview": entry.get("preview", ""),
+                    "model": entry.get("model", ""), "attachments": entry.get("attachments", [])}
         except (IndexError, TypeError, ValueError):
             return {"ok": False, "message": "Ese texto ya no está en el historial."}
 
-    def history_note(self, text: str) -> dict:
+    def history_attach(self, paths) -> dict:
+        """Picking a Historial text: its attachments replace the current ones.
+        Files that no longer exist are skipped and named."""
+        paths = [str(path) for path in (paths or [])]
+        with self._attachments_lock:
+            self._attachments.clear()
+        present = [path for path in paths if os.path.isfile(path)]
+        missing = [os.path.basename(path) for path in paths if not os.path.isfile(path)]
+        result = self.add_attachments(present) if present else {"errors": []}
+        data = self.get_attachments()
+        data.update({"missing": missing, "errors": result["errors"]})
+        return data
+
+    def history_note(self, text: str, preview: str | None = None) -> dict:
         self._editor_text = str(text or "")
+        self._editor_preview = str(preview or "")
         return {"ok": True}
 
     def save_editor_history(self) -> None:
-        """Closing the app keeps the last Editor text."""
+        """Closing the app keeps the last Editor text and its AI answer."""
         try:
-            self.history_add(self._editor_text)
+            self.history_add(self._editor_text, getattr(self, "_editor_preview", ""))
         except Exception:  # a broken settings file must not trap the app open
             pass
 

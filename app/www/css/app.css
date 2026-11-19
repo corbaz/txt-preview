@@ -418,7 +418,35 @@ body {
   color: var(--on-accent);
   font-weight: 600;
 }
-#history-limit { width: 80px; }
+/* Historial size: − value + in the app colors; the system spinner is hidden. */
+.stepper { display: inline-flex; align-items: center; gap: 6px; }
+.stepper-button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+.stepper-button:hover, .stepper-button:focus-visible {
+  background: var(--accent);
+  color: var(--on-accent);
+  outline: none;
+}
+.settings-row input#history-limit {
+  width: 56px;
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+  outline: none;
+}
+#history-limit::-webkit-inner-spin-button,
+#history-limit::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 #clear-history { font-size: 16px; }
 
 #microphone-select {

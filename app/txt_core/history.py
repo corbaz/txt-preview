@@ -3,7 +3,11 @@
 The list lives in settings.json ("history", "history_limit"), shared with
 txt.ps1 (Add-TextHistory). Rules, the same in both apps:
 - an empty text is never saved;
-- a text already in the list is not saved again and the order stays;
+- each entry keeps the AI answer Vista previa showed with it ("preview"),
+  the chosen model ("model") and the attached files ("attachments", their
+  paths), each only when there was one, so picking it brings all back;
+- a text already in the list with the same answer, model and attachments is
+  not saved again and the order stays;
 - any other text goes on top with its date, and the list keeps only the
   newest `limit` entries; so a loaded text that was changed comes back as a
   new entry on top.
@@ -34,23 +38,60 @@ def normalize(text) -> str:
 
 
 def clean_entries(raw) -> list[dict]:
-    """Stored entries as {text, saved_at}; anything malformed is dropped."""
+    """Stored entries as {text, saved_at[, preview]}; anything malformed is dropped."""
     entries = []
     if isinstance(raw, list):
         for item in raw:
             if isinstance(item, dict) and normalize(item.get("text")).strip():
-                entries.append({"text": normalize(item.get("text")),
-                                "saved_at": str(item.get("saved_at") or "")})
+                entry = {"text": normalize(item.get("text")),
+                         "saved_at": str(item.get("saved_at") or "")}
+                preview = normalize(item.get("preview"))
+                if preview.strip():
+                    entry["preview"] = preview
+                model = str(item.get("model") or "").strip()
+                if model:
+                    entry["model"] = model
+                paths = _clean_paths(item.get("attachments"))
+                if paths:
+                    entry["attachments"] = paths
+                entries.append(entry)
     return entries
 
 
-def add(entries: list[dict], text, limit, now: datetime | None = None) -> tuple[list[dict], bool]:
-    """(new list, whether the text was added)."""
+def _clean_paths(raw) -> list[str]:
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    return [str(path) for path in raw if isinstance(path, str) and path.strip()]
+
+
+def _same(entry: dict, other: dict) -> bool:
+    return all(entry.get(key) == other.get(key)
+               for key in ("text", "preview", "model", "attachments"))
+
+
+def add(entries: list[dict], text, limit, now: datetime | None = None,
+        preview=None, model=None, attachments=None) -> tuple[list[dict], bool]:
+    """(new list, whether the text was added). `preview` is the AI answer
+    Vista previa shows with the text, `model` the chosen model and
+    `attachments` the paths of the attached files, if any."""
     body = normalize(text)
-    if not body.strip() or any(entry["text"] == body for entry in entries):
+    if not body.strip():
         return entries, False
-    stamp = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
-    return ([{"text": body, "saved_at": stamp}] + list(entries))[:clean_limit(limit)], True
+    entry = {"text": body}
+    answer = normalize(preview)
+    if answer.strip():
+        entry["preview"] = answer
+    if str(model or "").strip():
+        entry["model"] = str(model).strip()
+    paths = _clean_paths(attachments)
+    if paths:
+        entry["attachments"] = paths
+    if any(_same(entry, existing) for existing in entries):
+        return entries, False
+    entry["saved_at"] = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+    return ([entry] + list(entries))[:clean_limit(limit)], True
 
 
 def count_text(count: int) -> str:

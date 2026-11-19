@@ -1,5 +1,20 @@
 # Historial de cambios
 
+## v:26.11.19-10.06
+
+### Historial: vuelven el modelo y los adjuntos; botones − / + en Configuración (las dos apps)
+
+- Cada texto del Historial guarda también el modelo elegido y los archivos adjuntos. Al elegirlo, vuelve a quedar seleccionado ese modelo y vuelven sus adjuntos (en lugar de los que hubiera). Si un archivo ya no existe o el modelo ya no está en la lista, el mensaje lo dice.
+- La cantidad de textos del Historial se cambia con botones − y + del color de la app, en lugar de las flechas del sistema.
+
+## v:26.11.19-09.50
+
+### Historial: vuelven el texto y la respuesta de la IA (las dos apps)
+
+- Cada texto del Historial guarda también la respuesta de la IA que mostraba la Vista previa en ese momento.
+- Al elegir un texto, el Editor queda adelante con el texto y la Vista previa recupera su respuesta. Si el texto no tenía respuesta, la Vista previa vuelve a mostrar el Editor.
+- El mismo texto con otra respuesta entra como uno nuevo; el mismo texto con la misma respuesta no se repite.
+
 ## v:26.11.19-09.39
 
 ### Historial: lista enmarcada, papelera por texto y contador (las dos apps)

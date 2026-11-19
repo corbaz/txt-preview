@@ -348,7 +348,7 @@ class HistoryTests(unittest.TestCase):
             "Show-HistoryMenu; "
             "$row = $historyMenu.Items[2].Control; "
             "$remove = @($row.Controls | Where-Object { $_ -is [Windows.Forms.Button] })[0]; "
-            "'RESULT=' + $row.Controls.Count + ':' + $remove.Tag; "
+            "'RESULT=' + $row.Controls.Count + ':' + $remove.Tag.text; "
             "$click = $remove.GetType().GetMethod('OnClick', [Reflection.BindingFlags]'NonPublic,Instance'); "
             "[void]$click.Invoke($remove, @([EventArgs]::Empty)); "
             "'RESULT=' + $msgBox.Text; "
@@ -364,6 +364,77 @@ class HistoryTests(unittest.TestCase):
             "3:tres,uno",
             "2 textos guardados.",
             "Historial borrado. Sin textos guardados.",
+        ])
+
+    def test_text_and_ai_answer_come_back_together_on_the_editor(self) -> None:
+        results = run_app_snippet(
+            HISTORY_SETTINGS +
+            "$textBox.Text = 'pregunta'; $script:aiResult = 'respuesta de la IA'; "
+            "Set-EditorText 'otra cosa'; Clear-AiResult; "
+            "$entry = (Get-TextHistory)[0]; "
+            "'RESULT=' + $entry.text + ':' + $entry.preview; "
+            "$tabs.SelectedTab = $tabPreview; "
+            "Use-HistoryText $entry.text $entry.preview; "
+            "'RESULT=' + $textBox.Text + ':' + (Get-PreviewContent) + ':' + ($tabs.SelectedTab -eq $tabEditor); "
+            "Use-HistoryText 'sin respuesta' ''; "
+            "'RESULT=' + (Get-PreviewContent); "
+            "'RESULT=' + (((Get-TextHistory) | ForEach-Object { $_.text + '/' + $_.preview }) -join ',')"
+            + HISTORY_CLEANUP
+        )
+        self.assertEqual(results, [
+            "pregunta:respuesta de la IA",
+            "pregunta:respuesta de la IA:True",
+            "sin respuesta",
+            # Picking «pregunta» saved «otra cosa»; «pregunta» came back with the
+            # same answer, so it is not saved twice.
+            "otra cosa/,pregunta/respuesta de la IA",
+        ])
+
+    def test_size_uses_own_minus_and_plus_buttons(self) -> None:
+        results = run_app_snippet(
+            HISTORY_SETTINGS +
+            "$click = [Windows.Forms.Button].GetMethod('OnClick', [Reflection.BindingFlags]'NonPublic,Instance'); "
+            "Update-HistoryLimitBox; "
+            "[void]$click.Invoke($btnHistoryMore, @([EventArgs]::Empty)); "
+            "'RESULT=' + $historyLimitBox.Value + ':' + (Get-HistoryLimit); "
+            "[void]$click.Invoke($btnHistoryLess, @([EventArgs]::Empty)); "
+            "[void]$click.Invoke($btnHistoryLess, @([EventArgs]::Empty)); "
+            "'RESULT=' + $historyLimitBox.Value + ':' + (Get-HistoryLimit); "
+            "'RESULT=' + $historyLimitBox.Controls[0].Visible + ':' + ($btnHistoryMore.ForeColor -eq (Get-ThemeColor 'Accent'))"
+            + HISTORY_CLEANUP
+        )
+        self.assertEqual(results, ["11:11", "9:9", "False:True"])
+
+    def test_model_and_attachments_come_back_with_the_text(self) -> None:
+        results = run_app_snippet(
+            HISTORY_SETTINGS +
+            "[void][IO.Directory]::CreateDirectory($settingsDirectory); "
+            "$first = Join-Path $settingsDirectory 'notas.txt'; $second = Join-Path $settingsDirectory 'datos.md'; "
+            "Set-Content -LiteralPath $first -Value 'uno'; Set-Content -LiteralPath $second -Value 'dos'; "
+            "$caps = Get-SelectedModelCapabilities; Add-AttachmentPath $first $caps; Add-AttachmentPath $second $caps; "
+            "$textBox.Text = 'con adjuntos'; $script:aiResult = 'respuesta'; "
+            "$btnLimpiar.GetType().GetMethod('OnClick', [Reflection.BindingFlags]'NonPublic,Instance').Invoke($btnLimpiar, @([EventArgs]::Empty)) | Out-Null; "
+            "$entry = (Get-TextHistory)[0]; "
+            "'RESULT=' + $entry.model + ':' + (@($entry.attachments | ForEach-Object { [IO.Path]::GetFileName($_) }) -join ','); "
+            "'RESULT=' + $script:attachedFiles.Count; "
+            "Remove-Item -LiteralPath $second; "
+            "Use-HistoryText $entry.text $entry.preview $entry.model @($entry.attachments); "
+            "'RESULT=' + $textBox.Text + ':' + (Get-PreviewContent) + ':' + (@($script:attachedFiles | ForEach-Object { $_.Name }) -join ','); "
+            "'RESULT=' + $msgBox.Text; "
+            "Use-HistoryText 'otro' '' 'proveedor/no-existe' @(); "
+            "'RESULT=' + $script:selectedGroqModel + ':' + $script:attachedFiles.Count; "
+            "'RESULT=' + $msgBox.Text"
+            + HISTORY_CLEANUP
+        )
+        self.assertEqual(results, [
+            "openai/gpt-oss-120b:notas.txt,datos.md",
+            "0",
+            "con adjuntos:respuesta:notas.txt",
+            "Texto del historial en el Editor y su respuesta en Vista previa. "
+            "Ctrl+Z recupera el texto anterior. Ya no existen: datos.md.",
+            "openai/gpt-oss-120b:0",
+            "Texto del historial en el Editor. Ctrl+Z recupera el anterior. "
+            "El modelo proveedor/no-existe no está disponible; sigue openai/gpt-oss-120b.",
         ])
 
     def test_test_mode_never_uses_the_real_settings_file(self) -> None:

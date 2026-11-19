@@ -44,6 +44,38 @@ class HistoryRulesTests(unittest.TestCase):
             entries, _ = history.add(entries, f"texto {number}", 3, NOW)
         self.assertEqual([entry["text"] for entry in entries], ["texto 4", "texto 3", "texto 2"])
 
+    def test_the_ai_answer_is_kept_with_its_text(self):
+        entries, added = history.add([], "pregunta", 10, NOW, preview="respuesta\r\n")
+        self.assertTrue(added)
+        self.assertEqual(entries, [{"text": "pregunta", "saved_at": "2026-11-19 14:05:07",
+                                    "preview": "respuesta"}])
+        # The same pair is not saved twice; the same text with another answer is new.
+        self.assertFalse(history.add(entries, "pregunta", 10, NOW, preview="respuesta")[1])
+        entries, added = history.add(entries, "pregunta", 10, NOW, preview="otra respuesta")
+        self.assertTrue(added)
+        entries, added = history.add(entries, "pregunta", 10, NOW)
+        self.assertTrue(added)
+        self.assertEqual([entry.get("preview") for entry in entries], [None, "otra respuesta", "respuesta"])
+
+    def test_model_and_attachments_are_kept_with_the_text(self):
+        entries, added = history.add([], "pregunta", 10, NOW, preview="respuesta",
+                                     model="qwen/qwen3.8-27b", attachments=["C:/a.png", "C:/b.pdf"])
+        self.assertTrue(added)
+        self.assertEqual(entries[0], {"text": "pregunta", "preview": "respuesta",
+                                      "model": "qwen/qwen3.8-27b",
+                                      "attachments": ["C:/a.png", "C:/b.pdf"],
+                                      "saved_at": "2026-11-19 14:05:07"})
+        self.assertEqual(history.clean_entries(entries), entries)
+        # The same text with another model or other files is a new entry.
+        self.assertFalse(history.add(entries, "pregunta", 10, NOW, preview="respuesta",
+                                     model="qwen/qwen3.8-27b",
+                                     attachments=["C:/a.png", "C:/b.pdf"])[1])
+        self.assertTrue(history.add(entries, "pregunta", 10, NOW, preview="respuesta",
+                                    model="openai/gpt-oss-120b",
+                                    attachments=["C:/a.png", "C:/b.pdf"])[1])
+        self.assertTrue(history.add(entries, "pregunta", 10, NOW, preview="respuesta",
+                                    model="qwen/qwen3.8-27b", attachments=["C:/a.png"])[1])
+
     def test_windows_line_ends_are_stored_as_new_lines(self):
         entries, _ = history.add([], "a\r\nb\r\n", 10, NOW)
         self.assertEqual(entries[0]["text"], "a\nb")
@@ -78,8 +110,8 @@ class ApiHistoryTests(unittest.TestCase):
         items = self.api.history_list()["items"]
         self.assertEqual([item["index"] for item in items], [0, 1])
         self.assertTrue(items[0]["label"].endswith(" · segundo"))
-        self.assertEqual(self.api.history_take(0), {"ok": True, "text": "segundo\nlínea"})
-        self.assertEqual(self.api.history_take(1), {"ok": True, "text": "primero"})
+        self.assertEqual(self.api.history_take(0)["text"], "segundo\nlínea")
+        self.assertEqual(self.api.history_take(1)["text"], "primero")
         self.assertFalse(self.api.history_take(5)["ok"])
         self.assertEqual([entry["text"] for entry in self.stored()["history"]],
                          ["segundo\nlínea", "primero"])
@@ -116,10 +148,37 @@ class ApiHistoryTests(unittest.TestCase):
         self.api.history_remove(0)
         self.assertEqual(self.api.history_list()["count_text"], "1 texto guardado.")
 
+    def test_model_and_attachments_are_saved_and_attached_again(self):
+        folder = self._tmp.name
+        first, second = (os.path.join(folder, name) for name in ("notas.txt", "datos.md"))
+        for path in (first, second):
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("contenido")
+        self.api.add_attachments([first, second])
+        self.api.history_add("con adjuntos", "respuesta")
+        taken = self.api.history_take(0)
+        self.assertEqual((taken["model"], taken["attachments"]), ("openai/gpt-oss-120b", [first, second]))
+        self.api.clear_attachments()
+        os.remove(second)
+        restored = self.api.history_attach(taken["attachments"])
+        self.assertEqual([item["name"] for item in restored["items"]], ["notas.txt"])
+        self.assertEqual((restored["missing"], restored["errors"]), (["datos.md"], []))
+        self.assertEqual(self.api.history_attach([])["items"], [])
+
     def test_closing_saves_the_last_editor_text(self):
         self.api.history_note("escrito antes de cerrar")
         self.api.save_editor_history()
         self.assertEqual(self.stored()["history"][0]["text"], "escrito antes de cerrar")
+
+    def test_text_and_ai_answer_come_back_together(self):
+        self.api.history_add("pregunta", "respuesta de la IA")
+        self.assertEqual(self.api.history_take(0),
+                         {"ok": True, "text": "pregunta", "preview": "respuesta de la IA",
+                          "model": "openai/gpt-oss-120b", "attachments": []})
+        self.api.history_note("otra pregunta", "otra respuesta")
+        self.api.save_editor_history()
+        saved = self.stored()["history"][0]
+        self.assertEqual((saved["text"], saved["preview"]), ("otra pregunta", "otra respuesta"))
 
 
 if __name__ == "__main__":

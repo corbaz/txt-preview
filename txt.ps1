@@ -1516,28 +1516,42 @@ $lblHistory.Text = "Historial"
 $lblHistory.SetBounds(30, 234, 100, 26)
 $tabSettings.Controls.Add($lblHistory)
 
+# Historial size: own − / + buttons in the app colors; the system arrows are hidden.
+$btnHistoryLess = New-Object Windows.Forms.Button
+$btnHistoryLess.Text = "−"
+$btnHistoryLess.SetBounds(140, 228, 34, 32)
+$tabSettings.Controls.Add($btnHistoryLess)
+
 $historyLimitBox = New-Object Windows.Forms.NumericUpDown
 $historyLimitBox.Minimum = 1
 $historyLimitBox.Maximum = 50
 $historyLimitBox.Value = 10
-$historyLimitBox.SetBounds(140, 230, 80, 30)
+$historyLimitBox.TextAlign = [Windows.Forms.HorizontalAlignment]::Center
+$historyLimitBox.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
+$historyLimitBox.SetBounds(180, 231, 48, 30)
+$historyLimitBox.Controls[0].Visible = $false
 $tabSettings.Controls.Add($historyLimitBox)
 
+$btnHistoryMore = New-Object Windows.Forms.Button
+$btnHistoryMore.Text = "+"
+$btnHistoryMore.SetBounds(234, 228, 34, 32)
+$tabSettings.Controls.Add($btnHistoryMore)
+
 $btnClearHistory = New-Object Windows.Forms.Button
-$btnClearHistory.SetBounds(230, 228, 50, 32)
+$btnClearHistory.SetBounds(278, 228, 50, 32)
 $tabSettings.Controls.Add($btnClearHistory)
 
 $lblHistoryCount = New-Object Windows.Forms.Label
 $lblHistoryCount.Text = "Sin textos guardados."
 $lblHistoryCount.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
-$lblHistoryCount.SetBounds(292, 231, 190, 28)
+$lblHistoryCount.SetBounds(340, 231, 190, 28)
 $tabSettings.Controls.Add($lblHistoryCount)
 
 $lblHistoryHint = New-Object Windows.Forms.Label
 $lblHistoryHint.Text = "Cuántos textos del Editor se guardan para el botón Historial."
 $lblHistoryHint.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
 $lblHistoryHint.AutoEllipsis = $true
-$lblHistoryHint.SetBounds(492, 231, 640, 28)
+$lblHistoryHint.SetBounds(540, 231, 640, 28)
 $tabSettings.Controls.Add($lblHistoryHint)
 
 # Dictation by a speech model on this machine (dictation_listen.py, shared with the
@@ -5350,9 +5364,12 @@ function Write-SettingsFields {
 }
 
 # Historial: the last Editor texts, newest first, in the settings.json shared with the
-# Python app (app/txt_core/history.py keeps the same rules). An empty text or one already
-# listed is not saved; any other goes on top, so a loaded text that was changed comes
-# back as a new entry. Dates are "yyyy-MM-dd HH:mm:ss": an ISO date with "T" would be
+# Python app (app/txt_core/history.py keeps the same rules). Each entry keeps the AI
+# answer Vista previa showed with the text ("preview"), the chosen model ("model") and
+# the attached files ("attachments", their paths), so picking it brings all back.
+# An empty text, or one already listed with the same answer, model and attachments, is
+# not saved; any other goes on top, so a loaded text that was changed comes back as a
+# new entry. Dates are "yyyy-MM-dd HH:mm:ss": an ISO date with "T" would be
 # read back as a DateTime by ConvertFrom-Json.
 $historyDefaultLimit = 10
 $historyLabelChars = 60
@@ -5398,34 +5415,79 @@ function Get-TextHistory {
         } elseif ($stampProperty) {
             $stamp = [string]$stampProperty.Value
         }
-        $entries.Add([ordered]@{ text = $text; saved_at = $stamp })
+        $entry = [ordered]@{ text = $text; saved_at = $stamp }
+        $previewProperty = $item.PSObject.Properties["preview"]
+        if ($previewProperty) {
+            $preview = ConvertTo-HistoryText ([string]$previewProperty.Value)
+            if (-not [string]::IsNullOrWhiteSpace($preview)) {
+                $entry["preview"] = $preview
+            }
+        }
+        $modelProperty = $item.PSObject.Properties["model"]
+        if ($modelProperty -and -not [string]::IsNullOrWhiteSpace([string]$modelProperty.Value)) {
+            $entry["model"] = ([string]$modelProperty.Value).Trim()
+        }
+        $attachmentsProperty = $item.PSObject.Properties["attachments"]
+        if ($attachmentsProperty) {
+            $paths = @(@($attachmentsProperty.Value) | Where-Object { $_ -is [string] -and $_.Trim() })
+            if ($paths.Count -gt 0) {
+                $entry["attachments"] = $paths
+            }
+        }
+        $entries.Add($entry)
     }
     return ,$entries
 }
 
-# The Editor text before it is emptied or replaced, and when the app closes.
+# The Editor text, with the AI answer Vista previa shows, before the text is emptied or
+# replaced, and when the app closes.
 function Add-TextHistory {
-    param([string]$text)
+    param([string]$text, [string]$preview)
 
     $body = ConvertTo-HistoryText $text
     if ([string]::IsNullOrWhiteSpace($body)) {
         return $false
     }
+    $answer = ConvertTo-HistoryText $preview
+    if ([string]::IsNullOrWhiteSpace($answer)) {
+        $answer = ""
+    }
     try {
         $settings = Read-SettingsFields
         $entries = Get-TextHistory $settings
+        $newEntry = [ordered]@{ text = $body; saved_at = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }
+        if ($answer) {
+            $newEntry["preview"] = $answer
+        }
+        if (-not [string]::IsNullOrWhiteSpace($script:selectedGroqModel)) {
+            $newEntry["model"] = $script:selectedGroqModel
+        }
+        $paths = @($script:attachedFiles | ForEach-Object { [string]$_.Path })
+        if ($paths.Count -gt 0) {
+            $newEntry["attachments"] = $paths
+        }
+        $key = Get-HistoryKey $newEntry
         foreach ($entry in $entries) {
-            if ($entry.text -ceq $body) {
+            if ((Get-HistoryKey $entry) -ceq $key) {
                 return $false
             }
         }
-        $entries.Insert(0, [ordered]@{ text = $body; saved_at = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") })
+        $entries.Insert(0, $newEntry)
         $settings["history"] = @($entries | Select-Object -First (Get-HistoryLimit $settings))
         Write-SettingsFields $settings
         return $true
     } catch {
         return $false
     }
+}
+
+# What tells two entries apart: text, answer, model and attachments.
+function Get-HistoryKey {
+    param($entry)
+
+    $separator = [string][char]0
+    return @([string]$entry.text, [string]$entry.preview, [string]$entry.model,
+        (@($entry.attachments) -join $separator)) -join $separator
 }
 
 # «19/11 14:05 · first line of the text», as the Python app shows it.
@@ -5471,11 +5533,12 @@ function Update-HistoryCount {
 
 # The trash of one Historial menu entry.
 function Remove-TextHistory {
-    param([string]$text)
+    param($removed)
 
     $settings = Read-SettingsFields
     $entries = Get-TextHistory $settings
-    $settings["history"] = @($entries | Where-Object { $_.text -cne $text })
+    $removedKey = Get-HistoryKey $removed
+    $settings["history"] = @($entries | Where-Object { (Get-HistoryKey $_) -cne $removedKey })
     Write-SettingsFields $settings
     Update-HistoryCount
     return "Texto quitado del historial."
@@ -5522,15 +5585,60 @@ $historyMenu.Add_Paint({
 $historyMenu.Add_Opened({ Set-ButtonTone $btnHistory "Play" "OnState" "Play" "Play" })
 $historyMenu.Add_Closed({ Set-ButtonTone $btnHistory "Elevated" "Text" "Hover" "Border" })
 
+# The current state is saved first (Set-EditorText), then the picked one comes back: the
+# Editor in front with its text, the AI answer in Vista previa (or the editor mirrored),
+# its model selected and its attachments in place of the current ones.
 function Use-HistoryText {
-    param([string]$text)
+    param([string]$text, [string]$preview, [string]$model, $attachments)
 
     $tabs.SelectedTab = $tabEditor
     Set-EditorText $text
+    if ([string]::IsNullOrWhiteSpace($preview)) {
+        Clear-AiResult
+    } else {
+        $script:aiResult = $preview
+        $previewResultBar.Visible = $true
+    }
+    $notes = [Collections.Generic.List[string]]::new()
+    if (-not [string]::IsNullOrWhiteSpace($model) -and $model -ne $script:selectedGroqModel) {
+        $index = $script:modelComboIds.IndexOf($model)
+        if ($index -ge 0) {
+            $modelCombo.SelectedIndex = $index
+        } else {
+            $notes.Add("El modelo $model no está disponible; sigue $($script:selectedGroqModel).")
+        }
+    }
+    $script:attachedFiles.Clear()
+    $missing = [Collections.Generic.List[string]]::new()
+    $capabilities = Get-SelectedModelCapabilities
+    foreach ($path in @($attachments | Where-Object { $_ })) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            $missing.Add([IO.Path]::GetFileName($path))
+            continue
+        }
+        try {
+            Add-AttachmentPath ([string]$path) $capabilities
+        } catch {
+            $notes.Add("No se pudo adjuntar: $($_.Exception.Message)")
+        }
+    }
+    if ($missing.Count -gt 0) {
+        $notes.Insert(0, "Ya no existen: $($missing -join ', ').")
+    }
+    Update-AttachmentSummary
     [void]$textBox.Focus()
     $textBox.SelectionStart = $textBox.Text.Length
     $textBox.SelectionLength = 0
-    Show-Message "Texto del historial en el Editor. Ctrl+Z recupera el anterior."
+    $message = if ([string]::IsNullOrWhiteSpace($preview)) {
+        "Texto del historial en el Editor. Ctrl+Z recupera el anterior."
+    } else {
+        "Texto del historial en el Editor y su respuesta en Vista previa. Ctrl+Z recupera el texto anterior."
+    }
+    if ($notes.Count -gt 0) {
+        Show-Message (@($message) + $notes -join " ") -Level Warning
+    } else {
+        Show-Message $message
+    }
 }
 
 $historyRowWidth = 480
@@ -5552,11 +5660,11 @@ function New-HistoryMenuRow {
     $remove.Text = [string][char]0xE74D
     $remove.ForeColor = Get-ThemeColor "Muted"
     $remove.Cursor = [Windows.Forms.Cursors]::Hand
-    $remove.Tag = $entry.text
+    $remove.Tag = $entry
     $contextToolTip.SetToolTip($remove, "Quitar del historial")
     $remove.Add_Click({
         param($sender, $eventArgs)
-        Show-Message (Remove-TextHistory ([string]$sender.Tag))
+        Show-Message (Remove-TextHistory $sender.Tag)
         if ((Update-HistoryMenuItems) -eq 0) {
             $historyMenu.Close()
         }
@@ -5571,13 +5679,14 @@ function New-HistoryMenuRow {
     $label.Text = Get-HistoryLabel $entry
     $label.ForeColor = Get-ThemeColor "Text"
     $label.Cursor = [Windows.Forms.Cursors]::Hand
-    $label.Tag = $entry.text
+    $label.Tag = $entry
     $label.Add_MouseEnter({ param($sender, $eventArgs) $sender.Parent.BackColor = Get-ThemeColor "Hover" })
     $label.Add_MouseLeave({ param($sender, $eventArgs) $sender.Parent.BackColor = Get-ThemeColor "Elevated" })
     $label.Add_Click({
         param($sender, $eventArgs)
         $historyMenu.Close()
-        Use-HistoryText ([string]$sender.Tag)
+        $picked = $sender.Tag
+        Use-HistoryText ([string]$picked.text) ([string]$picked.preview) ([string]$picked.model) @($picked.attachments)
     })
 
     $row.Controls.Add($remove)
@@ -6004,6 +6113,14 @@ function Set-Theme {
     # Trash icon (Delete glyph) for Borrar el historial.
     $btnClearHistory.Font = $browserIconFont
     $btnClearHistory.Text = [string][char]0xE74D
+    # − / + of the Historial size: outlined in the accent color.
+    foreach ($stepButton in @($btnHistoryLess, $btnHistoryMore)) {
+        $stepButton.FlatStyle = [Windows.Forms.FlatStyle]::Flat
+        $stepButton.FlatAppearance.BorderSize = 1
+        $stepButton.Font = New-Object Drawing.Font($uiStrongFontName, 12)
+        $stepButton.Cursor = [Windows.Forms.Cursors]::Hand
+        Set-ButtonTone $stepButton "Elevated" "Accent" "Hover" "Accent"
+    }
     $tabBrowser.BackColor = Get-ThemeColor "Window"
     $browserHost.BackColor = Get-ThemeColor "Editor"
     $lblBrowserEmpty.ForeColor = Get-ThemeColor "Muted"
@@ -6448,7 +6565,7 @@ function Clear-AiResult {
 function Set-EditorText {
     param([string]$text)
 
-    [void](Add-TextHistory $textBox.Text)
+    [void](Add-TextHistory $textBox.Text $script:aiResult)
     $textBox.SelectAll()
     $textBox.Paste(($text -replace "\r?\n", "`r`n"))
 }
@@ -7211,6 +7328,53 @@ function Add-ClipboardImageAttachment {
     Update-AttachmentSummary
 }
 
+# Checks and adds one file; throws with the reason when it cannot be attached.
+function Add-AttachmentPath {
+    param([string]$path, $capabilities)
+
+    if (@($script:attachedFiles | Where-Object { $_.Path -eq $path }).Count -gt 0) {
+        return
+    }
+    $imageExtensions = @(".png", ".jpg", ".jpeg", ".webp", ".gif")
+    $textExtensions = @(".txt", ".md", ".json", ".csv", ".xml", ".html", ".htm", ".ps1", ".py", ".js", ".ts", ".yaml", ".yml")
+    $documentExtensions = @(".pdf", ".docx", ".doc", ".pptx", ".ppt")
+    $extension = [IO.Path]::GetExtension($path).ToLowerInvariant()
+    $fileInfo = Get-Item -LiteralPath $path
+    if ($extension -in $imageExtensions) {
+        Add-ImageAttachment $fileInfo $capabilities
+    } elseif ($extension -in $textExtensions) {
+        if (-not $capabilities.TextFiles) {
+            throw "El modelo elegido no admite documentos de texto en esta aplicación."
+        }
+        if ($fileInfo.Length -gt 2MB) {
+            throw "$($fileInfo.Name) supera el límite de 2 MB para documentos de texto."
+        }
+        $script:attachedFiles.Add([pscustomobject]@{
+            Name = $fileInfo.Name; Path = $fileInfo.FullName; Kind = "Text"; Size = $fileInfo.Length
+            Content = [IO.File]::ReadAllText($fileInfo.FullName)
+        })
+    } elseif ($extension -in $documentExtensions) {
+        if (-not $capabilities.TextFiles) {
+            throw "El modelo elegido no admite documentos en esta aplicación."
+        }
+        if ($fileInfo.Length -gt 50MB) {
+            throw "$($fileInfo.Name) supera el límite de 50 MB para documentos."
+        }
+        Start-Busy "Leyendo $($fileInfo.Name)..."
+        try {
+            $documentText = ConvertFrom-DocumentFile $fileInfo.FullName
+        } finally {
+            Stop-Busy
+        }
+        $script:attachedFiles.Add([pscustomobject]@{
+            Name = $fileInfo.Name; Path = $fileInfo.FullName; Kind = "Text"; Size = $fileInfo.Length
+            Content = $documentText
+        })
+    } else {
+        throw "Tipo de archivo no compatible: $extension"
+    }
+}
+
 $btnAttachFiles.Add_Click({
     $capabilities = Get-SelectedModelCapabilities
     $dialog = New-Object Windows.Forms.OpenFileDialog
@@ -7227,48 +7391,8 @@ $btnAttachFiles.Add_Click({
         if ($dialog.ShowDialog($form) -ne [Windows.Forms.DialogResult]::OK) {
             return
         }
-        $imageExtensions = @(".png", ".jpg", ".jpeg", ".webp", ".gif")
-        $textExtensions = @(".txt", ".md", ".json", ".csv", ".xml", ".html", ".htm", ".ps1", ".py", ".js", ".ts", ".yaml", ".yml")
-        $documentExtensions = @(".pdf", ".docx", ".doc", ".pptx", ".ppt")
         foreach ($path in $dialog.FileNames) {
-            if (@($script:attachedFiles | Where-Object { $_.Path -eq $path }).Count -gt 0) {
-                continue
-            }
-            $extension = [IO.Path]::GetExtension($path).ToLowerInvariant()
-            $fileInfo = Get-Item -LiteralPath $path
-            if ($extension -in $imageExtensions) {
-                Add-ImageAttachment $fileInfo $capabilities
-            } elseif ($extension -in $textExtensions) {
-                if (-not $capabilities.TextFiles) {
-                    throw "El modelo elegido no admite documentos de texto en esta aplicación."
-                }
-                if ($fileInfo.Length -gt 2MB) {
-                    throw "$($fileInfo.Name) supera el límite de 2 MB para documentos de texto."
-                }
-                $script:attachedFiles.Add([pscustomobject]@{
-                    Name = $fileInfo.Name; Path = $fileInfo.FullName; Kind = "Text"; Size = $fileInfo.Length
-                    Content = [IO.File]::ReadAllText($fileInfo.FullName)
-                })
-            } elseif ($extension -in $documentExtensions) {
-                if (-not $capabilities.TextFiles) {
-                    throw "El modelo elegido no admite documentos en esta aplicación."
-                }
-                if ($fileInfo.Length -gt 50MB) {
-                    throw "$($fileInfo.Name) supera el límite de 50 MB para documentos."
-                }
-                Start-Busy "Leyendo $($fileInfo.Name)..."
-                try {
-                    $documentText = ConvertFrom-DocumentFile $fileInfo.FullName
-                } finally {
-                    Stop-Busy
-                }
-                $script:attachedFiles.Add([pscustomobject]@{
-                    Name = $fileInfo.Name; Path = $fileInfo.FullName; Kind = "Text"; Size = $fileInfo.Length
-                    Content = $documentText
-                })
-            } else {
-                throw "Tipo de archivo no compatible: $extension"
-            }
+            Add-AttachmentPath $path $capabilities
         }
         Update-AttachmentSummary
         $tabs.SelectedTab = $tabEditor
@@ -7413,6 +7537,9 @@ function Invoke-ClipboardPaste {
 $btnPegar.Add_Click({ Invoke-ClipboardPaste })
 $btnHistory.Add_Click({ Show-HistoryMenu })
 $contextToolTip.SetToolTip($btnClearHistory, "Borrar el historial")
+
+$btnHistoryLess.Add_Click({ $historyLimitBox.DownButton() })
+$btnHistoryMore.Add_Click({ $historyLimitBox.UpButton() })
 
 $historyLimitBox.Add_ValueChanged({
     if ($script:loadingHistoryLimit) {
@@ -7610,7 +7737,7 @@ $Texto
 })
 
 $btnLimpiar.Add_Click({
-    [void](Add-TextHistory $textBox.Text)
+    [void](Add-TextHistory $textBox.Text $script:aiResult)
     $textBox.Clear()
     Clear-AiResult
     $script:attachedFiles.Clear()
@@ -7701,7 +7828,7 @@ $btnMic.Add_Click({
 $form.Add_FormClosed({
     $spinnerTimer.Stop()
     Complete-Dictation ""
-    [void](Add-TextHistory $textBox.Text)
+    [void](Add-TextHistory $textBox.Text $script:aiResult)
     # Its Paint handler is a script block: it must not outlive the script's runspace.
     $historyMenu.Close()
     Stop-VoicePlayback

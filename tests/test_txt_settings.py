@@ -286,9 +286,13 @@ class SettingsContractTests(unittest.TestCase):
         handler = self._click_handler("btnAttachFiles")
         for extension in ("*.pdf", "*.docx", "*.doc", "*.pptx", "*.ppt"):
             self.assertIn(extension, handler)
-        self.assertIn("ConvertFrom-DocumentFile $fileInfo.FullName", handler)
+        # Each file goes through Add-AttachmentPath, shared with the Historial.
+        self.assertIn("Add-AttachmentPath $path $capabilities", handler)
+        adder = re.search(r"function Add-AttachmentPath \{(?P<body>.*?)\n\}", SCRIPT, re.DOTALL)
+        self.assertIsNotNone(adder)
+        self.assertIn("ConvertFrom-DocumentFile $fileInfo.FullName", adder.group("body"))
         # Groq only accepts text and images, so documents travel as extracted text.
-        self.assertIn('Kind = "Text"', handler)
+        self.assertIn('Kind = "Text"', adder.group("body"))
 
     def test_pdf_library_is_pinned_by_version_and_hash(self) -> None:
         self.assertIn('$pdfPigPackageVersion = "0.1.16"', SCRIPT)
